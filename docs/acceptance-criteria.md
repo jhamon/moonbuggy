@@ -1,5 +1,34 @@
 # moonbuggy — Acceptance Criteria (Phase 0 + Phase 1)
 
+## Status (as of the current commit)
+
+| group | status |
+|---|---|
+| A — fixture and two-source oracle | met |
+| B — Phase 0 spikes | met |
+| C — mutation engine | met |
+| D — execution and correctness | met |
+| E — reporting | met |
+| F — results cache | met |
+| G — speed | **G2 NOT MET**; G1, G3, G4 met |
+| H — packaging and zero-config | met |
+
+**G2 is the one failure.** moonbuggy runs at 0.90x mutmut's wall clock on the
+speed workload — close, but the criterion says lower, and it is not lower. It
+*is* 14.1x faster than the naive baseline, which is the design doc's own stated
+bar (§1.2), but the criterion Jen selected was beat-mutmut.
+
+The cause is understood and recorded: mutmut reuses a warm pytest process, while
+moonbuggy pays `pytest.main()` collection inside every forked child. Closing it
+means adopting the same warm-process architecture, which is a design change
+rather than a tuning pass. Full numbers and analysis in
+[benchmark-results.md](benchmark-results.md).
+
+Verify with `make check-all` (correctness, spikes, fresh install) and `make bench`
+(the speed numbers, including the G2 failure).
+
+---
+
 ## Context
 
 The moonbuggy design doc describes a fast, agent-first Python mutation testing tool.

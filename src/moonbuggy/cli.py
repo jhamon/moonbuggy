@@ -75,6 +75,8 @@ def _add_run_arguments(parser):
                         help="only mutate paths containing this fragment (repeatable)")
     parser.add_argument("--exclude", action="append", default=[],
                         help="skip paths containing this fragment (repeatable)")
+    parser.add_argument("--jobs", type=int, default=0,
+                        help="mutants to run concurrently (default: CPU count - 1)")
     parser.add_argument("-n", "--workers", type=int, default=0,
                         help="pytest-xdist workers per mutant run (default: 0, serial)")
     parser.add_argument("--no-cache", action="store_true", help="ignore and do not update the cache")
@@ -123,6 +125,7 @@ def _run(args):
     results = run_mutants(
         project_dir, mutants, linemap,
         timeout=args.timeout, xdist_workers=args.workers, cache=cache,
+        jobs=args.jobs or None,
     )
 
     jsonl_path = output_dir / "results.jsonl"
