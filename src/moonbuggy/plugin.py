@@ -28,15 +28,19 @@ CONTROLLER_ONLY_ENV_VAR = "MOONBUGGY_SPIKE_CONTROLLER_ONLY"
 
 
 def pytest_configure(config):
+    """Install the active mutant, if this process was told about one.
+
+    Runs in every pytest process -- controller and each xdist worker -- which
+    is what makes the xdist story work without any cross-process state.
+
+    Args:
+        config: the pytest config for this process.
+    """
     payload = os.environ.get(MUTANT_ENV_VAR)
-    if not payload:
-        return
-
-    if os.environ.get(CONTROLLER_ONLY_ENV_VAR) and _is_xdist_worker(config):
-        return
-
-    mutant = json.loads(payload)
-    install(mutant["path"], mutant["line"], mutant["mutated"])
+    controller_only = os.environ.get(CONTROLLER_ONLY_ENV_VAR)
+    if payload and not (controller_only and _is_xdist_worker(config)):
+        mutant = json.loads(payload)
+        install(mutant["path"], mutant["line"], mutant["mutated"])
 
 
 def _is_xdist_worker(config):

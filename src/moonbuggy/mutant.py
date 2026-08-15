@@ -17,7 +17,7 @@ class Mutant:
     It includes an occurrence index because a single line can host several
     mutants: line 9 of the inventory fixture carries three, from three
     different operators, and a line with two `+` operators would carry two from
-    the same one. file:line alone is not an identity.
+    the same one. A file and a line alone are not an identity.
     """
 
     id: str

@@ -41,13 +41,16 @@ class SwapFailed(Exception):
 def apply_in_place(module, path, line, mutated_text):
     """Mutate an imported module object in place.
 
-    :param module: the live module object, already imported.
-    :param path: the module's file path.
-    :param line: 1-based line number to replace.
-    :param mutated_text: the replacement line.
-    :raises SwapFailed: if the mutation cannot be applied in place, so the
-        caller falls back to the import-hook path rather than reporting a
-        status for a mutation that never took effect.
+    Args:
+        module: the live module object, already imported.
+        path: the module's file path.
+        line: 1-based line number to replace.
+        mutated_text: the replacement line.
+
+    Raises:
+        SwapFailed: if the mutation cannot be applied in place, so the caller falls
+            back to the import-hook path rather than reporting a status for a
+            mutation that never took effect.
     """
     source = mutated_source(path, line, mutated_text)
     # `compile` and `ast.parse` reject a coding declaration inside a str, so a

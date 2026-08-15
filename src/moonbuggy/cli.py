@@ -36,6 +36,15 @@ DEFAULT_OUTPUT_DIR = ".moonbuggy"
 
 
 def main(argv=None):
+    """Run moonbuggy.
+
+    Args:
+        argv: command-line arguments, or None to read `sys.argv`.
+
+    Returns:
+        The process exit code: 0 for a clean run, 1 when there are survivors,
+        2 when the run could not happen at all.
+    """
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
@@ -214,11 +223,14 @@ def _collect_mutants(project_dir, source_files, wanted):
     announced per file rather than summarised, so it is impossible to mistake a
     skipped file for a file with no mutants.
 
-    :param project_dir: the project root.
-    :param source_files: paths relative to the project root.
-    :param wanted: a set of operator names to keep, or None for all.
-    :returns: ``(mutants, unreadable)`` -- the mutants found, and the relative
-        paths that were skipped.
+    Args:
+        project_dir: the project root.
+        source_files: paths relative to the project root.
+        wanted: a set of operator names to keep, or None for all.
+
+    Returns:
+        ``(mutants, unreadable)`` -- the mutants found, and the relative paths that
+            were skipped.
     """
     mutants = []
     unreadable = []

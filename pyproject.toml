@@ -28,6 +28,22 @@ dev = [
 bench = [
   "mutmut>=3.0",
 ]
+# Milestone M3.1.4: everything `make docs` needs, so a clean venv can build the
+# documentation from a fresh checkout. Nothing here is required to use
+# moonbuggy, and nothing built from it is published anywhere (M3.1.5).
+docs = [
+  "sphinx>=7.3",
+  "myst-parser>=3.0",
+  "furo>=2024.1",
+  # M3.2.1: the docstring coverage gate. Runs as part of `make docs`, so a new
+  # public function without a docstring fails the build rather than being
+  # noticed later by nobody.
+  "interrogate>=1.7",
+  # M3.2.2/M3.2.3: checks that every documented parameter exists, every
+  # parameter is documented, and that it is all Google style. A convention
+  # nothing enforces is a convention the next file quietly breaks.
+  "pydoclint>=0.5",
+]
 
 [project.scripts]
 moonbuggy = "moonbuggy.cli:main"
@@ -49,3 +65,46 @@ addopts = "--ignore=tests/fixtures -m 'not slow'"
 markers = [
   "slow: spawns a subprocess per mutant; run via `make check-oracle`",
 ]
+
+[tool.interrogate]
+# M3.2.1: 100% docstring coverage for the public API. Private helpers are
+# exempt (M3.2.4) -- a leading underscore is a statement that the name is not
+# part of the contract, and requiring a docstring on every one of them buys
+# ceremony rather than clarity. The ones that encode a non-obvious decision
+# keep their explanatory comment instead.
+fail-under = 100
+ignore-private = true
+# `ignore-private` only covers dunder-prefixed names; this is the one that
+# covers a single leading underscore, which is what M3.2.4's exemption means.
+ignore-semiprivate = true
+ignore-magic = true
+ignore-nested-functions = true
+ignore-init-method = true
+ignore-module = false
+exclude = ["src/moonbuggy/__pycache__"]
+verbose = 1
+quiet = false
+
+[tool.pydoclint]
+# M3.2.2/M3.2.3: Google style, checked rather than asserted. Every documented
+# parameter must exist and every parameter must be documented, so a signature
+# change that leaves the docstring behind fails the build.
+style = "google"
+exclude = '\.venv|__pycache__'
+# Private helpers are exempt from the coverage gate, so they are exempt from
+# the completeness gate too -- otherwise the exemption is not one.
+skip-checking-short-docstrings = true
+allow-init-docstring = true
+# Type hints are not this codebase's convention. Several core objects cross
+# process boundaries as plain tuples and dicts by design, and annotating them
+# would document a shape the code deliberately does not enforce. What is
+# checked is that the documented arguments match the real ones.
+arg-type-hints-in-signature = false
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-yield-types = false
+# Several functions document an exception raised by something they call --
+# `read_source` raising SourceError out of srcio, say. That is the exception
+# the caller has to handle, and where the `raise` statement physically lives
+# is not information the caller needs.
+skip-checking-raises = true

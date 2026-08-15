@@ -10,3 +10,6 @@ build/
 mutants/
 .mutmut-cache
 .moonbuggy/
+
+.oss-hunt/
+docs/_build/

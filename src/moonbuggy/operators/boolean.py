@@ -16,9 +16,23 @@ SWAPS = {
 
 @register
 class BooleanSwap:
+    """Swap `and` for `or` and back.
+
+    Binary boolean operators only. `not` is deliberately left alone -- see
+    operators.boolean_swap in oracle.toml.
+    """
+
     name = "boolean_swap"
 
     def mutations(self, node):
+        """Yield the node with its boolean operator swapped.
+
+        Args:
+            node: any AST node; only `BoolOp` produces a mutation.
+
+        Yields:
+            One replacement node, if this node is a boolean operation.
+        """
         if not isinstance(node, ast.BoolOp):
             return
         replacement = SWAPS.get(type(node.op))

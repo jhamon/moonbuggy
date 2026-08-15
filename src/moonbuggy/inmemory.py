@@ -34,11 +34,16 @@ from .srcio import detect_encoding, encode_source, read_source, replace_line
 def mutated_source(path, line, mutated_text):
     """The file's source with one line replaced, keeping its indentation.
 
-    :param path: the module file being mutated.
-    :param line: 1-based line number to replace.
-    :param mutated_text: the replacement line, stripped of indentation.
-    :returns: the full mutated source as ``str``.
-    :raises SourceError: if the file cannot be decoded (see :mod:`moonbuggy.srcio`).
+    Args:
+        path: the module file being mutated.
+        line: 1-based line number to replace.
+        mutated_text: the replacement line, stripped of indentation.
+
+    Returns:
+        the full mutated source as ``str``.
+
+    Raises:
+        SourceError: if the file cannot be decoded (see :mod:`moonbuggy.srcio`).
     """
     return replace_line(read_source(path), line, mutated_text)
 
@@ -112,11 +117,16 @@ def install(path, line, mutated_text):
     Safe to call before the module is imported, which is the normal case:
     pytest_configure runs before test collection imports anything under test.
 
-    :param path: the module file to mutate.
-    :param line: 1-based line number to replace.
-    :param mutated_text: the replacement line.
-    :returns: the mutated source as ``str``.
-    :raises SourceError: if the file cannot be decoded.
+    Args:
+        path: the module file to mutate.
+        line: 1-based line number to replace.
+        mutated_text: the replacement line.
+
+    Returns:
+        the mutated source as ``str``.
+
+    Raises:
+        SourceError: if the file cannot be decoded.
     """
     source = mutated_source(path, line, mutated_text)
     resolved = str(Path(path).resolve())

@@ -102,10 +102,13 @@ def pytest_sessionfinish(session, exitstatus):
 def classify(runs):
     """Split tests into consistently-failing and inconsistent, given several runs.
 
-    :param runs: a list of ``{node_id: outcome}`` mappings, one per unmutated
-        run of the suite. The first is authoritative for which tests exist.
-    :returns: ``(failing, flaky)``, both sets of node ids. A test appears in at
-        most one of them.
+    Args:
+        runs: a list of ``{node_id: outcome}`` mappings, one per unmutated run of the
+            suite. The first is authoritative for which tests exist.
+
+    Returns:
+        ``(failing, flaky)``, both sets of node ids. A test appears in at most one of
+            them.
     """
     if not runs:
         return set(), set()
@@ -132,12 +135,17 @@ def classify(runs):
 def check(runs, allow_empty=False):
     """Raise if the baseline cannot support a mutation run.
 
-    :param runs: as for :func:`classify`.
-    :param allow_empty: when True, a suite with no tests is permitted. Only
-        used by callers that have already reported the emptiness themselves.
-    :returns: the set of flaky test node ids, which callers use to mark
-        affected mutants SUSPICIOUS.
-    :raises BaselineError: if no tests ran, or if any test fails consistently.
+    Args:
+        runs: as for :func:`classify`.
+        allow_empty: when True, a suite with no tests is permitted. Only used by
+            callers that have already reported the emptiness themselves.
+
+    Returns:
+        the set of flaky test node ids, which callers use to mark affected mutants
+            SUSPICIOUS.
+
+    Raises:
+        BaselineError: if no tests ran, or if any test fails consistently.
     """
     failing, flaky = classify(runs)
 
@@ -171,9 +179,12 @@ def probe_env(path):
 def read_outcomes(path):
     """Read one run's recorded outcomes back.
 
-    :param path: the file named by :data:`OUTCOMES_ENV_VAR` for that run.
-    :returns: ``{node_id: outcome}``, empty if the file was never written --
-        which is itself meaningful, since it means the run did not finish.
+    Args:
+        path: the file named by :data:`OUTCOMES_ENV_VAR` for that run.
+
+    Returns:
+        ``{node_id: outcome}``, empty if the file was never written -- which is itself
+            meaningful, since it means the run did not finish.
     """
     try:
         with open(path) as handle:

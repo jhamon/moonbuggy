@@ -86,19 +86,25 @@ class Profiler:
         (overlapping) time for that phase; each gets the same share of the real
         wall clock that it had of the measured total.
 
-        :param name: the phase to record the remainder against if weights are
-            empty, so the time is never lost.
-        :param seconds: real wall clock elapsed for the whole phase.
-        :param weights: ``{phase: measured_seconds}``.
+        Args:
+            name: the phase to record the remainder against if weights are empty, so the
+                time is never lost.
+            seconds: real wall clock elapsed for the whole phase.
+            weights: ``{phase: measured_seconds}``.
+
+        Returns:
+            None. The attribution is recorded on this profiler.
         """
         if not self.enabled:
             return
         total = sum(weights.values())
         if total <= 0:
+            # Nothing measured, so nothing to divide by. The time still
+            # happened, so it goes somewhere rather than being lost.
             self.add(name, seconds)
-            return
-        for phase, measured in weights.items():
-            self.add(phase, seconds * measured / total)
+        else:
+            for phase, measured in weights.items():
+                self.add(phase, seconds * measured / total)
 
     def note(self, key, value):
         """Record a non-timing fact worth reading next to the numbers."""
@@ -108,8 +114,9 @@ class Profiler:
     def summary(self):
         """The report: per-phase seconds, wall clock, and what is unattributed.
 
-        :returns: a dict with ``wall``, ``phases``, ``other``, ``attributed``
-            (the fraction M2.1.2 gates on) and any recorded notes.
+        Returns:
+            a dict with ``wall``, ``phases``, ``other``, ``attributed`` (the fraction
+                M2.1.2 gates on) and any recorded notes.
         """
         wall = time.perf_counter() - self.started
         accounted = sum(self.totals.values())

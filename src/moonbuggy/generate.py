@@ -38,15 +38,20 @@ DEEP_RECURSION_LIMIT = 20_000
 def generate_mutants(source, module, on_skip=None):
     """Return every mutant for one module's source, in a stable order.
 
-    :param source: the module's full source text.
-    :param module: the module's path, used as the first field of each mutant id.
-    :param on_skip: called as ``(lineno, reason)`` for each site that could not
-        be turned into a mutant. Sites are skipped rather than silently
-        dropped, so the caller can say how much of the file it gave up on.
-    :returns: a list of :class:`~moonbuggy.mutant.Mutant`, sorted by line then
-        operator then id, so ids are stable across runs (criterion C3).
-    :raises GenerationError: if the source does not parse, or is nested so
-        deeply that the parser itself gives up.
+    Args:
+        source: the module's full source text.
+        module: the module's path, used as the first field of each mutant id.
+        on_skip: called as ``(lineno, reason)`` for each site that could not be turned
+            into a mutant. Sites are skipped rather than silently dropped, so
+            the caller can say how much of the file it gave up on.
+
+    Returns:
+        a list of :class:`~moonbuggy.mutant.Mutant`, sorted by line then operator then
+            id, so ids are stable across runs (criterion C3).
+
+    Raises:
+        GenerationError: if the source does not parse, or is nested so deeply that the
+            parser itself gives up.
     """
     try:
         tree = ast.parse(strip_coding_cookie(source))
@@ -105,8 +110,11 @@ def _function_body_lines(tree):
       creates it, and one line carries one flag. Widening is the safe error
       here: it costs time, and the other direction costs correctness.
 
-    :param tree: a parsed module.
-    :returns: the set of line numbers belonging to some function body.
+    Args:
+        tree: a parsed module.
+
+    Returns:
+        the set of line numbers belonging to some function body.
     """
     deferred = set()
     for node in ast.walk(tree):

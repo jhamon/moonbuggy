@@ -29,9 +29,11 @@ class LineMap:
         self._project_dir = Path(project_dir)
 
     def tests_covering(self, module, line):
+        """The node ids of tests that executed `line` of `module`."""
         return self._mapping.get((self._normalise(module), line), set())
 
     def all_tests(self):
+        """Every test node id the instrumented run observed."""
         return set(self._tests)
 
     def select_for(self, mutant):
@@ -54,6 +56,7 @@ class LineMap:
         return str(path.resolve())
 
     def to_dict(self):
+        """The whole map as plain data, for serialising or inspecting."""
         return {
             "tests": sorted(self._tests),
             "lines": [
@@ -70,7 +73,7 @@ def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
     python = python or sys.executable
 
     args = [
-        "-q", "-p", "no:cacheprovider",
+        "-q", "-p", "no:cacheprovider", "--rootdir", str(project_dir),
         f"--cov={source_dir}", "--cov-context=test", "--cov-report=",
         *extra_args,
     ]
@@ -114,12 +117,19 @@ def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=60
     suite runs ``1 + probes`` times as separate processes, each writing its
     per-test outcomes to a file the parent reads back.
 
-    :param project_dir: project root.
-    :param source_dir: directory to measure coverage of.
-    :param probes: extra unmutated runs used to detect flaky tests (M1.4.3).
-    :returns: ``(linemap, flaky_test_ids)``.
-    :raises BaselineError: if no tests ran or the suite is already failing.
-    :raises CoveragePassError: if pytest could not complete at all.
+    Args:
+        project_dir: project root.
+        source_dir: directory to measure coverage of.
+        probes: extra unmutated runs used to detect flaky tests (M1.4.3).
+        python: interpreter to run pytest with when forking is unavailable.
+        timeout: seconds before one suite run is abandoned.
+
+    Returns:
+        ``(linemap, flaky_test_ids)``.
+
+    Raises:
+        BaselineError: if no tests ran or the suite is already failing.
+        CoveragePassError: if pytest could not complete at all.
     """
     project_dir = Path(project_dir)
     python = python or sys.executable
@@ -131,7 +141,8 @@ def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=60
 
         for index in range(1 + probes):
             outcomes_file = tmp / f"outcomes-{index}.json"
-            args = ["-q", "-p", "no:cacheprovider", "-p", "moonbuggy.baseline"]
+            args = ["-q", "-p", "no:cacheprovider", "--rootdir", str(project_dir),
+                    "-p", "moonbuggy.baseline"]
             if index == 0:
                 args += [f"--cov={source_dir}", "--cov-context=test", "--cov-report="]
             else:
@@ -168,6 +179,8 @@ def _run_pytest(project_dir, args, env, python, timeout):
 
 
 class CoveragePassError(RuntimeError):
+    """pytest could not complete the instrumented run at all."""
+
     def __init__(self, returncode, stdout, stderr):
         super().__init__(
             f"coverage pass failed (pytest exit {returncode}).\n{stdout}\n{stderr}"
@@ -184,6 +197,15 @@ def _env_with_data_file(data_file):
 
 
 def read_coverage_data(data_file, project_dir):
+    """Build a LineMap from a coverage data file.
+
+    Args:
+        data_file: path to the coverage database the instrumented run wrote.
+        project_dir: the project root, used to resolve module paths.
+
+    Returns:
+        A :class:`LineMap` of which tests executed which lines.
+    """
     import coverage
 
     data = coverage.CoverageData(basename=str(data_file))

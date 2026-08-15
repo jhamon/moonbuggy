@@ -47,10 +47,15 @@ class SourceError(RuntimeError):
 def detect_encoding(path):
     """The encoding Python itself would use to read `path`.
 
-    :param path: filesystem path to a Python source file.
-    :returns: an encoding name suitable for :func:`str.encode`.
-    :raises SourceError: if the file cannot be opened or declares an encoding
-        that does not exist.
+    Args:
+        path: filesystem path to a Python source file.
+
+    Returns:
+        an encoding name suitable for :func:`str.encode`.
+
+    Raises:
+        SourceError: if the file cannot be opened or declares an encoding that does not
+            exist.
     """
     try:
         with open(path, "rb") as handle:
@@ -71,10 +76,15 @@ _SOURCE_CACHE = {}
 def read_source(path):
     """Read a Python source file as text, honouring its declared encoding.
 
-    :param path: filesystem path to a Python source file.
-    :returns: the file's contents as ``str``.
-    :raises SourceError: if the file cannot be read or cannot be decoded with
-        the encoding it declares.
+    Args:
+        path: filesystem path to a Python source file.
+
+    Returns:
+        the file's contents as ``str``.
+
+    Raises:
+        SourceError: if the file cannot be read or cannot be decoded with the encoding
+            it declares.
     """
     try:
         stat = os.stat(path)
@@ -131,10 +141,15 @@ def _read_source_uncached(path):
 def encode_source(text, encoding):
     """Encode source text back to the bytes an importer will decode.
 
-    :param text: the source as ``str``.
-    :param encoding: the encoding the file declares.
-    :returns: ``bytes``.
-    :raises SourceError: if the text cannot be represented in that encoding.
+    Args:
+        text: the source as ``str``.
+        encoding: the encoding the file declares.
+
+    Returns:
+        ``bytes``.
+
+    Raises:
+        SourceError: if the text cannot be represented in that encoding.
     """
     try:
         return text.encode(encoding)
@@ -157,10 +172,13 @@ def replace_line(source, line, text):
     quietly edits whitespace it was not asked to edit is a mutation whose
     effect is not fully described by its own diff.
 
-    :param source: the full source text.
-    :param line: 1-based line number to replace.
-    :param text: the replacement content, without indentation.
-    :returns: the full source with that line replaced.
+    Args:
+        source: the full source text.
+        line: 1-based line number to replace.
+        text: the replacement content, without indentation.
+
+    Returns:
+        the full source with that line replaced.
     """
     lines = source.splitlines(keepends=True)
     index = line - 1
@@ -185,8 +203,11 @@ def strip_coding_cookie(text):
     not match, so every subsequent line number, column offset and byte position
     is unchanged. Splicing and line attribution both depend on that.
 
-    :param text: source text, possibly carrying a cookie in its first two lines.
-    :returns: source text with any cookie neutralised.
+    Args:
+        text: source text, possibly carrying a cookie in its first two lines.
+
+    Returns:
+        source text with any cookie neutralised.
     """
     lines = text.split("\n")
     for index in range(min(2, len(lines))):

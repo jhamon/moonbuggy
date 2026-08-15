@@ -9,9 +9,9 @@ user added the test that kills it hides the gap they just closed and reports it
 as still outstanding -- worse than no cache, because it is confidently wrong.
 The key therefore covers everything the outcome depends on:
 
-    the mutant's identity and mutated text
-  + the full source of the module being mutated
-  + the contents of every test file selected for it
+- the mutant's identity and mutated text,
+- the full source of the module being mutated, and
+- the contents of every test file selected for it.
 
 Hashing the whole module rather than just the mutated function is deliberately
 coarser than criterion F2 requires. A mutant's behaviour can depend on anything
@@ -33,6 +33,8 @@ CACHE_VERSION = 1
 
 
 class ResultCache:
+    """Mutant outcomes from previous runs, keyed on everything they depend on."""
+
     def __init__(self, path):
         self.path = Path(path)
         self._entries = self._load()
@@ -51,6 +53,17 @@ class ResultCache:
         return entries if isinstance(entries, dict) else {}
 
     def key_for(self, mutant, project_dir, selected_tests):
+        """The cache key for one mutant.
+
+        Args:
+            mutant: the mutant whose outcome would be stored.
+            project_dir: the project root, used to resolve relative paths.
+            selected_tests: the pytest node ids selection chose for it.
+
+        Returns:
+            A hex digest covering the mutant, its module's full source, and
+            the contents of every selected test file.
+        """
         project_dir = Path(project_dir)
         digest = hashlib.sha256()
         digest.update(mutant.id.encode())
@@ -64,9 +77,11 @@ class ResultCache:
         return digest.hexdigest()
 
     def get(self, key):
+        """The stored record for `key`, or None if there is not one."""
         return self._entries.get(key)
 
     def put(self, key, record):
+        """Store `record` under `key`. Not written to disk until `save`."""
         self._entries[key] = record
 
     def save(self):
@@ -85,6 +100,7 @@ class ResultCache:
         os.replace(temporary, self.path)
 
     def clear(self):
+        """Forget everything, on disk and in memory."""
         self._entries = {}
         self.path.unlink(missing_ok=True)
 

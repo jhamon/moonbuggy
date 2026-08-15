@@ -38,6 +38,8 @@ CHILD_CRASHED = 70
 
 
 def available():
+    """Whether this platform can fork. False on Windows, where the subprocess
+    path in runner.py is used instead."""
     return FORK_AVAILABLE
 
 
@@ -83,9 +85,7 @@ def _child(project_dir, mutant, selected, install_mutation, write_fd):
         # pytest-cov registers hooks on every session. -x: one failure is
         # already a kill, so there is nothing to learn from the rest.
         began = time.perf_counter()
-        code = pytest.main(
-            ["-q", "-p", "no:cacheprovider", "-p", "no:cov", "-x", *selected]
-        )
+        code = pytest.main(_mutant_args(selected))
         micros = int((time.perf_counter() - began) * 1_000_000)
         code = int(code)
     except BaseException:
@@ -98,6 +98,26 @@ def _child(project_dir, mutant, selected, install_mutation, write_fd):
         # os._exit, not sys.exit: skips atexit handlers and buffer flushing that
         # belong to the parent's state, which this child only borrowed.
         os._exit(0)
+
+
+def _mutant_args(selected):
+    """pytest arguments for one mutant's run, inside an already-chdir'd child.
+
+    `--rootdir` is pinned to the cwd, which the child has already set to the
+    project root. Without it, pytest can infer a rootdir above the project and
+    then fail to resolve the very node ids the coverage map recorded -- which
+    is not a hypothetical, it is what three of the five M4 libraries did.
+
+    `-p no:cov`: the mutant run needs no coverage instrumentation, and
+    pytest-cov registers hooks on every session. `-x`: one failure is already a
+    kill, so there is nothing to learn from the rest.
+    """
+    import os as _os
+
+    return [
+        "-q", "-p", "no:cacheprovider", "--rootdir", _os.getcwd(),
+        "-p", "no:cov", "-x", *selected,
+    ]
 
 
 def run_pytest_in_fork(cwd, args, env_updates, timeout):
@@ -171,21 +191,24 @@ def run_warm_session(
     then forks a grandchild per mutant from a process where every test module is
     already imported.
 
-    :param project_dir: project root; the host chdirs here.
-    :param cov_args: pytest arguments for the instrumented baseline run.
-    :param timeout: seconds before one mutant is called TIMEOUT.
-    :param concurrency: how many grandchildren run at once.
-    :param build_jobs: called in the PARENT with the baseline evidence; returns
-        the ``(mutant, selected_tests)`` jobs to run. May raise, in which case
-        the host is torn down and the exception propagates.
-    :param apply_swap: called in each grandchild to apply its mutation.
-    :param probe_args: pytest arguments for the extra unmutated probe runs.
-    :param probes: how many probe runs to make (M1.4.3).
-    :param on_result: called as ``(index, status)`` the moment each mutant
-        finishes, so a run killed mid-flight has already reported what it knew.
-    :returns: ``(jobs, statuses)``, or None if the host could not complete --
-        so the caller falls back rather than reporting results it did not
-        actually produce.
+    Args:
+        project_dir: project root; the host chdirs here.
+        cov_args: pytest arguments for the instrumented baseline run.
+        timeout: seconds before one mutant is called TIMEOUT.
+        concurrency: how many grandchildren run at once.
+        build_jobs: called in the PARENT with the baseline evidence; returns the
+            ``(mutant, selected_tests)`` jobs to run. May raise, in which case
+            the host is torn down and the exception propagates.
+        apply_swap: called in each grandchild to apply its mutation.
+        probe_args: pytest arguments for the extra unmutated probe runs.
+        probes: how many probe runs to make (M1.4.3).
+        on_result: called as ``(index, status)`` the moment each mutant finishes, so a
+            run killed mid-flight has already reported what it knew.
+
+    Returns:
+        ``(jobs, statuses)``, or None if the host could not complete -- so the caller
+            falls back rather than reporting results it did not actually
+            produce.
     """
     jobs_read, jobs_write = os.pipe()
     status_read, status_write = os.pipe()
@@ -408,11 +431,18 @@ def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, w
 def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
     """Fork one grandchild per job, at most `concurrency` at a time.
 
-    :param emit: if given, called as ``(index, status, test_seconds,
-        child_wall)`` as each grandchild is reaped, so results can be streamed
-        rather than batched at the end. `child_wall` is measured here rather
-        than in the child, because it has to include the fork itself.
-    :returns: the statuses, in job order.
+    Args:
+        jobs: the ``(mutant, selected_tests)`` pairs to run.
+        timeout: seconds before one grandchild is called TIMEOUT.
+        concurrency: how many grandchildren run at once.
+        apply_swap: called in each grandchild to apply its mutation.
+        emit: if given, called as ``(index, status, test_seconds, child_wall)`` as each
+            grandchild is reaped, so results can be streamed rather than
+            batched at the end. `child_wall` is measured here rather than in
+            the child, because it has to include the fork itself.
+
+    Returns:
+        the statuses, in job order.
     """
     statuses = [None] * len(jobs)
     pending = list(enumerate(jobs))
@@ -463,9 +493,7 @@ def _grandchild(mutant, selected, apply_swap, write_fd):
         import pytest
 
         began = time.perf_counter()
-        code = int(pytest.main(
-            ["-q", "-p", "no:cacheprovider", "-p", "no:cov", "-x", *selected]
-        ))
+        code = int(pytest.main(_mutant_args(selected)))
         # Measured inside the child so the parent can separate the cost of
         # running the tests from the cost of getting a process ready to run
         # them (criterion M2.1.1). Without this split, "per-mutant fork" and

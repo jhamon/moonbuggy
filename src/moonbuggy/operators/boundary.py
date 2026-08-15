@@ -11,9 +11,24 @@ from . import register, replace_operator
 
 @register
 class Boundary:
+    """Shift a single-argument `range()` by one.
+
+    `range(x)` becomes `range(x - 1)`. Off-by-one in a loop bound is the
+    mistake this exists to notice, and a test that never checks the last
+    iteration will not.
+    """
+
     name = "boundary"
 
     def mutations(self, node):
+        """Yield the call with its range shortened by one.
+
+        Args:
+            node: any AST node; only a one-argument `range()` call qualifies.
+
+        Yields:
+            One replacement node, if this node is such a call.
+        """
         if not isinstance(node, ast.Call):
             return
         if not isinstance(node.func, ast.Name) or node.func.id != "range":

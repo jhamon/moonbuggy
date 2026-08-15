@@ -21,9 +21,24 @@ SWAPS = {
 
 @register
 class ArithmeticSwap:
+    """Swap one arithmetic operator for a plausibly-mistaken neighbour.
+
+    Fires on binary operations and on augmented assignment. `+=` is a site in
+    its own right rather than merely a `+`, because writing `-=` where `+=`
+    belongs is its own mistake.
+    """
+
     name = "arithmetic_swap"
 
     def mutations(self, node):
+        """Yield the node with its arithmetic operator swapped.
+
+        Args:
+            node: any AST node; non-arithmetic nodes yield nothing.
+
+        Yields:
+            One replacement node, if this node has a swappable operator.
+        """
         if not isinstance(node, (ast.BinOp, ast.AugAssign)):
             return
         replacement = SWAPS.get(type(node.op))

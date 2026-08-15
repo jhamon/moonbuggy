@@ -39,9 +39,12 @@ def replace_operator(node, **changes):
     protection is better provided by not writing such an operator -- which this
     function makes the path of least resistance.
 
-    :param node: the AST node being mutated. Not modified.
-    :param changes: field values to replace on the copy.
-    :returns: a new node of the same type, sharing the untouched children.
+    Args:
+        node: the AST node being mutated. Not modified.
+        **changes: field values to replace on the copy.
+
+    Returns:
+        a new node of the same type, sharing the untouched children.
     """
     replacement = copy.copy(node)
     for field, value in changes.items():

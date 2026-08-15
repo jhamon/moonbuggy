@@ -97,6 +97,7 @@ class StreamingJSONL:
 
 
 def read_jsonl(path):
+    """Read every record back from a JSONL file, in file order."""
     with open(path) as handle:
         return [json.loads(line) for line in handle if line.strip()]
 
@@ -117,6 +118,7 @@ def render_line(record):
 
 
 def plaintext_from_records(records):
+    """The whole plaintext view: one line per record, no trailing newline."""
     return "\n".join(render_line(record) for record in records)
 
 
@@ -129,6 +131,7 @@ def summarise(records):
 
 
 def find_record(records, mutant_id):
+    """The record with this mutant id, or None if there is not one."""
     for record in records:
         if record["id"] == mutant_id:
             return record

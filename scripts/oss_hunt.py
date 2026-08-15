@@ -27,6 +27,7 @@ What the harness guarantees, and why each guarantee is here:
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -35,7 +36,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-WORKDIR = REPO / ".oss-hunt"
+# Deliberately OUTSIDE the repository. Keeping the checkouts inside it put each
+# target underneath moonbuggy's own pyproject.toml, which pytest then chose as
+# rootdir -- and that produced node ids no run could resolve. The bug that
+# exposed is fixed (see tests/test_rootdir.py), but a harness that arranges its
+# subjects inside another project is still measuring an unusual case for no
+# reason.
+WORKDIR = Path(
+    os.environ.get("MOONBUGGY_OSS_WORKDIR", Path.home() / ".cache" / "moonbuggy-oss")
+)
 
 
 @dataclass

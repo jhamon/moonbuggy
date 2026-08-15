@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import forkserver, profiling
+from .baseline import BaselineError
 from .baseline import check as check_baseline
 from .inmemory import install
 from .plugin import MUTANT_ENV_VAR
@@ -30,6 +31,8 @@ PYTEST_TESTS_FAILED = 1
 
 @dataclass(frozen=True)
 class Result:
+    """One mutant's outcome, before it becomes a report record."""
+
     mutant: object
     status: str
     tests_run: int
@@ -47,10 +50,23 @@ def run_mutants(
 ):
     """Run every mutant against its selected tests.
 
-    :param flaky: test node ids whose outcome is not reproducible; mutants
-        selecting one are settled SUSPICIOUS rather than run (M1.4.3).
-    :param on_result: called with each :class:`Result` as it is settled.
-    :returns: a list of :class:`Result`, one per mutant, in the input order.
+    Args:
+        project_dir: the project root.
+        mutants: every mutant to consider, in report order.
+        linemap: the line to covering-tests map.
+        timeout: seconds before one mutant is called TIMEOUT.
+        python: interpreter to use for the subprocess path.
+        xdist_workers: pytest-xdist workers within each mutant's run; asking
+            for any opts out of the warm session, which needs one process.
+        cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
+        use_fork: force the fork path on or off; None picks the fast one.
+        jobs: how many mutants to run concurrently.
+        flaky: test node ids whose outcome is not reproducible; mutants selecting one
+            are settled SUSPICIOUS rather than run (M1.4.3).
+        on_result: called with each :class:`Result` as it is settled.
+
+    Returns:
+        a list of :class:`Result`, one per mutant, in the input order.
     """
     project_dir = Path(project_dir)
     python = python or sys.executable
@@ -100,7 +116,7 @@ def _run_forked_batch(
         # mutation reports a false SURVIVED.
         statuses = forkserver.run_warm_batch(
             project_dir, jobs_for_fork, timeout, concurrency,
-            _warm_up_args(linemap), _apply_in_place,
+            _warm_up_args(project_dir, linemap), _apply_in_place,
         )
         if statuses is None:
             statuses = forkserver.run_batch(
@@ -136,6 +152,26 @@ def run_one(
     project_dir, mutant, linemap, timeout, python, xdist_workers=0, cache=None,
     use_fork=False, flaky=(),
 ):
+    """Run one mutant against its selected tests.
+
+    The serial path, used when forking is unavailable or when xdist workers
+    were requested. `run_mutants` is the entry point that chooses between
+    this and the parallel one.
+
+    Args:
+        project_dir: the project root.
+        mutant: the mutant to run.
+        linemap: the line to covering-tests map.
+        timeout: seconds before this mutant is called TIMEOUT.
+        python: interpreter to use for the subprocess path.
+        xdist_workers: pytest-xdist workers within this mutant's run.
+        cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
+        use_fork: whether to fork rather than spawn a subprocess.
+        flaky: test node ids whose outcome is not reproducible.
+
+    Returns:
+        A :class:`Result`.
+    """
     if mutant.suppressed:
         return Result(mutant, "SKIPPED", 0, 0.0)
 
@@ -195,7 +231,7 @@ def run_one(
 
 def _run_pytest(project_dir, mutant, selected, timeout, python, xdist_workers):
     command = [
-        python, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+        python, "-m", "pytest", *_base_args(project_dir),
         "-p", "moonbuggy.plugin", *selected,
     ]
     if xdist_workers:
@@ -235,19 +271,24 @@ def run_session(
     Here one forked host runs the suite under coverage, and the same host then
     forks a grandchild per mutant with every test module already imported.
 
-    :param project_dir: project root.
-    :param mutants: every mutant to consider, in report order.
-    :param source_dir: directory to measure coverage of.
-    :param timeout: seconds before one mutant is called TIMEOUT.
-    :param cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
-    :param jobs: how many mutants to run concurrently.
-    :param probes: extra unmutated suite runs used to detect flaky tests.
-    :param on_result: called with each :class:`Result` as it is settled, so a
-        run killed mid-flight has already emitted what it knew (M1.4.13).
-    :returns: ``(linemap, results)``.
-    :raises BaselineError: if the suite is already failing or collects nothing.
-        Falls back to the separate cold path when the warm host cannot
-        complete, so a host failure costs time rather than correctness.
+    Args:
+        project_dir: project root.
+        mutants: every mutant to consider, in report order.
+        source_dir: directory to measure coverage of.
+        timeout: seconds before one mutant is called TIMEOUT.
+        cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
+        jobs: how many mutants to run concurrently.
+        probes: extra unmutated suite runs used to detect flaky tests.
+        on_result: called with each :class:`Result` as it is settled, so a run killed
+            mid-flight has already emitted what it knew (M1.4.13).
+
+    Returns:
+        ``(linemap, results)``.
+
+    Raises:
+        BaselineError: if the suite is already failing or collects nothing. Falls back
+            to the separate cold path when the warm host cannot complete, so a
+            host failure costs time rather than correctness.
     """
     from .coverage_pass import read_coverage_data, run_baseline_pass
 
@@ -272,10 +313,10 @@ def run_session(
         data_file = Path(tmp) / "coverage-data"
         os.environ["COVERAGE_FILE"] = str(data_file)
         cov_args = [
-            "-q", "-p", "no:cacheprovider",
+            *_base_args(project_dir),
             f"--cov={source_dir}", "--cov-context=test", "--cov-report=",
         ]
-        probe_args = ["-q", "-p", "no:cacheprovider", "-p", "no:cov"]
+        probe_args = [*_base_args(project_dir), "-p", "no:cov"]
 
         state = {}
 
@@ -295,6 +336,9 @@ def run_session(
             with profiler.span("planning"):
                 state["flaky"] = check_baseline(evidence["runs"])
                 state["linemap"] = read_coverage_data(data_file, project_dir)
+                check_selection_is_runnable(
+                    project_dir, state["linemap"].all_tests()
+                )
                 state["plan"] = _plan(
                     project_dir, mutants, state["linemap"], cache, state["flaky"]
                 )
@@ -373,10 +417,19 @@ def _result_for(mutant, status, selected, duration=0.0):
 def _plan(project_dir, mutants, linemap, cache, flaky=()):
     """Split mutants into already-answerable and needs-running, before forking.
 
-    :param flaky: test node ids whose outcome varied between unmutated runs.
-        A mutant selecting one of them cannot be given a confident status, so
-        it is settled as SUSPICIOUS without being run at all (M1.4.3). Running
-        it would produce a KILLED or SURVIVED that means nothing.
+    Args:
+        project_dir: the project root.
+        mutants: every mutant to consider, in report order.
+        linemap: the line to covering-tests map.
+        cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
+        flaky: test node ids whose outcome varied between unmutated runs. A mutant
+            selecting one of them cannot be given a confident status, so it is
+            settled as SUSPICIOUS without being run at all (M1.4.3). Running it
+            would produce a KILLED or SURVIVED that means nothing.
+
+    Returns:
+        A dict with `results` (index to settled Result), `keys` (index to
+        cache key) and `to_run` (the mutants that still need a process).
     """
     flaky = set(flaky)
     results = {}
@@ -437,9 +490,67 @@ def _assemble(mutants, plan, statuses, cache, durations=None):
     return [results[index] for index in range(len(mutants))]
 
 
-def _warm_up_args(linemap):
+def _base_args(project_dir):
+    """pytest arguments every moonbuggy-driven run shares.
+
+    `--rootdir` is the important one, and it is here rather than at each call
+    site because leaving it off any single run reintroduces the whole bug.
+
+    pytest derives node ids from its rootdir, and infers rootdir by walking
+    upwards for a config file. A project checked out inside another project
+    that has one -- a monorepo, a vendored dependency -- therefore gets node
+    ids relative to the OUTER directory. moonbuggy records those ids in the
+    coverage map and hands them back to pytest from the project root, where
+    they do not resolve, and every mutant becomes SUSPICIOUS with no
+    explanation. Found by running against five real libraries; see
+    tests/test_rootdir.py.
+
+    Pinning rootdir to the project under mutation makes every id relative to
+    the directory moonbuggy actually runs from.
+    """
+    return ["-q", "-p", "no:cacheprovider", "--rootdir", str(project_dir)]
+
+
+def check_selection_is_runnable(project_dir, selected):
+    """Verify pytest can resolve the tests selection is about to ask for.
+
+    Args:
+        project_dir: the project root, which is also pytest's working
+            directory for every run moonbuggy makes.
+        selected: pytest node ids from the coverage map.
+
+    Returns:
+        None. The check either passes silently or raises.
+
+    Raises:
+        BaselineError: if any node id names a file that does not exist,
+            which means the whole map is expressed in the wrong frame of
+            reference and no result from it would mean anything.
+    """
+    project_dir = Path(project_dir)
+    missing = sorted(
+        node_id for node_id in selected
+        if not (project_dir / node_id.split("::")[0]).exists()
+    )
+    if not missing:
+        return None
+
+    raise BaselineError(
+        f"{len(missing)} of {len(selected)} selected tests cannot be found from "
+        f"{project_dir}. The first is:\n  {missing[0]}\n"
+        "This means pytest's rootdir is not the directory moonbuggy is running "
+        "in, so the node ids in the coverage map are relative to somewhere "
+        "else -- usually an enclosing project with its own pytest config. "
+        "Running moonbuggy from that outer directory, or passing --project to "
+        "point at it, resolves it. No mutation results were produced, because "
+        "results from an unusable test selection would all be SUSPICIOUS and "
+        "would read as a property of your code."
+    )
+
+
+def _warm_up_args(project_dir, linemap):
     """Args for the warm host's priming run: collect and import everything once."""
-    return ["-q", "-p", "no:cacheprovider", "-p", "no:cov", *sorted(linemap.all_tests())]
+    return [*_base_args(project_dir), "-p", "no:cov", *sorted(linemap.all_tests())]
 
 
 def _apply_in_place(mutant):

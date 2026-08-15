@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab check-fresh-install check-all
+.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage oss-hunt check-differential check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -28,6 +28,39 @@ check-spike:
 ## moonbuggy vs mutmut vs the naive baseline. See docs/benchmark-results.md.
 bench:
 	$(PYTHON) scripts/bench_mutation.py
+
+## Milestone M3.1: build the documentation.
+## -W turns warnings into errors, so a broken cross-reference fails the build
+## rather than being noticed by nobody. Nothing is published anywhere (M3.1.5).
+docs: docstring-coverage
+	$(PYTHON) -m sphinx -b html -W --keep-going docs docs/_build/html
+	@echo "docs -> docs/_build/html/index.html"
+
+## Milestone M3.2.1/M3.2.2: docstring coverage and style, as a gate.
+## Runs as part of `make docs`, so a new public function without a docstring
+## fails the build.
+docstring-coverage:
+	$(PYTHON) -m interrogate -c pyproject.toml src/moonbuggy
+	$(dir $(PYTHON))pydoclint --style=google --config=pyproject.toml src/moonbuggy
+
+## Milestone M3.3.10: every code example in the docs is executed.
+docs-test:
+	$(PYTHON) -m sphinx -b doctest -W docs docs/_build/doctest
+
+## Milestone M3.1.3: no broken internal links.
+docs-linkcheck:
+	$(PYTHON) -m sphinx -b linkcheck -W docs docs/_build/linkcheck
+
+## Milestone M4: run against five pinned open-source libraries.
+## Clones read-only, builds an isolated venv each, refuses any target whose own
+## suite is not green. Nothing is ever posted anywhere.
+oss-hunt:
+	$(PYTHON) scripts/oss_hunt.py
+
+## Milestone M1.3: per-mutant differential against mutmut, over many projects.
+## Fails if any disagreement is unclassified.
+check-differential:
+	$(PYTHON) scripts/differential.py
 
 ## Milestone M2.1: where the wall clock actually goes.
 ## Three workload shapes, five runs each, phases that must cover 95% of the
