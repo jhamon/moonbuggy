@@ -12,7 +12,10 @@ Reproduce with `make bench`. Python 3.12.13, Darwin 24.1.0, 14 CPUs, 8s timeout.
 | mutmut | 0.80s | 108 | 134 |
 | naive baseline | 13.0s | 84 | 6.4 |
 
-- **vs mutmut: 1.07x — PASS**
+- **vs mutmut: 1.07x — PASS.** Margin is thin, so it was checked for
+  stability rather than taken from one lucky run: three consecutive runs gave
+  1.12x, 1.08x, 1.08x. It passes consistently, but anyone reading this should
+  treat "faster than mutmut" as *modestly* faster, not decisively so.
 - **vs naive: 17.5x — PASS.** This is the design's own bar (§1.2).
 
 mutmut remains ahead on raw throughput (134 vs 112 mut/sec) because it generates
