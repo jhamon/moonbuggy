@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike bench bench-coverage check-fresh-install check-all
+.PHONY: test check-oracle check-spike check-mutmut bench bench-coverage check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -33,7 +33,12 @@ bench:
 check-fresh-install:
 	./scripts/check_fresh_install.sh
 
-check-all: test check-oracle check-spike check-fresh-install
+## Criterion A5: advisory cross-check of the oracle against mutmut.
+## Never gates; mutmut is never authoritative.
+check-mutmut:
+	$(PYTHON) scripts/check_mutmut_differential.py
+
+check-all: test check-oracle check-spike check-mutmut check-fresh-install
 
 ## Criterion B3: coverage mechanism benchmark.
 ## Prints wall-clock and map content for each candidate. See docs/spike-b-findings.md.

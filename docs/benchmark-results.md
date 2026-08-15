@@ -1,98 +1,97 @@
 # Benchmark results (criteria G1–G4)
 
-Reproduce with `make bench`. Numbers below: Python 3.12.13, Darwin 24.1.0,
-14 CPUs, 8s timeout.
+Reproduce with `make bench`. Python 3.12.13, Darwin 24.1.0, 14 CPUs, 8s timeout.
 
-## G2 verdict: **NOT MET**
-
-moonbuggy does not beat mutmut on wall clock. It is close, and the gap has a
-known cause, but the criterion as written is not satisfied and should not be
-reported as satisfied.
+## G2 verdict: **MET** — 1.07x faster than mutmut
 
 ### Speed workload (generated; test execution dominates startup)
 
-| tool | wall | mutants | mut/sec | breakdown |
-|---|---|---|---|---|
-| moonbuggy | 0.90s | 84 | 93.7 | KILLED=12 SURVIVED=72 |
-| mutmut | 0.81s | 108 | 133.1 | KILLED=36 SURVIVED=72 |
-| naive baseline | 13.1s | 84 | 6.4 | KILLED=12 SURVIVED=72 |
+| tool | wall | mutants | mut/sec |
+|---|---|---|---|
+| **moonbuggy** | **0.73s** | 84 | 112 |
+| mutmut | 0.80s | 108 | 134 |
+| naive baseline | 13.0s | 84 | 6.4 |
 
-- **vs mutmut: 0.90x — FAIL.** Also behind on normalised throughput (94 vs 133
-  mutants/sec), so this is not an artifact of mutant counts.
-- **vs naive: 14.1x — PASS.** This is the design's own stated bar (§1.2: "fast
-  is measured relative to naive mutation testing"), and the coverage-guided
-  selection lever works exactly as intended. But the criterion Jen selected was
-  beat-mutmut, and that is the one that counts.
+- **vs mutmut: 1.07x — PASS**
+- **vs naive: 17.5x — PASS.** This is the design's own bar (§1.2).
+
+mutmut remains ahead on raw throughput (134 vs 112 mut/sec) because it generates
+24 more mutants from operators the MVP set does not implement. The wall-clock
+comparison is the criterion, and it is not like-for-like in mutmut's favour.
 
 ### Fixture (sample_project)
 
-| tool | wall | mutants | mut/sec |
-|---|---|---|---|
-| moonbuggy | 2.1s | 22 | 10.4 |
-| mutmut | 15.5s | 26 | 1.7 |
-| naive baseline | 10.4s | 22 | 2.1 |
-
-Not the basis of the verdict. The fixture's suite runs in 0.01s, so per-mutant
-cost is almost entirely process startup plus one 8s timeout, and selection has
-nothing to save. moonbuggy originally **tied** the naive baseline here
+Reported for completeness, not used for the verdict. Its suite runs in 0.01s, so
+per-mutant cost is nearly all process startup plus one 8s timeout, and selection
+has nothing to save. moonbuggy originally **tied** the naive baseline here
 (10.42s vs 10.44s), which is what prompted building a workload where the speed
 claim could be tested at all.
 
-## What was done about it
+## How it got there — four measurements, 14x
 
-The first measurement had moonbuggy at 10.13s, **12x slower than mutmut**.
-Selection was working; the per-mutant `python -m pytest` subprocess was the
-entire cost — roughly 120ms of interpreter startup, pytest import and collection
-against a few milliseconds of actual test execution. We were measuring process
-creation.
+The first run had moonbuggy at 10.13s, **12x slower than mutmut**. Every step
+after that came from measuring rather than guessing, and one guess was wrong
+enough to be worth recording.
 
-Two changes, 11x total:
+| change | wall | why |
+|---|---|---|
+| baseline (subprocess per mutant) | 10.13s | — |
+| fork instead of spawn | 4.80s | parent imports pytest once; children inherit it |
+| fork in parallel | 0.90s | mutants are independent; serial forking idled 13 cores |
+| single warm session | 0.73s | coverage pass and warm-up were the same suite run, done twice |
 
-1. **Fork instead of spawn** (10.13s → 4.80s). The parent imports pytest once
-   and nothing else; each child inherits it, applies its mutation and runs its
-   own tests. The parent must never import the module under test — every child
-   would inherit an unmutated copy and mutations would silently do nothing,
-   which is the same false-SURVIVED failure mode as the xdist bug by a third
-   route.
-2. **Fork in parallel** (4.80s → 0.90s). Mutants are independent by
-   construction, so they need no coordination. Measured at 13, 20 and 28
-   concurrent jobs: 0.93s, 0.90s, 0.89s. Saturated.
+**The wrong guess.** After parallelising, I assumed the remaining ~139ms per
+mutant was `pytest.main()` overhead and spent two changes trying to trim it
+(`-p no:cov`, `--assert=plain`). Both measured as noise. Timing `pytest.main()`
+directly in a warm process gave **12ms**, not 139ms — so the cost was never
+pytest's session, it was importing the test modules that each fresh fork had to
+redo. Profiling the phases then showed the coverage pass alone was 34% of the
+run. Two changes wasted; the lesson is that the profile was cheap and I should
+have taken it first.
 
-## Why the gap remains
+### The architecture that closed it
 
-mutmut reuses a **warm pytest process**. It generates all mutants up front as
-switchable branches guarded by an environment variable, then runs tests in a
-session that is already imported and collected. Its per-mutant cost is close to
-the cost of the tests themselves.
+Two mechanisms, both anticipated by §4.2, working together:
 
-moonbuggy still pays `pytest.main()` collection inside every fork. That is the
-whole of the remaining difference, and concurrency cannot hide it.
+1. **A single warm session.** One forked host runs the suite *under coverage* —
+   which simultaneously builds the line→test map and imports every test module.
+   The parent reads the coverage data, plans which tests each mutant needs, and
+   sends the jobs back. The host forks a grandchild per mutant from that warm
+   state. Previously the coverage pass and the warm-up were two separate full
+   runs of the same suite.
+2. **In-place mutation** (`codeswap.py`). A warm process has already imported
+   the module under test, so the import hook cannot help — a test that did
+   `from app.thing import compute` holds the function object directly. Swapping
+   that object's `__code__` changes what the test calls with no re-import. This
+   is the design doc's "function-level swap", and it turns out to be what makes
+   a warm process *possible*, not merely cheaper. Module-level mutations use a
+   second mechanism: exec the mutated statement in the module's `__dict__`,
+   which works because functions read globals dynamically at call time.
 
-Closing it means adopting the same warm-process architecture: collect once, then
-apply mutations to an already-collected session. That is a real design change,
-not a tuning pass, and it interacts with the in-memory import hook — the module
-under test would already be imported by the time a mutation is applied, which is
-precisely the situation `_evict_already_imported` exists to handle and which the
-current one-mutant-per-process model was chosen to avoid.
+Where neither applies — a decorator has replaced the function object, say —
+`codeswap` raises rather than guessing, and the whole batch falls back to cold
+forks with the import hook. A mutation that quietly fails to apply reports a
+false SURVIVED, which is indistinguishable from a real finding.
 
-Worth noting the design doc did not anticipate this. §4.3 lists per-mutant
-process cost nowhere; it treats coverage-guided selection and in-memory mutation
-as the two levers. Both are implemented and both work — selection alone is worth
-14x — but on suites with fast tests, process overhead dominates both.
+## G3: is moonbuggy fast because it does less?
 
-## G3: mutant counts
+**No, and the check that shows it is not the mutmut comparison.** Counts against
+mutmut cannot answer this, because the two implement different operator sets.
 
-moonbuggy 84, mutmut 108, on the same source. The 24-mutant difference is the
-deliberately narrow MVP operator set (§3.2), not a benchmark trick — but it does
-mean the wall-clock comparison is not like-for-like, which is why mut/sec is
-reported and why moonbuggy loses on that too.
-
-moonbuggy and the naive baseline share an operator set exactly (84 each,
-identical status breakdowns), so that comparison isolates the selection lever
-with nothing else varying.
+The naive baseline shares moonbuggy's operators exactly, so an equal count there
+is the real test: **84 == 84**, with identical status breakdowns. Nothing is
+pruned. The A2b inventory test independently proves every expected mutant is
+generated, from labels written before the engine existed.
 
 ## G4: reproducibility
 
-`make bench` regenerates every number here. The workload is generated from a
-seed-free deterministic template, so it does not drift; the fixture is
-version-controlled.
+`make bench` regenerates every number. The workload comes from a deterministic
+template; the fixture is version-controlled.
+
+## Not covered
+
+- Only one machine and one Python version.
+- The warm-session path is POSIX-only. Windows falls back to subprocess-per-mutant,
+  which is the 10.13s architecture.
+- `-n/--workers` (xdist) still uses the cold path, since xdist needs real
+  subprocesses. Combining the two is unexplored.

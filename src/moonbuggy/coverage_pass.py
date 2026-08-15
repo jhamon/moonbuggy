@@ -12,11 +12,12 @@ finding. A map with a spurious extra test only costs time. Every judgement call
 below therefore favours the larger set.
 """
 
-import json
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from . import forkserver
 
 
 class LineMap:
@@ -62,30 +63,47 @@ class LineMap:
         }
 
 
-def run_coverage_pass(project_dir, source_dir, python=None, extra_args=()):
+def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
+                      use_fork=None, timeout=600):
     """Run the suite once under coverage, returning a LineMap."""
     project_dir = Path(project_dir)
     python = python or sys.executable
 
+    args = [
+        "-q", "-p", "no:cacheprovider",
+        f"--cov={source_dir}", "--cov-context=test", "--cov-report=",
+        *extra_args,
+    ]
+
     with tempfile.TemporaryDirectory() as tmp:
         data_file = Path(tmp) / "coverage-data"
-        proc = subprocess.run(
-            [
-                python, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-                f"--cov={source_dir}", "--cov-context=test", "--cov-report=",
-                *extra_args,
-            ],
-            cwd=project_dir,
-            capture_output=True,
-            text=True,
-            env=_env_with_data_file(data_file),
-        )
+
+        if use_fork is None:
+            use_fork = forkserver.available()
+
+        if use_fork:
+            # Forking skips a full interpreter startup. Measured at a third of
+            # total run time before this change.
+            code = forkserver.run_pytest_in_fork(
+                project_dir, args, {"COVERAGE_FILE": str(data_file)}, timeout
+            )
+            if code is None:
+                raise CoveragePassError(-1, "coverage pass timed out", "")
+            stdout = stderr = ""
+        else:
+            proc = subprocess.run(
+                [python, "-m", "pytest", *args],
+                cwd=project_dir, capture_output=True, text=True,
+                env=_env_with_data_file(data_file),
+            )
+            code, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
+
         # Exit code 1 means tests failed, which is fine here: the map is still
         # valid, and a suite that is already red is the user's problem to see
         # reported rather than a reason to refuse to run.
-        if proc.returncode not in (0, 1):
-            raise CoveragePassError(proc.returncode, proc.stdout, proc.stderr)
-        return _read(data_file, project_dir)
+        if code not in (0, 1):
+            raise CoveragePassError(code, stdout, stderr)
+        return read_coverage_data(data_file, project_dir)
 
 
 class CoveragePassError(RuntimeError):
@@ -104,7 +122,7 @@ def _env_with_data_file(data_file):
     return env
 
 
-def _read(data_file, project_dir):
+def read_coverage_data(data_file, project_dir):
     import coverage
 
     data = coverage.CoverageData(basename=str(data_file))

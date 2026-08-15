@@ -219,17 +219,32 @@ def main():
     print(f"  G3  mutant counts      : moonbuggy {moon['count']}, mutmut {mutmut['count']}, "
           f"naive {naive['count']}")
 
+    # G3: the real question is whether moonbuggy went fast by SKIPPING work.
+    # Comparing counts against mutmut cannot answer that -- the two implement
+    # different operator sets. The naive baseline shares moonbuggy's operators
+    # exactly, so an equal count there proves nothing was pruned.
+    no_pruning = moon["count"] == naive["count"]
+    print(f"  G3  no mutants pruned  : {_verdict(no_pruning)}  "
+          f"(moonbuggy {moon['count']} == naive {naive['count']}, same operator set)")
+
     if moon["count"] < mutmut["count"]:
         print(
-            f"\n  NOTE: moonbuggy generates {mutmut['count'] - moon['count']} fewer mutants than"
-            " mutmut, because the MVP\n  operator set (3.2) is deliberately narrow. The wall"
-            " clock comparison is\n  therefore not like-for-like, and mut/sec is the figure to"
-            " trust for G3.\n  moonbuggy and the naive baseline share an operator set, so that"
-            "\n  comparison IS like-for-like and isolates the selection lever exactly."
+            f"\n  NOTE: mutmut generates {mutmut['count'] - moon['count']} more mutants, from"
+            " operators the MVP set (3.2)\n  does not implement. So the wall-clock comparison is"
+            " not like-for-like, and\n  mutmut is still ahead on raw throughput"
+            f" ({mutmut['count'] / mutmut['time']:.0f} vs {moon['count'] / moon['time']:.0f}"
+            " mut/sec).\n  What G3 asks -- that moonbuggy is not fast because it does less --"
+            " is\n  answered by the naive comparison above, and by the A2b inventory test\n"
+            "  proving every expected mutant is generated."
         )
 
+    failures = []
     if not beats_mutmut:
-        raise SystemExit("\nG2 FAILED: moonbuggy is not faster than mutmut.")
+        failures.append("G2: moonbuggy is not faster than mutmut")
+    if not no_pruning:
+        failures.append("G3: moonbuggy generated fewer mutants than the naive baseline")
+    if failures:
+        raise SystemExit("\n" + "\n".join(f"FAILED {f}" for f in failures))
 
 
 def _verdict(ok):

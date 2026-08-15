@@ -23,6 +23,7 @@ fallback rather than this being the only way to run.
 """
 
 import os
+import pickle
 import signal
 import sys
 import time
@@ -93,6 +94,277 @@ def _child(project_dir, mutant, selected, install_mutation, write_fd):
             pass
         # os._exit, not sys.exit: skips atexit handlers and buffer flushing that
         # belong to the parent's state, which this child only borrowed.
+        os._exit(0)
+
+
+def run_pytest_in_fork(cwd, args, env_updates, timeout):
+    """Run pytest.main in a forked child. Returns its exit code, or None on timeout.
+
+    Used for the coverage pass. That pass was a `python -m pytest` subprocess and
+    measured at 0.297s of an 0.88s run -- a third of the total, most of it
+    interpreter startup that the parent has already paid. Forking from a parent
+    that has pytest imported skips it.
+
+    Safe despite the child importing the whole project: the child gets its own
+    address space, so nothing it imports reaches the parent, and the parent stays
+    clean for the mutation forks that follow.
+    """
+    read_fd, write_fd = os.pipe()
+    pid = os.fork()
+
+    if pid == 0:
+        os.close(read_fd)
+        code = CHILD_CRASHED
+        try:
+            os.chdir(cwd)
+            os.environ.update(env_updates)
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, 1)
+            os.dup2(devnull, 2)
+
+            import pytest
+
+            code = int(pytest.main(args))
+        except BaseException:
+            code = CHILD_CRASHED
+        finally:
+            try:
+                os.write(write_fd, bytes([min(code, 255)]))
+            except OSError:
+                pass
+            os._exit(0)
+
+    os.close(write_fd)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            waited, _ = os.waitpid(pid, os.WNOHANG)
+            if waited == pid:
+                payload = os.read(read_fd, 1)
+                return payload[0] if payload else CHILD_CRASHED
+            if time.monotonic() > deadline:
+                _kill(pid)
+                return None
+            time.sleep(0.005)
+    finally:
+        os.close(read_fd)
+
+
+def run_warm_session(project_dir, cov_args, timeout, concurrency, build_jobs, apply_swap):
+    """One suite run that both builds the coverage map and warms the process.
+
+    Previously these were two separate full runs of the test suite: a coverage
+    pass in one fork, then a priming run inside the warm host. On the benchmark
+    workload that was 0.275s and 0.15s of an 0.79s total -- over half the run,
+    spent executing the same tests twice.
+
+    They are the same work, so this does it once. The host runs the suite under
+    coverage, says READY, and waits. The parent reads the coverage data, builds
+    the line->test map, decides which tests each mutant needs, and sends the
+    jobs back. The host then forks a grandchild per mutant from a process where
+    every test module is already imported.
+
+    Returns None if the host cannot complete, so the caller falls back rather
+    than reporting results it did not actually produce.
+    """
+    jobs_read, jobs_write = os.pipe()
+    status_read, status_write = os.pipe()
+    pid = os.fork()
+
+    if pid == 0:
+        os.close(jobs_write)
+        os.close(status_read)
+        _warm_session_host(
+            project_dir, cov_args, timeout, concurrency, apply_swap, jobs_read, status_write
+        )
+
+    os.close(jobs_read)
+    os.close(status_write)
+    try:
+        if os.read(status_read, 1) != b"R":
+            return None
+
+        jobs = build_jobs()
+        payload = pickle.dumps(jobs)
+        os.write(jobs_write, len(payload).to_bytes(8, "big"))
+        os.write(jobs_write, payload)
+        os.close(jobs_write)
+        jobs_write = None
+
+        collected = b""
+        while len(collected) < len(jobs):
+            chunk = os.read(status_read, len(jobs) - len(collected))
+            if not chunk:
+                return None
+            collected += chunk
+        return jobs, [_STATUS_BY_CODE.get(code, "SUSPICIOUS") for code in collected]
+    finally:
+        if jobs_write is not None:
+            os.close(jobs_write)
+        os.close(status_read)
+        try:
+            os.waitpid(pid, 0)
+        except ChildProcessError:
+            pass
+
+
+def _warm_session_host(
+    project_dir, cov_args, timeout, concurrency, apply_swap, jobs_read, status_write
+):
+    try:
+        os.chdir(project_dir)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+
+        import pytest
+
+        pytest.main(cov_args)
+        os.write(status_write, b"R")
+
+        size = int.from_bytes(_read_exactly(jobs_read, 8), "big")
+        jobs = pickle.loads(_read_exactly(jobs_read, size))
+
+        statuses = _fork_grandchildren(jobs, timeout, concurrency, apply_swap)
+        os.write(status_write, bytes(_CODE_BY_STATUS[s] for s in statuses))
+    except BaseException:
+        pass
+    finally:
+        os._exit(0)
+
+
+def _read_exactly(fd, size):
+    chunks = b""
+    while len(chunks) < size:
+        chunk = os.read(fd, size - len(chunks))
+        if not chunk:
+            raise EOFError("warm host pipe closed early")
+        chunks += chunk
+    return chunks
+
+
+def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swap):
+    """Run mutants from a process that has already imported the test suite.
+
+    The expensive part of a mutant run is not the tests -- it is importing the
+    test modules, rewriting their asserts and collecting them, which a
+    fork-per-mutant pays every single time (~90ms against ~12ms for pytest.main
+    in a process where that work is done).
+
+    So this forks ONE warm host, has it run the suite once to get everything
+    imported, and then forks a grandchild per mutant from that warm state. Each
+    grandchild mutates in place with codeswap and runs only its own tests.
+
+    The warm host is a child, never the parent: it imports the whole project,
+    and the parent has to stay clean so the import-hook fallback path still
+    works for anything codeswap cannot handle.
+    """
+    read_fd, write_fd = os.pipe()
+    pid = os.fork()
+
+    if pid == 0:
+        os.close(read_fd)
+        _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd)
+
+    os.close(write_fd)
+    deadline = time.monotonic() + timeout * max(1, len(jobs))
+    collected = b""
+    try:
+        while len(collected) < len(jobs):
+            chunk = os.read(read_fd, len(jobs) - len(collected))
+            if not chunk:
+                break
+            collected += chunk
+            if time.monotonic() > deadline:
+                break
+        try:
+            os.waitpid(pid, 0)
+        except ChildProcessError:
+            pass
+    finally:
+        os.close(read_fd)
+
+    if len(collected) < len(jobs):
+        return None  # Warm host died; caller falls back to the cold path.
+    return [_STATUS_BY_CODE.get(code, "SUSPICIOUS") for code in collected]
+
+
+_STATUS_BY_CODE = {0: "SURVIVED", 1: "KILLED", 2: "TIMEOUT", 3: "SUSPICIOUS"}
+_CODE_BY_STATUS = {v: k for k, v in _STATUS_BY_CODE.items()}
+
+
+def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd):
+    try:
+        os.chdir(project_dir)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+
+        import pytest
+
+        # One full run to import every test module, rewrite its asserts and
+        # populate pytest's caches. Every grandchild inherits all of it.
+        pytest.main(warm_args)
+
+        statuses = _fork_grandchildren(jobs, timeout, concurrency, apply_swap)
+        os.write(write_fd, bytes(_CODE_BY_STATUS[s] for s in statuses))
+    except BaseException:
+        pass
+    finally:
+        os._exit(0)
+
+
+def _fork_grandchildren(jobs, timeout, concurrency, apply_swap):
+    statuses = [None] * len(jobs)
+    pending = list(enumerate(jobs))
+    running = {}
+
+    while pending or running:
+        while pending and len(running) < concurrency:
+            index, (mutant, selected) = pending.pop(0)
+            read_fd, write_fd = os.pipe()
+            pid = os.fork()
+            if pid == 0:
+                os.close(read_fd)
+                _grandchild(mutant, selected, apply_swap, write_fd)
+            os.close(write_fd)
+            running[pid] = (index, read_fd, time.monotonic() + timeout)
+
+        for pid, (index, read_fd, deadline) in list(running.items()):
+            try:
+                waited, _ = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                waited = pid
+            if waited == pid:
+                statuses[index] = _status_from(read_fd)
+                os.close(read_fd)
+                del running[pid]
+            elif time.monotonic() > deadline:
+                _kill(pid)
+                statuses[index] = "TIMEOUT"
+                os.close(read_fd)
+                del running[pid]
+
+        if running:
+            time.sleep(0.002)
+
+    return statuses
+
+
+def _grandchild(mutant, selected, apply_swap, write_fd):
+    code = CHILD_CRASHED
+    try:
+        apply_swap(mutant)
+        import pytest
+
+        code = int(pytest.main(["-q", "-p", "no:cacheprovider", "-p", "no:cov", "-x", *selected]))
+    except BaseException:
+        code = CHILD_CRASHED
+    finally:
+        try:
+            os.write(write_fd, bytes([min(code, 255)]))
+        except OSError:
+            pass
         os._exit(0)
 
 

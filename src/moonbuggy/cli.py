@@ -27,7 +27,7 @@ from .report import (
     summarise,
     write_jsonl,
 )
-from .runner import run_mutants
+from .runner import run_mutants, run_session
 
 DEFAULT_OUTPUT_DIR = ".moonbuggy"
 
@@ -120,13 +120,20 @@ def _run(args):
         print(f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files", file=sys.stderr)
         print("moonbuggy: running coverage pass...", file=sys.stderr)
 
-    linemap = run_coverage_pass(project_dir, source_dir)
-
-    results = run_mutants(
-        project_dir, mutants, linemap,
-        timeout=args.timeout, xdist_workers=args.workers, cache=cache,
-        jobs=args.jobs or None,
-    )
+    if args.workers:
+        # xdist needs real subprocesses, so the warm single-pass session does
+        # not apply; fall back to the separate coverage pass and cold forks.
+        linemap = run_coverage_pass(project_dir, source_dir)
+        results = run_mutants(
+            project_dir, mutants, linemap,
+            timeout=args.timeout, xdist_workers=args.workers, cache=cache,
+            jobs=args.jobs or None,
+        )
+    else:
+        _, results = run_session(
+            project_dir, mutants, source_dir,
+            timeout=args.timeout, cache=cache, jobs=args.jobs or None,
+        )
 
     jsonl_path = output_dir / "results.jsonl"
     write_jsonl(results, jsonl_path)

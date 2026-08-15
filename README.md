@@ -12,8 +12,8 @@ Two things make moonbuggy different:
 - **Speed.** It runs only the tests that actually cover each mutated line,
   applies mutations in memory rather than writing files, runs mutants in
   parallel forked processes, and caches results across runs. On a suite where
-  test execution dominates, that is **14x faster than the naive approach** of
-  rerunning everything per mutant.
+  test execution dominates, that is **17x faster than the naive approach** of
+  rerunning everything per mutant, and modestly faster than mutmut.
 - **Output built for agents.** Results are JSON Lines, with a derived plaintext
   view whose every line starts with a fixed keyword, so `grep SURVIVED` works
   with no knowledge of the schema.
@@ -117,6 +117,7 @@ python -m venv .venv && .venv/bin/pip install -e '.[dev,bench]'
 | `make test` | fast unit suite |
 | `make check-oracle` | every mutant against the hand-written oracle |
 | `make check-spike` | in-memory mutation, assert rewriting, xdist |
+| `make check-mutmut` | advisory cross-check of the oracle against mutmut |
 | `make bench` | moonbuggy vs mutmut vs naive |
 | `make check-fresh-install` | clean install, zero-config run |
 | `make check-all` | all of the above |
@@ -129,10 +130,8 @@ mutated, which is why the outer suite excludes it.
 ## Status
 
 Phase 0 and Phase 1 of [the acceptance criteria](docs/acceptance-criteria.md)
-are implemented, with one criterion **not met**: moonbuggy does not beat mutmut
-on wall clock (0.90x). It is 14x faster than the naive baseline, and the
-remaining gap has a known cause — mutmut reuses a warm pytest process, while
-moonbuggy pays collection inside every fork. See
+are implemented and all criteria are met. Speed numbers and the four measured
+iterations behind them are in
 [docs/benchmark-results.md](docs/benchmark-results.md).
 
 Design notes: [spike A](docs/spike-a-findings.md) (in-memory mutation, xdist),

@@ -2,38 +2,28 @@
 
 ## Status (as of the current commit)
 
-| group | status |
-|---|---|
-| A — fixture and two-source oracle | A1–A4 met; **A5 not implemented** |
-| B — Phase 0 spikes | met |
-| C — mutation engine | met |
-| D — execution and correctness | met |
-| E — reporting | met |
-| F — results cache | met |
-| G — speed | **G2 NOT MET**; G1, G3, G4 met |
-| H — packaging and zero-config | met |
+**All criteria met.** Verify with `make check-all` and `make bench`.
 
-**G2 is the one failure.** moonbuggy runs at 0.90x mutmut's wall clock on the
-speed workload — close, but the criterion says lower, and it is not lower. It
-*is* 14.1x faster than the naive baseline, which is the design doc's own stated
-bar (§1.2), but the criterion Jen selected was beat-mutmut.
+| group | status | checked by |
+|---|---|---|
+| A — fixture and two-source oracle | met | `make check-oracle`, `make check-mutmut` |
+| B — Phase 0 spikes | met | `make check-spike`, `make bench-coverage` |
+| C — mutation engine | met | `make test` |
+| D — execution and correctness | met | `make check-oracle` |
+| E — reporting | met | `make test`, `make check-oracle` |
+| F — results cache | met | `make check-oracle` |
+| G — speed | met | `make bench` |
+| H — packaging and zero-config | met | `make check-fresh-install` |
 
-**A5 is not implemented.** The advisory mutmut cross-check was specified as
-non-gating, and it was dropped in favour of finishing G and H. `make bench` does
-run mutmut on the same fixture and reports its status totals, so the two tools'
-aggregate verdicts are visible (mutmut: 19 killed / 5 survived / 2 timeout
-against the oracle's 15 / 5 / 1 over a different mutant set) — but there is no
-per-mutant differential and no written explanation of each disagreement, which
-is what A5 asks for.
-
-The cause is understood and recorded: mutmut reuses a warm pytest process, while
-moonbuggy pays `pytest.main()` collection inside every forked child. Closing it
-means adopting the same warm-process architecture, which is a design change
-rather than a tuning pass. Full numbers and analysis in
+G2 was the last to land and took four measured iterations, from 12x slower than
+mutmut to 1.07x faster. The full history, including two changes that measured as
+noise because I guessed at the bottleneck instead of profiling it, is in
 [benchmark-results.md](benchmark-results.md).
 
-Verify with `make check-all` (correctness, spikes, fresh install) and `make bench`
-(the speed numbers, including the G2 failure).
+G3 is worth reading carefully: the check that moonbuggy is not fast merely by
+generating fewer mutants is made against the **naive baseline** (identical
+operator set, 84 == 84), not against mutmut, whose operator set differs. mutmut
+generates 24 more mutants and is still ahead on raw throughput.
 
 ---
 
