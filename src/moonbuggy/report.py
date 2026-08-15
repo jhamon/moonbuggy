@@ -1,0 +1,100 @@
+"""Reporting: canonical JSONL, plus a plaintext view derived from it.
+
+Section 5 assumes the reader is an agent grepping output rather than a human
+reading a dashboard, which makes the format the feature:
+
+- A fixed leading status keyword, so `grep SURVIVED` works with zero knowledge
+  of the schema.
+- key=value tokens rather than prose, so naive whitespace splitting parses it.
+- Exactly one line per mutant, so grep and awk stay usable. The diff is
+  deliberately NOT inlined -- `moonbuggy show <id>` retrieves it. This settles
+  the first open question in 5.3 in favour of the doc's stated lean.
+
+The plaintext is *derived from* the JSONL rather than authored alongside it, so
+the two cannot drift apart. That is criterion E3, and it is why render_line
+takes a record dict rather than a Result.
+"""
+
+import json
+
+STATUS_KEYWORDS = {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
+
+# Printed when a field has no value. A literal placeholder rather than an empty
+# string keeps the token count per line constant, so whitespace-splitting
+# parsers do not have to special-case missing fields.
+ABSENT = "-"
+
+
+def record_for(result):
+    """The canonical record for one mutant. This is the JSONL line's content."""
+    mutant = result.mutant
+    return {
+        "id": mutant.id,
+        "status": result.status,
+        "file": mutant.module,
+        "line": mutant.line,
+        "operator": mutant.operator,
+        # Category is the operator name rather than a second taxonomy. Section
+        # 5.3 defers designing a separate reason taxonomy until real
+        # survived-mutant data exists to design it against, and inventing one
+        # here would be exactly the speculative choice that defers.
+        "category": mutant.operator,
+        "nearest_test": result.nearest_test,
+        "tests_run": result.tests_run,
+        "duration": round(result.duration, 4),
+        "module_level": mutant.module_level,
+        "suppressed": mutant.suppressed,
+        "diff": f"- {mutant.original}\n+ {mutant.mutated}",
+    }
+
+
+def write_jsonl(results, path):
+    """Stream records to disk, one complete line at a time.
+
+    Flushed per record so a run killed partway leaves only whole, parseable
+    lines behind (criterion E2). A half-written final record would break every
+    downstream reader, which matters more here than the cost of the flush.
+    """
+    with open(path, "w") as handle:
+        for result in results:
+            handle.write(json.dumps(record_for(result), sort_keys=True) + "\n")
+            handle.flush()
+
+
+def read_jsonl(path):
+    with open(path) as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+def render_line(record):
+    """One plaintext line for one record. Never contains a newline."""
+    return " ".join(
+        [
+            f"{record['status']:<9}",
+            f"{record['file']}:{record['line']}",
+            record["category"],
+            f"line={record['line']}",
+            f"nearest_test={record['nearest_test'] or ABSENT}",
+            f"tests_run={record['tests_run']}",
+            f"id={record['id']}",
+        ]
+    )
+
+
+def plaintext_from_records(records):
+    return "\n".join(render_line(record) for record in records)
+
+
+def summarise(records):
+    """Counts per status, for the run's final line."""
+    counts = {keyword: 0 for keyword in sorted(STATUS_KEYWORDS)}
+    for record in records:
+        counts[record["status"]] = counts.get(record["status"], 0) + 1
+    return counts
+
+
+def find_record(records, mutant_id):
+    for record in records:
+        if record["id"] == mutant_id:
+            return record
+    return None

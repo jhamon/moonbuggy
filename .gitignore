@@ -9,3 +9,4 @@ build/
 .moonbuggy-cache/
 mutants/
 .mutmut-cache
+.moonbuggy/

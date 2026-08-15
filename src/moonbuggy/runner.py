@@ -31,42 +31,70 @@ class Result:
     tests_run: int
     duration: float
     nearest_test: str | None = None
+    from_cache: bool = False
+    """Runtime metadata, deliberately kept OUT of the JSONL record: criterion F3
+    requires a fully cached run's output to match a cold run's, and a field that
+    differs by definition would defeat that check."""
 
 
-def run_mutants(project_dir, mutants, linemap, timeout=30, python=None, xdist_workers=0):
+def run_mutants(
+    project_dir, mutants, linemap, timeout=30, python=None, xdist_workers=0, cache=None
+):
     """Run every mutant against its selected tests. Returns a list of Results."""
     project_dir = Path(project_dir)
     python = python or sys.executable
     return [
-        run_one(project_dir, mutant, linemap, timeout, python, xdist_workers)
+        run_one(project_dir, mutant, linemap, timeout, python, xdist_workers, cache)
         for mutant in mutants
     ]
 
 
-def run_one(project_dir, mutant, linemap, timeout, python, xdist_workers=0):
+def run_one(project_dir, mutant, linemap, timeout, python, xdist_workers=0, cache=None):
     if mutant.suppressed:
         return Result(mutant, "SKIPPED", 0, 0.0)
 
     selected = sorted(linemap.select_for(mutant))
     nearest = selected[0] if selected else None
 
+    if cache is not None:
+        key = cache.key_for(mutant, project_dir, selected)
+        hit = cache.get(key)
+        if hit is not None:
+            return Result(
+                mutant,
+                hit["status"],
+                tests_run=hit["tests_run"],
+                duration=0.0,
+                nearest_test=hit["nearest_test"],
+                from_cache=True,
+            )
+
     if not selected:
         # No test executes this line. Nothing can kill the mutant, so there is
         # nothing to run -- but it is still a finding (an untested line), not an
         # exclusion, so it is reported SURVIVED rather than SKIPPED.
-        return Result(mutant, "SURVIVED", 0, 0.0, nearest_test=None)
+        result = Result(mutant, "SURVIVED", 0, 0.0, nearest_test=None)
+    else:
+        started = time.perf_counter()
+        status = _run_pytest(project_dir, mutant, selected, timeout, python, xdist_workers)
+        result = Result(
+            mutant,
+            status,
+            tests_run=len(selected),
+            duration=time.perf_counter() - started,
+            nearest_test=nearest if status == "SURVIVED" else None,
+        )
 
-    started = time.perf_counter()
-    status = _run_pytest(project_dir, mutant, selected, timeout, python, xdist_workers)
-    duration = time.perf_counter() - started
-
-    return Result(
-        mutant,
-        status,
-        tests_run=len(selected),
-        duration=duration,
-        nearest_test=nearest if status == "SURVIVED" else None,
-    )
+    if cache is not None:
+        cache.put(
+            key,
+            {
+                "status": result.status,
+                "tests_run": result.tests_run,
+                "nearest_test": result.nearest_test,
+            },
+        )
+    return result
 
 
 def _run_pytest(project_dir, mutant, selected, timeout, python, xdist_workers):
