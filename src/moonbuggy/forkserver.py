@@ -291,6 +291,13 @@ def _warm_session_host(
         size = int.from_bytes(_read_exactly(jobs_read, 8), "big")
         jobs = pickle.loads(_read_exactly(jobs_read, size))
 
+        # Read every module under mutation once, here, so the grandchildren
+        # inherit the text instead of each opening the file for itself. The
+        # host is the only place this can pay off -- see srcio._SOURCE_CACHE.
+        from .srcio import prewarm
+
+        prewarm({mutant.module for mutant, _ in jobs})
+
         def emit(index, status, test_seconds, child_wall):
             os.write(
                 status_write,

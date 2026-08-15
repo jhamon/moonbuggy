@@ -23,6 +23,7 @@ the rest of the file has to stay exactly where it was, because mutant splicing
 and line attribution are both offset-based.
 """
 
+import os
 import re
 import tokenize
 from pathlib import Path
@@ -59,6 +60,14 @@ def detect_encoding(path):
         raise SourceError(f"cannot determine the encoding of {path}: {error}") from error
 
 
+# Keyed by (path, mtime, size), so an edit during a run is a miss rather than a
+# stale hit. Hypothesis H5 in docs/perf-hypotheses.md: every mutant reads its
+# module's source, and every mutant runs in its own forked process -- so a
+# process-local cache is worth nothing on its own. It pays only because the
+# warm host fills it BEFORE forking, and every grandchild inherits it.
+_SOURCE_CACHE = {}
+
+
 def read_source(path):
     """Read a Python source file as text, honouring its declared encoding.
 
@@ -67,6 +76,38 @@ def read_source(path):
     :raises SourceError: if the file cannot be read or cannot be decoded with
         the encoding it declares.
     """
+    try:
+        stat = os.stat(path)
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        key = None
+
+    if key is not None and key in _SOURCE_CACHE:
+        return _SOURCE_CACHE[key]
+
+    text = _read_source_uncached(path)
+    if key is not None:
+        _SOURCE_CACHE[key] = text
+    return text
+
+
+def prewarm(paths):
+    """Fill the source cache for `paths`, ignoring any that cannot be read.
+
+    Called in the warm host once the job list is known, so the cost of reading
+    each module is paid once for the whole run rather than once per mutant.
+    Failures are ignored here on purpose: this is an optimisation, and the
+    grandchild that actually needs the file will raise a real SourceError with
+    a message about that file.
+    """
+    for path in paths:
+        try:
+            read_source(path)
+        except SourceError:
+            pass
+
+
+def _read_source_uncached(path):
     try:
         with tokenize.open(str(path)) as handle:
             return handle.read()
