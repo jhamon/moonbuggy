@@ -6,9 +6,9 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle
+.PHONY: test check-oracle check-spike check-all
 
-## Default suite. Fast; excludes the per-mutant subprocess tests.
+## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
 	$(PYTHON) -m pytest
 
@@ -16,4 +16,12 @@ test:
 ## Runs every generated mutant against the full fixture suite under plain
 ## pytest, and checks each result against the hand-written oracle labels.
 check-oracle:
-	$(PYTHON) -m pytest -m slow -v
+	$(PYTHON) -m pytest -m slow tests/test_naive_oracle.py -v
+
+## Criteria B1/B2: the Phase 0 spike gate.
+## In-memory mutation coexisting with pytest's assert rewriting, reaching xdist
+## workers, with the negative test that proves the xdist check has teeth.
+check-spike:
+	$(PYTHON) -m pytest -m slow tests/test_spike_inmemory.py -v
+
+check-all: test check-oracle check-spike
