@@ -31,6 +31,7 @@ import ast
 import linecache
 
 from .inmemory import mutated_source
+from .srcio import strip_coding_cookie
 
 
 class SwapFailed(Exception):
@@ -38,8 +39,21 @@ class SwapFailed(Exception):
 
 
 def apply_in_place(module, path, line, mutated_text):
-    """Mutate an imported module object. Raises SwapFailed if it cannot."""
+    """Mutate an imported module object in place.
+
+    :param module: the live module object, already imported.
+    :param path: the module's file path.
+    :param line: 1-based line number to replace.
+    :param mutated_text: the replacement line.
+    :raises SwapFailed: if the mutation cannot be applied in place, so the
+        caller falls back to the import-hook path rather than reporting a
+        status for a mutation that never took effect.
+    """
     source = mutated_source(path, line, mutated_text)
+    # `compile` and `ast.parse` reject a coding declaration inside a str, so a
+    # module with a PEP 263 cookie would raise here and drop the whole batch to
+    # the cold path. Neutralising the cookie keeps every offset intact.
+    source = strip_coding_cookie(source)
     tree = ast.parse(source)
     qualname = _enclosing_function_path(tree, line)
 
@@ -81,6 +95,18 @@ def _swap_code(module, source, path, qualname):
     target = _resolve(module, qualname)
     if target is None:
         raise SwapFailed(f"no live function object for {'.'.join(qualname)}")
+
+    # A decorator can leave a wrapper where the function used to be, and the
+    # wrapper's code object is not the one just compiled. Assigning anyway
+    # would either raise on a freevars mismatch or -- worse -- succeed and
+    # replace the wrapper's body with the wrapped function's. Refusing here
+    # sends the batch to the import-hook path, which handles decorators fine.
+    if target.__code__.co_name != new_code.co_name:
+        raise SwapFailed(
+            f"{'.'.join(qualname)} resolves to {target.__code__.co_name}, "
+            "probably a decorator wrapper"
+        )
+
     try:
         target.__code__ = new_code
     except (AttributeError, ValueError, TypeError) as error:
@@ -88,34 +114,47 @@ def _swap_code(module, source, path, qualname):
 
 
 def _enclosing_function_path(tree, line):
-    """Qualname path of the innermost function containing `line`, or None.
+    """Qualname path of the OUTERMOST function containing `line`, or None.
+
+    Outermost rather than innermost, and that is the whole trick for nested
+    functions. A closure has no live object to swap -- `count_to.work` is not an
+    attribute of anything, it is a code object in `count_to`'s constants, built
+    afresh on every call. Recompiling the *enclosing* function from the mutated
+    source produces a code object whose nested constants are already mutated,
+    so swapping the outer function's `__code__` reaches the inner one.
+
+    Enclosing classes stay in the path, since `Cls.method` really is resolvable
+    both as an attribute and as a nested code object.
+
+    The known limit: a closure created *before* the swap keeps the code it was
+    built with. That is a real hole, and it is why this reports failure loudly
+    everywhere else -- a mutation that does not take effect reads as SURVIVED.
 
     None means the line is at module or class-body level, which executes at
     import time and therefore needs the exec mechanism instead.
     """
-    best = None
+    found = None
 
-    def walk(node, path):
-        nonlocal best
+    def walk(node, path, inside_function):
+        nonlocal found
         for child in ast.iter_child_nodes(node):
             name = getattr(child, "name", None)
-            is_scope = isinstance(
-                child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-            )
+            is_function = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+            is_scope = is_function or isinstance(child, ast.ClassDef)
             child_path = path + [name] if (is_scope and name) else path
 
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if is_function and not inside_function:
                 start, end = child.lineno, child.end_lineno or child.lineno
                 # The `def` line itself (decorators, signature) is not part of
                 # the body's code object, so a mutation there cannot be swapped.
                 body_start = child.body[0].lineno if child.body else start
-                if body_start <= line <= end:
-                    if best is None or len(child_path) > len(best):
-                        best = child_path
-            walk(child, child_path)
+                if body_start <= line <= end and found is None:
+                    found = child_path
 
-    walk(tree, [])
-    return best
+            walk(child, child_path, inside_function or is_function)
+
+    walk(tree, [], False)
+    return found
 
 
 def _find_code(code, qualname):

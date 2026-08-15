@@ -28,10 +28,19 @@ import sys
 from importlib.machinery import PathFinder, SourceFileLoader
 from pathlib import Path
 
+from .srcio import detect_encoding, encode_source, read_source
+
 
 def mutated_source(path, line, mutated_text):
-    """The file's source with one line replaced, keeping its indentation."""
-    original = Path(path).read_text()
+    """The file's source with one line replaced, keeping its indentation.
+
+    :param path: the module file being mutated.
+    :param line: 1-based line number to replace.
+    :param mutated_text: the replacement line, stripped of indentation.
+    :returns: the full mutated source as ``str``.
+    :raises SourceError: if the file cannot be decoded (see :mod:`moonbuggy.srcio`).
+    """
+    original = read_source(path)
     lines = original.splitlines(keepends=True)
     index = line - 1
     target = lines[index]
@@ -56,14 +65,19 @@ class _MutatingLoader(SourceFileLoader):
     the .py files really are untouched. See docs/spike-a-findings.md.
     """
 
-    def __init__(self, fullname, path, source):
+    def __init__(self, fullname, path, source, encoding=None):
         super().__init__(fullname, path)
         self._source = source
         self._source_path = str(Path(path).resolve())
+        # The bytes handed back are decoded by the import machinery using the
+        # file's own PEP 263 rules, so they have to be encoded the way the file
+        # declares. Encoding a latin-1 module as UTF-8 produces a module that
+        # imports without error and contains different characters (M1.4.7).
+        self._encoding = encoding or "utf-8"
 
     def get_data(self, path):
         if str(Path(path).resolve()) == self._source_path:
-            return self._source.encode("utf-8")
+            return encode_source(self._source, self._encoding)
         # Anything else is a bytecode path. Refusing it forces compilation from
         # the mutated source rather than any cache lying around on disk.
         raise OSError(f"moonbuggy: not reading cached bytecode for {path}")
@@ -79,9 +93,10 @@ class _MutatingLoader(SourceFileLoader):
 class _MutationFinder:
     """Serves one specific file mutated; invisible for everything else."""
 
-    def __init__(self, path, source):
+    def __init__(self, path, source, encoding=None):
         self.path = str(Path(path).resolve())
         self.source = source
+        self.encoding = encoding
 
     def find_spec(self, fullname, path=None, target=None):
         # PathFinder is consulted directly rather than by re-entering
@@ -92,24 +107,32 @@ class _MutationFinder:
         if str(Path(spec.origin).resolve()) != self.path:
             return None
         return importlib.util.spec_from_file_location(
-            fullname, spec.origin, loader=_MutatingLoader(fullname, spec.origin, self.source)
+            fullname,
+            spec.origin,
+            loader=_MutatingLoader(fullname, spec.origin, self.source, self.encoding),
         )
 
 
 def install(path, line, mutated_text):
     """Apply a mutation to `path` for every subsequent import in this process.
 
-    Returns the mutated source. Safe to call before the module is imported,
-    which is the normal case: pytest_configure runs before test collection
-    imports anything under test.
+    Safe to call before the module is imported, which is the normal case:
+    pytest_configure runs before test collection imports anything under test.
+
+    :param path: the module file to mutate.
+    :param line: 1-based line number to replace.
+    :param mutated_text: the replacement line.
+    :returns: the mutated source as ``str``.
+    :raises SourceError: if the file cannot be decoded.
     """
     source = mutated_source(path, line, mutated_text)
     resolved = str(Path(path).resolve())
+    encoding = detect_encoding(resolved)
 
     _populate_linecache(resolved, source)
     _evict_already_imported(resolved)
 
-    sys.meta_path.insert(0, _MutationFinder(resolved, source))
+    sys.meta_path.insert(0, _MutationFinder(resolved, source, encoding))
     return source
 
 

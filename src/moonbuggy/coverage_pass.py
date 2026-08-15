@@ -17,7 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import forkserver
+from . import baseline, forkserver
 
 
 class LineMap:
@@ -104,6 +104,67 @@ def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
         if code not in (0, 1):
             raise CoveragePassError(code, stdout, stderr)
         return read_coverage_data(data_file, project_dir)
+
+
+def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=600):
+    """Coverage pass plus flakiness probe, for the paths that cannot fork.
+
+    Same evidence as the warm session gathers (see
+    :func:`moonbuggy.forkserver.run_warm_session`), collected the slow way: the
+    suite runs ``1 + probes`` times as separate processes, each writing its
+    per-test outcomes to a file the parent reads back.
+
+    :param project_dir: project root.
+    :param source_dir: directory to measure coverage of.
+    :param probes: extra unmutated runs used to detect flaky tests (M1.4.3).
+    :returns: ``(linemap, flaky_test_ids)``.
+    :raises BaselineError: if no tests ran or the suite is already failing.
+    :raises CoveragePassError: if pytest could not complete at all.
+    """
+    project_dir = Path(project_dir)
+    python = python or sys.executable
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        data_file = tmp / "coverage-data"
+        runs = []
+
+        for index in range(1 + probes):
+            outcomes_file = tmp / f"outcomes-{index}.json"
+            args = ["-q", "-p", "no:cacheprovider", "-p", "moonbuggy.baseline"]
+            if index == 0:
+                args += [f"--cov={source_dir}", "--cov-context=test", "--cov-report="]
+            else:
+                # Probe runs need no instrumentation: they exist to observe
+                # outcomes, and coverage would only slow them down.
+                args += ["-p", "no:cov"]
+
+            env = {"COVERAGE_FILE": str(data_file), **baseline.probe_env(outcomes_file)}
+            code = _run_pytest(project_dir, args, env, python, timeout)
+            if code not in (0, 1, 5):
+                raise CoveragePassError(code, "", "")
+            runs.append(baseline.read_outcomes(outcomes_file))
+
+        flaky = baseline.check(runs)
+        return read_coverage_data(data_file, project_dir), flaky
+
+
+def _run_pytest(project_dir, args, env, python, timeout):
+    if forkserver.available():
+        code = forkserver.run_pytest_in_fork(project_dir, args, env, timeout)
+        if code is None:
+            raise CoveragePassError(-1, "coverage pass timed out", "")
+        return code
+
+    import os
+
+    full_env = dict(os.environ)
+    full_env.update(env)
+    proc = subprocess.run(
+        [python, "-m", "pytest", *args],
+        cwd=project_dir, capture_output=True, text=True, env=full_env,
+    )
+    return proc.returncode
 
 
 class CoveragePassError(RuntimeError):

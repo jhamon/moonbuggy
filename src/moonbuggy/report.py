@@ -61,6 +61,41 @@ def write_jsonl(results, path):
             handle.flush()
 
 
+class StreamingJSONL:
+    """Write records as they are produced, keeping the file valid throughout.
+
+    Criterion M1.4.13: a run killed mid-flight has to leave something a later
+    reader can parse, not a truncated final line. Every record is written and
+    flushed whole, so the file is a valid JSONL document at every instant
+    between writes -- it is only ever *incomplete*, which readers can see for
+    themselves by counting lines.
+
+    Records arrive in completion order rather than mutant order. That is fine
+    for a partial file, and the caller rewrites the whole thing in canonical
+    order once the run finishes.
+    """
+
+    def __init__(self, path):
+        self.path = path
+        self._handle = None
+        self.written = 0
+
+    def __enter__(self):
+        self._handle = open(self.path, "w")
+        return self
+
+    def write(self, result):
+        """Append one result. Safe to call from a runner callback."""
+        self._handle.write(json.dumps(record_for(result), sort_keys=True) + "\n")
+        self._handle.flush()
+        self.written += 1
+
+    def __exit__(self, *exc_info):
+        self._handle.close()
+        self._handle = None
+        return False
+
+
 def read_jsonl(path):
     with open(path) as handle:
         return [json.loads(line) for line in handle if line.strip()]

@@ -150,7 +150,10 @@ def run_pytest_in_fork(cwd, args, env_updates, timeout):
         os.close(read_fd)
 
 
-def run_warm_session(project_dir, cov_args, timeout, concurrency, build_jobs, apply_swap):
+def run_warm_session(
+    project_dir, cov_args, timeout, concurrency, build_jobs, apply_swap,
+    probe_args=None, probes=0, on_result=None,
+):
     """One suite run that both builds the coverage map and warms the process.
 
     Previously these were two separate full runs of the test suite: a coverage
@@ -159,13 +162,27 @@ def run_warm_session(project_dir, cov_args, timeout, concurrency, build_jobs, ap
     spent executing the same tests twice.
 
     They are the same work, so this does it once. The host runs the suite under
-    coverage, says READY, and waits. The parent reads the coverage data, builds
-    the line->test map, decides which tests each mutant needs, and sends the
-    jobs back. The host then forks a grandchild per mutant from a process where
-    every test module is already imported.
+    coverage, sends back what it observed, and waits. The parent reads the
+    coverage data, checks the baseline is green, builds the line->test map,
+    decides which tests each mutant needs, and sends the jobs back. The host
+    then forks a grandchild per mutant from a process where every test module is
+    already imported.
 
-    Returns None if the host cannot complete, so the caller falls back rather
-    than reporting results it did not actually produce.
+    :param project_dir: project root; the host chdirs here.
+    :param cov_args: pytest arguments for the instrumented baseline run.
+    :param timeout: seconds before one mutant is called TIMEOUT.
+    :param concurrency: how many grandchildren run at once.
+    :param build_jobs: called in the PARENT with the baseline evidence; returns
+        the ``(mutant, selected_tests)`` jobs to run. May raise, in which case
+        the host is torn down and the exception propagates.
+    :param apply_swap: called in each grandchild to apply its mutation.
+    :param probe_args: pytest arguments for the extra unmutated probe runs.
+    :param probes: how many probe runs to make (M1.4.3).
+    :param on_result: called as ``(index, status)`` the moment each mutant
+        finishes, so a run killed mid-flight has already reported what it knew.
+    :returns: ``(jobs, statuses)``, or None if the host could not complete --
+        so the caller falls back rather than reporting results it did not
+        actually produce.
     """
     jobs_read, jobs_write = os.pipe()
     status_read, status_write = os.pipe()
@@ -175,41 +192,50 @@ def run_warm_session(project_dir, cov_args, timeout, concurrency, build_jobs, ap
         os.close(jobs_write)
         os.close(status_read)
         _warm_session_host(
-            project_dir, cov_args, timeout, concurrency, apply_swap, jobs_read, status_write
+            project_dir, cov_args, timeout, concurrency, apply_swap,
+            jobs_read, status_write, probe_args, probes,
         )
 
     os.close(jobs_read)
     os.close(status_write)
     try:
-        if os.read(status_read, 1) != b"R":
+        try:
+            size = int.from_bytes(_read_exactly(status_read, 8), "big")
+            baseline = pickle.loads(_read_exactly(status_read, size))
+        except (EOFError, OSError, pickle.UnpicklingError):
             return None
 
-        jobs = build_jobs()
+        jobs = build_jobs(baseline)
         payload = pickle.dumps(jobs)
         os.write(jobs_write, len(payload).to_bytes(8, "big"))
         os.write(jobs_write, payload)
         os.close(jobs_write)
         jobs_write = None
 
-        collected = b""
-        while len(collected) < len(jobs):
-            chunk = os.read(status_read, len(jobs) - len(collected))
-            if not chunk:
+        statuses = [None] * len(jobs)
+        done = 0
+        while done < len(jobs):
+            try:
+                frame = _read_exactly(status_read, _FRAME_SIZE)
+            except EOFError:
                 return None
-            collected += chunk
-        return jobs, [_STATUS_BY_CODE.get(code, "SUSPICIOUS") for code in collected]
+            index = int.from_bytes(frame[:4], "big")
+            status = _STATUS_BY_CODE.get(frame[4], "SUSPICIOUS")
+            statuses[index] = status
+            done += 1
+            if on_result is not None:
+                on_result(index, status)
+        return jobs, statuses
     finally:
         if jobs_write is not None:
             os.close(jobs_write)
         os.close(status_read)
-        try:
-            os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
+        _kill(pid)
 
 
 def _warm_session_host(
-    project_dir, cov_args, timeout, concurrency, apply_swap, jobs_read, status_write
+    project_dir, cov_args, timeout, concurrency, apply_swap, jobs_read, status_write,
+    probe_args, probes,
 ):
     try:
         os.chdir(project_dir)
@@ -219,14 +245,32 @@ def _warm_session_host(
 
         import pytest
 
-        pytest.main(cov_args)
-        os.write(status_write, b"R")
+        from .baseline import OutcomeRecorder
+
+        runs = []
+        recorder = OutcomeRecorder()
+        pytest.main(cov_args, plugins=[recorder])
+        runs.append(dict(recorder.outcomes))
+
+        # Extra unmutated runs, from the same warm process. Their only purpose
+        # is to disagree with the first one: a test whose outcome varies here
+        # cannot be trusted to report on a mutation either (M1.4.3).
+        for _ in range(probes):
+            probe = OutcomeRecorder()
+            pytest.main(probe_args or cov_args, plugins=[probe])
+            runs.append(dict(probe.outcomes))
+
+        payload = pickle.dumps({"runs": runs})
+        os.write(status_write, len(payload).to_bytes(8, "big"))
+        os.write(status_write, payload)
 
         size = int.from_bytes(_read_exactly(jobs_read, 8), "big")
         jobs = pickle.loads(_read_exactly(jobs_read, size))
 
-        statuses = _fork_grandchildren(jobs, timeout, concurrency, apply_swap)
-        os.write(status_write, bytes(_CODE_BY_STATUS[s] for s in statuses))
+        def emit(index, status):
+            os.write(status_write, index.to_bytes(4, "big") + bytes([_CODE_BY_STATUS[status]]))
+
+        _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit)
     except BaseException:
         pass
     finally:
@@ -292,6 +336,11 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
 _STATUS_BY_CODE = {0: "SURVIVED", 1: "KILLED", 2: "TIMEOUT", 3: "SUSPICIOUS"}
 _CODE_BY_STATUS = {v: k for k, v in _STATUS_BY_CODE.items()}
 
+# One streamed result: a 4-byte job index plus a 1-byte status code. Indexed
+# rather than positional because grandchildren finish out of order, and 4 bytes
+# rather than 2 because a large project really can exceed 65535 mutants.
+_FRAME_SIZE = 5
+
 
 def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd):
     try:
@@ -314,7 +363,12 @@ def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, w
         os._exit(0)
 
 
-def _fork_grandchildren(jobs, timeout, concurrency, apply_swap):
+def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
+    """Fork one grandchild per job, at most `concurrency` at a time.
+
+    :param emit: if given, called as ``(index, status)`` as each grandchild is
+        reaped, so results can be streamed rather than batched at the end.
+    """
     statuses = [None] * len(jobs)
     pending = list(enumerate(jobs))
     running = {}
@@ -339,11 +393,15 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap):
                 statuses[index] = _status_from(read_fd)
                 os.close(read_fd)
                 del running[pid]
+                if emit is not None:
+                    emit(index, statuses[index])
             elif time.monotonic() > deadline:
                 _kill(pid)
                 statuses[index] = "TIMEOUT"
                 os.close(read_fd)
                 del running[pid]
+                if emit is not None:
+                    emit(index, "TIMEOUT")
 
         if running:
             time.sleep(0.002)

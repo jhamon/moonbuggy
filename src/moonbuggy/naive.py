@@ -21,6 +21,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .srcio import detect_encoding, encode_source, read_source
+
 # pytest exit codes. 1 means tests failed, which is a kill. 2-5 mean pytest
 # itself could not complete -- a collection error, an internal error, a usage
 # error, or nothing collected. Those are not clean kills, and section 5.4
@@ -71,10 +73,13 @@ def _apply(path, mutant):
     line being replaced -- writing it flush-left would be a syntax error inside
     any function body.
     """
-    lines = path.read_text().splitlines(keepends=True)
+    encoding = detect_encoding(path)
+    lines = read_source(path).splitlines(keepends=True)
     index = mutant.line - 1
     original = lines[index]
     indent = original[: len(original) - len(original.lstrip())]
     newline = "\n" if original.endswith("\n") else ""
     lines[index] = f"{indent}{mutant.mutated}{newline}"
-    path.write_text("".join(lines))
+    # Written back in the encoding the file declares, so a mutated latin-1
+    # module still matches its own coding cookie.
+    path.write_bytes(encode_source("".join(lines), encoding))

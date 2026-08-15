@@ -23,6 +23,7 @@ tighten with evidence.
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 # Bumped whenever the key derivation or record shape changes. An old cache is
@@ -69,10 +70,19 @@ class ResultCache:
         self._entries[key] = record
 
     def save(self):
+        """Persist the cache, atomically.
+
+        Written to a sibling temp file and renamed, so a run killed during the
+        save leaves the previous cache intact rather than a half-written file
+        (criterion M1.4.13). `os.replace` is atomic within a filesystem, and the
+        temp file is deliberately a sibling so it is on the same one.
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
+        temporary = self.path.with_name(self.path.name + ".tmp")
+        temporary.write_text(
             json.dumps({"version": CACHE_VERSION, "entries": self._entries}, sort_keys=True)
         )
+        os.replace(temporary, self.path)
 
     def clear(self):
         self._entries = {}

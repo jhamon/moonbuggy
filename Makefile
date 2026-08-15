@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike check-mutmut bench bench-coverage check-fresh-install check-all
+.PHONY: test check-oracle check-spike check-mutmut check-robustness bench bench-coverage check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -29,6 +29,12 @@ check-spike:
 bench:
 	$(PYTHON) scripts/bench_mutation.py
 
+## Milestone M1.4: hostile inputs.
+## One test per row of the M1.4 table -- syntax errors, flaky tests, red
+## baselines, threads, self-exiting tests, odd encodings, crash recovery.
+check-robustness:
+	$(PYTHON) -m pytest -m slow tests/test_robustness.py -v
+
 ## Criteria H1/H2: clean install, then bare `moonbuggy` on an unseen project.
 check-fresh-install:
 	./scripts/check_fresh_install.sh
@@ -38,7 +44,7 @@ check-fresh-install:
 check-mutmut:
 	$(PYTHON) scripts/check_mutmut_differential.py
 
-check-all: test check-oracle check-spike check-mutmut check-fresh-install
+check-all: test check-oracle check-spike check-robustness check-mutmut check-fresh-install
 
 ## Criterion B3: coverage mechanism benchmark.
 ## Prints wall-clock and map content for each candidate. See docs/spike-b-findings.md.

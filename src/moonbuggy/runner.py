@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import forkserver
+from .baseline import check as check_baseline
 from .inmemory import install
 from .plugin import MUTANT_ENV_VAR
 
@@ -42,9 +43,15 @@ class Result:
 
 def run_mutants(
     project_dir, mutants, linemap, timeout=30, python=None, xdist_workers=0,
-    cache=None, use_fork=None, jobs=None,
+    cache=None, use_fork=None, jobs=None, flaky=(), on_result=None,
 ):
-    """Run every mutant against its selected tests. Returns a list of Results."""
+    """Run every mutant against its selected tests.
+
+    :param flaky: test node ids whose outcome is not reproducible; mutants
+        selecting one are settled SUSPICIOUS rather than run (M1.4.3).
+    :param on_result: called with each :class:`Result` as it is settled.
+    :returns: a list of :class:`Result`, one per mutant, in the input order.
+    """
     project_dir = Path(project_dir)
     python = python or sys.executable
 
@@ -57,40 +64,31 @@ def run_mutants(
         jobs = max(1, (os.cpu_count() or 2) - 1)
     if use_fork:
         forkserver.warm_up()
-        return _run_forked_batch(project_dir, mutants, linemap, timeout, cache, jobs)
+        return _run_forked_batch(
+            project_dir, mutants, linemap, timeout, cache, jobs, flaky, on_result
+        )
 
-    return [
-        run_one(project_dir, mutant, linemap, timeout, python, xdist_workers, cache, use_fork)
-        for mutant in mutants
-    ]
+    results = []
+    for mutant in mutants:
+        result = run_one(
+            project_dir, mutant, linemap, timeout, python, xdist_workers, cache,
+            use_fork, flaky,
+        )
+        results.append(result)
+        if on_result is not None:
+            on_result(result)
+    return results
 
 
-def _run_forked_batch(project_dir, mutants, linemap, timeout, cache, concurrency):
+def _run_forked_batch(
+    project_dir, mutants, linemap, timeout, cache, concurrency, flaky=(), on_result=None,
+):
     """Resolve cache hits and trivial cases first, then fork the rest in parallel."""
-    results = {}
-    keys = {}
-    to_run = []
-
-    for index, mutant in enumerate(mutants):
-        if mutant.suppressed:
-            results[index] = Result(mutant, "SKIPPED", 0, 0.0)
-            continue
-
-        selected = sorted(linemap.select_for(mutant))
-        if cache is not None:
-            keys[index] = cache.key_for(mutant, project_dir, selected)
-            hit = cache.get(keys[index])
-            if hit is not None:
-                results[index] = Result(
-                    mutant, hit["status"], hit["tests_run"], 0.0,
-                    nearest_test=hit["nearest_test"], from_cache=True,
-                )
-                continue
-
-        if not selected:
-            results[index] = Result(mutant, "SURVIVED", 0, 0.0, nearest_test=None)
-        else:
-            to_run.append((index, mutant, selected))
+    plan = _plan(project_dir, mutants, linemap, cache, flaky)
+    results, keys, to_run = plan["results"], plan["keys"], plan["to_run"]
+    if on_result is not None:
+        for result in results.values():
+            on_result(result)
 
     if to_run:
         started = time.perf_counter()
@@ -117,6 +115,8 @@ def _run_forked_batch(project_dir, mutants, linemap, timeout, cache, concurrency
                 mutant, status, len(selected), share,
                 nearest_test=sorted(selected)[0] if status == "SURVIVED" else None,
             )
+            if on_result is not None:
+                on_result(results[index])
 
     if cache is not None:
         for index, result in results.items():
@@ -133,13 +133,17 @@ def _run_forked_batch(project_dir, mutants, linemap, timeout, cache, concurrency
 
 
 def run_one(
-    project_dir, mutant, linemap, timeout, python, xdist_workers=0, cache=None, use_fork=False
+    project_dir, mutant, linemap, timeout, python, xdist_workers=0, cache=None,
+    use_fork=False, flaky=(),
 ):
     if mutant.suppressed:
         return Result(mutant, "SKIPPED", 0, 0.0)
 
     selected = sorted(linemap.select_for(mutant))
     nearest = selected[0] if selected else None
+
+    if set(flaky).intersection(selected):
+        return Result(mutant, "SUSPICIOUS", len(selected), 0.0)
 
     if cache is not None:
         key = cache.key_for(mutant, project_dir, selected)
@@ -220,7 +224,10 @@ def _run_pytest(project_dir, mutant, selected, timeout, python, xdist_workers):
     return "SUSPICIOUS"
 
 
-def run_session(project_dir, mutants, source_dir, timeout=30, cache=None, jobs=None):
+def run_session(
+    project_dir, mutants, source_dir, timeout=30, cache=None, jobs=None,
+    probes=1, on_result=None,
+):
     """Coverage pass and mutant execution in a single warm process.
 
     The two phases run the same test suite, so running them separately meant
@@ -228,18 +235,32 @@ def run_session(project_dir, mutants, source_dir, timeout=30, cache=None, jobs=N
     Here one forked host runs the suite under coverage, and the same host then
     forks a grandchild per mutant with every test module already imported.
 
-    Returns (linemap, results). Falls back to the separate cold path when the
-    host cannot complete, so a failure costs time rather than correctness.
+    :param project_dir: project root.
+    :param mutants: every mutant to consider, in report order.
+    :param source_dir: directory to measure coverage of.
+    :param timeout: seconds before one mutant is called TIMEOUT.
+    :param cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
+    :param jobs: how many mutants to run concurrently.
+    :param probes: extra unmutated suite runs used to detect flaky tests.
+    :param on_result: called with each :class:`Result` as it is settled, so a
+        run killed mid-flight has already emitted what it knew (M1.4.13).
+    :returns: ``(linemap, results)``.
+    :raises BaselineError: if the suite is already failing or collects nothing.
+        Falls back to the separate cold path when the warm host cannot
+        complete, so a host failure costs time rather than correctness.
     """
-    from .coverage_pass import read_coverage_data, run_coverage_pass
+    from .coverage_pass import read_coverage_data, run_baseline_pass
 
     project_dir = Path(project_dir)
     if jobs is None:
         jobs = max(1, (os.cpu_count() or 2) - 1)
 
     if not forkserver.available():
-        linemap = run_coverage_pass(project_dir, source_dir)
-        return linemap, run_mutants(project_dir, mutants, linemap, timeout, cache=cache, jobs=jobs)
+        linemap, flaky = run_baseline_pass(project_dir, source_dir, probes)
+        return linemap, run_mutants(
+            project_dir, mutants, linemap, timeout, cache=cache, jobs=jobs,
+            flaky=flaky, on_result=on_result,
+        )
 
     forkserver.warm_up()
     with tempfile.TemporaryDirectory() as tmp:
@@ -249,29 +270,62 @@ def run_session(project_dir, mutants, source_dir, timeout=30, cache=None, jobs=N
             "-q", "-p", "no:cacheprovider",
             f"--cov={source_dir}", "--cov-context=test", "--cov-report=",
         ]
+        probe_args = ["-q", "-p", "no:cacheprovider", "-p", "no:cov"]
 
         state = {}
 
-        def build_jobs():
-            """Runs in the PARENT once the host signals its coverage run is done."""
+        def build_jobs(evidence):
+            """Runs in the PARENT once the host's baseline runs are done."""
+            state["flaky"] = check_baseline(evidence["runs"])
             state["linemap"] = read_coverage_data(data_file, project_dir)
-            state["plan"] = _plan(project_dir, mutants, state["linemap"], cache)
+            state["plan"] = _plan(
+                project_dir, mutants, state["linemap"], cache, state["flaky"]
+            )
+            if on_result is not None:
+                for result in state["plan"]["results"].values():
+                    on_result(result)
             return [(mutant, selected) for _, mutant, selected in state["plan"]["to_run"]]
 
+        def stream(index, status):
+            if on_result is None:
+                return
+            _, mutant, selected = state["plan"]["to_run"][index]
+            on_result(_result_for(mutant, status, selected))
+
         outcome = forkserver.run_warm_session(
-            project_dir, cov_args, timeout, jobs, build_jobs, _apply_in_place
+            project_dir, cov_args, timeout, jobs, build_jobs, _apply_in_place,
+            probe_args=probe_args, probes=probes, on_result=stream,
         )
 
     if outcome is None:
-        linemap = state.get("linemap") or run_coverage_pass(project_dir, source_dir)
-        return linemap, run_mutants(project_dir, mutants, linemap, timeout, cache=cache, jobs=jobs)
+        # The host died. Its baseline verdict died with it, so redo the whole
+        # thing coldly rather than trusting a half-finished check.
+        linemap, flaky = run_baseline_pass(project_dir, source_dir, probes)
+        return linemap, run_mutants(
+            project_dir, mutants, linemap, timeout, cache=cache, jobs=jobs,
+            flaky=flaky, on_result=on_result,
+        )
 
     _, statuses = outcome
     return state["linemap"], _assemble(mutants, state["plan"], statuses, cache)
 
 
-def _plan(project_dir, mutants, linemap, cache):
-    """Split mutants into already-answerable and needs-running, before forking."""
+def _result_for(mutant, status, selected):
+    return Result(
+        mutant, status, len(selected), 0.0,
+        nearest_test=sorted(selected)[0] if status == "SURVIVED" else None,
+    )
+
+
+def _plan(project_dir, mutants, linemap, cache, flaky=()):
+    """Split mutants into already-answerable and needs-running, before forking.
+
+    :param flaky: test node ids whose outcome varied between unmutated runs.
+        A mutant selecting one of them cannot be given a confident status, so
+        it is settled as SUSPICIOUS without being run at all (M1.4.3). Running
+        it would produce a KILLED or SURVIVED that means nothing.
+    """
+    flaky = set(flaky)
     results = {}
     keys = {}
     to_run = []
@@ -282,6 +336,14 @@ def _plan(project_dir, mutants, linemap, cache):
             continue
 
         selected = sorted(linemap.select_for(mutant))
+
+        if flaky.intersection(selected):
+            # Deliberately not cached: the reason for this status is the state
+            # of the suite, not the state of the source, so a later run with a
+            # fixed test must not be served this answer.
+            results[index] = Result(mutant, "SUSPICIOUS", len(selected), 0.0)
+            continue
+
         if cache is not None:
             keys[index] = cache.key_for(mutant, project_dir, selected)
             hit = cache.get(keys[index])
