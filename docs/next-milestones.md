@@ -16,43 +16,18 @@ The four are independent and can run in any order. §5 recommends one.
 ## M1 — Verification depth
 
 **Goal:** stop relying on a 22-mutant fixture as the only real correctness
-evidence. Four techniques, each aimed at a class of bug the current suite
+evidence. Three techniques, each aimed at a class of bug the current suite
 structurally cannot find.
 
-### M1.1 Self-mutation (dogfooding)
-
-Run moonbuggy on moonbuggy. This is the sharpest available test: it measures our
-own suite's quality with our own tool, and any operator or runner bug shows up
-as nonsense in the report.
-
-**The bootstrapping hazard, treated as a first-class design constraint.** The
-code under mutation *is* the mutation engine. Mutating `generate.py` while
-`generate.py` is producing the mutants means a defective mutant can corrupt the
-run that is supposed to detect it — and the failure would look like a finding.
-The run must therefore use a **pinned, separately installed moonbuggy in its own
-virtualenv** to mutate a *checkout* of the source. Two copies, never one.
-
-- **M1.1.1** `make check-self` exists and runs a pinned moonbuggy (installed
-  into its own venv from a tagged commit) against a clean checkout of
-  `src/moonbuggy`. The tool doing the mutating and the code being mutated are
-  never the same files on disk. Verified by the target failing if the two paths
-  are made to coincide.
-- **M1.1.2** The run completes for at least 90% of modules under
-  `src/moonbuggy/`, with any excluded module named in the report and given a
-  written reason.
-- **M1.1.3** The resulting mutation score is recorded in
-  `docs/self-mutation.md` alongside the commit it was measured at.
-- **M1.1.4** Every `SURVIVED` mutant is triaged into exactly one of: *test
-  added*, *suppressed as equivalent with an inline reason*, or *accepted with a
-  written justification*. Zero untriaged survivors. This is the criterion that
-  makes the milestone worth anything — a score with no follow-through is a
-  vanity metric.
-- **M1.1.5** After triage, `make test` still passes and the recorded score is
-  no lower than before.
-
-*Deliberately not a criterion:* a target mutation score. Picking a number before
-seeing the data invites writing tests that kill mutants rather than tests that
-matter.
+*The M1.1 slot is intentionally vacant. It held self-mutation — running
+moonbuggy on its own source — which was dropped for now. It is the sharpest
+available test, but the code under mutation would be the mutation engine itself,
+so a defective mutant could corrupt the run meant to detect it, and the failure
+would read as a finding rather than an error. Doing it safely needs a pinned
+separate install mutating a separate checkout, which is enough machinery to
+deserve its own milestone rather than a subsection of this one. The slot is left
+empty rather than renumbered so existing references to M1.2/M1.3/M1.4 keep
+meaning what they meant.*
 
 ### M1.2 Property-based testing (Hypothesis)
 
@@ -188,7 +163,7 @@ from noise.
   how benchmarks get gamed.
 - **M2.4.2** No accepted change regresses any other workload shape by more than
   10% without that trade being stated in the register.
-- **M2.4.3** `make check-oracle` and `make check-self` still pass after every
+- **M2.4.3** `make check-oracle` and `make check-all` still pass after every
   accepted change. Speed work must never be allowed to buy time with silence.
 
 ---
@@ -314,10 +289,7 @@ Recommended order, and why:
 4. **M4 (OSS hunt).** Needs M1.4 done to be pleasant, and feeds M1.3.
 5. **M1.3 (differential at scale).** Reuses M4's five configured projects, so
    it is much cheaper afterwards than before.
-6. **M1.1 (self-mutation).** Late deliberately: M1.2 and M1.3 will have already
-   fixed the shallow bugs, so the survivors that remain are the interesting
-   ones.
-7. **M3 (documentation).** Last, so the architecture pages describe what the
+6. **M3 (documentation).** Last, so the architecture pages describe what the
    code actually does after M2's changes rather than what it did before.
 
 **Rough shape:** M1.4 and M1.2 are each a day or so; M2 and M4 are the
@@ -325,9 +297,6 @@ substantial ones; M3 is large but low-risk and highly parallelisable.
 
 ## 6. Risks worth naming now
 
-- **Self-mutation bootstrapping (M1.1).** Covered by the pinned-copy
-  requirement, but it is the one place where a subtle mistake produces
-  confidently wrong output rather than an error.
 - **OSS suites that are not deterministic (M4).** Some libraries have
   order-dependent or timing-sensitive tests. M4.1's green-baseline check catches
   the obvious cases; flakiness that appears only under mutation will look like
