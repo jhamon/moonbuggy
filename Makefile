@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage check-fresh-install check-all
+.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -28,6 +28,22 @@ check-spike:
 ## moonbuggy vs mutmut vs the naive baseline. See docs/benchmark-results.md.
 bench:
 	$(PYTHON) scripts/bench_mutation.py
+
+## Milestone M2.1: where the wall clock actually goes.
+## Three workload shapes, five runs each, phases that must cover 95% of the
+## total. Take this BEFORE attempting any optimisation -- see
+## docs/perf-hypotheses.md for why that rule exists.
+profile:
+	$(PYTHON) scripts/profile_run.py
+
+## Milestone M2.3: A/B two git refs with a significance test.
+## Declares a winner only when the 95% intervals do not overlap.
+## Usage: make ab BASELINE=<ref> CANDIDATE=<ref> [SHAPE=slow-tests] [RUNS=7]
+ab:
+	@test -n "$(BASELINE)" || { echo "usage: make ab BASELINE=<ref> CANDIDATE=<ref>"; exit 2; }
+	@test -n "$(CANDIDATE)" || { echo "usage: make ab BASELINE=<ref> CANDIDATE=<ref>"; exit 2; }
+	$(PYTHON) scripts/ab_compare.py --baseline $(BASELINE) --candidate $(CANDIDATE) \
+		$(if $(SHAPE),--shape $(SHAPE),) $(if $(RUNS),--runs $(RUNS),)
 
 ## Milestone M1.2: property-based testing.
 ## Seven invariants over generated modules, 500 examples each. Runs about two

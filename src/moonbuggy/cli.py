@@ -95,8 +95,11 @@ def _add_run_arguments(parser):
 
 def _run(args):
     project_dir = Path(args.project).resolve()
+    profiler = profiling.active()
 
-    if not looks_like_pytest_project(project_dir):
+    with profiler.span("discovery"):
+        recognised = looks_like_pytest_project(project_dir)
+    if not recognised:
         print(
             f"moonbuggy: {project_dir} does not look like a pytest project "
             "(no pytest.ini, pyproject.toml, conftest.py or test_*.py found). "
@@ -104,8 +107,6 @@ def _run(args):
             file=sys.stderr,
         )
         return 2
-
-    profiler = profiling.active()
 
     with profiler.span("discovery"):
         source_dir = (

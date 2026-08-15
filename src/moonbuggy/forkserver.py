@@ -217,6 +217,7 @@ def run_warm_session(
 
         statuses = [None] * len(jobs)
         child_seconds = 0.0
+        child_wall_seconds = 0.0
         done = 0
         while done < len(jobs):
             try:
@@ -226,12 +227,14 @@ def run_warm_session(
             index = int.from_bytes(frame[:4], "big")
             status = _STATUS_BY_CODE.get(frame[4], "SUSPICIOUS")
             test_seconds = int.from_bytes(frame[5:9], "big") / 1_000_000
+            child_wall = int.from_bytes(frame[9:13], "big") / 1_000_000
             statuses[index] = status
             child_seconds += test_seconds
+            child_wall_seconds += child_wall
             done += 1
             if on_result is not None:
                 on_result(index, status, test_seconds)
-        return jobs, statuses, child_seconds
+        return jobs, statuses, child_seconds, child_wall_seconds
     finally:
         if jobs_write is not None:
             os.close(jobs_write)
@@ -288,13 +291,13 @@ def _warm_session_host(
         size = int.from_bytes(_read_exactly(jobs_read, 8), "big")
         jobs = pickle.loads(_read_exactly(jobs_read, size))
 
-        def emit(index, status, test_seconds):
-            micros = min(max(int(test_seconds * 1_000_000), 0), 0xFFFFFFFF)
+        def emit(index, status, test_seconds, child_wall):
             os.write(
                 status_write,
                 index.to_bytes(4, "big")
                 + bytes([_CODE_BY_STATUS[status]])
-                + micros.to_bytes(4, "big"),
+                + _micros(test_seconds)
+                + _micros(child_wall),
             )
 
         _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit)
@@ -363,11 +366,15 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
 _STATUS_BY_CODE = {0: "SURVIVED", 1: "KILLED", 2: "TIMEOUT", 3: "SUSPICIOUS"}
 _CODE_BY_STATUS = {v: k for k, v in _STATUS_BY_CODE.items()}
 
-# One streamed result: a 4-byte job index, a 1-byte status code, and 4 bytes of
-# in-child test microseconds. Indexed rather than positional because
-# grandchildren finish out of order, and 4 bytes for the index rather than 2
-# because a large project really can exceed 65535 mutants.
-_FRAME_SIZE = 9
+# One streamed result: a 4-byte job index, a 1-byte status code, 4 bytes of
+# in-child test microseconds, and 4 bytes of total child microseconds as the
+# host saw them. Both times are needed to separate "running the tests" from
+# "getting a process ready to run them": children overlap, so the difference
+# per child is the only way to attribute the two without double counting.
+# Indexed rather than positional because grandchildren finish out of order, and
+# 4 bytes for the index rather than 2 because a large project really can
+# exceed 65535 mutants.
+_FRAME_SIZE = 13
 
 
 def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd):
@@ -394,9 +401,10 @@ def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, w
 def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
     """Fork one grandchild per job, at most `concurrency` at a time.
 
-    :param emit: if given, called as ``(index, status, test_seconds)`` as each
-        grandchild is reaped, so results can be streamed rather than batched at
-        the end.
+    :param emit: if given, called as ``(index, status, test_seconds,
+        child_wall)`` as each grandchild is reaped, so results can be streamed
+        rather than batched at the end. `child_wall` is measured here rather
+        than in the child, because it has to include the fork itself.
     :returns: the statuses, in job order.
     """
     statuses = [None] * len(jobs)
@@ -412,9 +420,9 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
                 os.close(read_fd)
                 _grandchild(mutant, selected, apply_swap, write_fd)
             os.close(write_fd)
-            running[pid] = (index, read_fd, time.monotonic() + timeout)
+            running[pid] = (index, read_fd, time.monotonic() + timeout, time.monotonic())
 
-        for pid, (index, read_fd, deadline) in list(running.items()):
+        for pid, (index, read_fd, deadline, forked_at) in list(running.items()):
             try:
                 waited, _ = os.waitpid(pid, os.WNOHANG)
             except ChildProcessError:
@@ -424,14 +432,15 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
                 os.close(read_fd)
                 del running[pid]
                 if emit is not None:
-                    emit(index, statuses[index], test_seconds)
+                    emit(index, statuses[index], test_seconds,
+                         time.monotonic() - forked_at)
             elif time.monotonic() > deadline:
                 _kill(pid)
                 statuses[index] = "TIMEOUT"
                 os.close(read_fd)
                 del running[pid]
                 if emit is not None:
-                    emit(index, "TIMEOUT", float(timeout))
+                    emit(index, "TIMEOUT", float(timeout), time.monotonic() - forked_at)
 
         if running:
             time.sleep(0.002)
@@ -472,8 +481,12 @@ _CHILD_PAYLOAD_SIZE = 5
 
 
 def _child_payload(code, micros):
-    capped = min(max(micros, 0), 0xFFFFFFFF)
-    return bytes([min(code, 255)]) + capped.to_bytes(4, "big")
+    return bytes([min(code, 255)]) + _micros(micros / 1_000_000)
+
+
+def _micros(seconds):
+    """Seconds as 4 big-endian bytes of microseconds, saturating at 71 minutes."""
+    return min(max(int(seconds * 1_000_000), 0), 0xFFFFFFFF).to_bytes(4, "big")
 
 
 def run_batch(project_dir, jobs, timeout, install_mutation, concurrency):

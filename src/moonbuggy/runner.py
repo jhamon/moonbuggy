@@ -262,7 +262,13 @@ def run_session(
             flaky=flaky, on_result=on_result,
         )
 
-    forkserver.warm_up()
+    profiler = profiling.active()
+    # Importing pytest in the parent, once, so every fork inherits it. Small in
+    # absolute terms and a surprisingly large share of a fast run, which is
+    # exactly the kind of thing an "other" bucket would have hidden.
+    with profiler.span("parent warm-up"):
+        forkserver.warm_up()
+
     with tempfile.TemporaryDirectory() as tmp:
         data_file = Path(tmp) / "coverage-data"
         os.environ["COVERAGE_FILE"] = str(data_file)
@@ -273,7 +279,6 @@ def run_session(
         probe_args = ["-q", "-p", "no:cacheprovider", "-p", "no:cov"]
 
         state = {}
-        profiler = profiling.active()
 
         def build_jobs(evidence):
             """Runs in the PARENT once the host's baseline runs are done."""
@@ -282,7 +287,11 @@ def run_session(
             # can only see the sum.
             profiler.add("warm-session startup", evidence.get("startup", 0.0))
             profiler.add("coverage pass", evidence.get("coverage_seconds", 0.0))
-            profiler.add("coverage pass", evidence.get("probe_seconds", 0.0))
+            # The probe gets its own bucket rather than being folded into the
+            # coverage pass. It is the price of the M1.4.3 flakiness guarantee,
+            # and a phase whose cost is a deliberate trade should be visible
+            # as itself when the trade is revisited.
+            profiler.add("flaky probe", evidence.get("probe_seconds", 0.0))
 
             with profiler.span("planning"):
                 state["flaky"] = check_baseline(evidence["runs"])
@@ -327,15 +336,17 @@ def run_session(
             flaky=flaky, on_result=on_result,
         )
 
-    _, statuses, child_seconds = outcome
+    _, statuses, child_seconds, child_wall_seconds = outcome
 
     # The mutant phase's wall clock, split between getting a process ready and
-    # running tests in it. Children overlap, so their reported durations sum to
-    # more than the elapsed time; the split is proportional rather than
-    # measured, and profiling.split says so.
+    # running tests in it. Children overlap, so both measured totals exceed the
+    # elapsed time and neither can be used directly. Their RATIO is still
+    # meaningful, so the real wall clock is divided in that ratio -- an
+    # attribution rather than a measurement, which is what profiling.split
+    # documents itself as doing.
     already_attributed = sum(
         profiler.totals.get(phase, 0.0)
-        for phase in ("warm-session startup", "coverage pass", "planning")
+        for phase in ("warm-session startup", "coverage pass", "flaky probe", "planning")
     )
     remaining = max(mutant_wall - already_attributed, 0.0)
     profiler.split(
@@ -343,7 +354,7 @@ def run_session(
         remaining,
         {
             "in-child test execution": child_seconds,
-            "per-mutant fork": max(remaining - child_seconds, 0.0),
+            "per-mutant fork": max(child_wall_seconds - child_seconds, 0.0),
         },
     )
     profiler.note("mutants_run", len(statuses))

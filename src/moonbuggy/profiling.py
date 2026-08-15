@@ -35,8 +35,10 @@ ENV_VAR = "MOONBUGGY_PROFILE"
 PHASES = (
     "discovery",
     "generation",
+    "parent warm-up",
     "warm-session startup",
     "coverage pass",
+    "flaky probe",
     "planning",
     "per-mutant fork",
     "in-child test execution",
