@@ -101,6 +101,40 @@ def encode_source(text, encoding):
         raise SourceError(f"cannot re-encode source as {encoding}: {error}") from error
 
 
+def replace_line(source, line, text):
+    """Replace one line's content, keeping everything around it byte for byte.
+
+    The single place mutation is applied to text. It was previously written
+    twice -- once for the in-memory path and once for the naive runner -- and
+    two copies of "preserve the indentation" is two chances to preserve
+    slightly different things.
+
+    Indentation and trailing whitespace both come back from the line being
+    replaced, because `Mutant.original` and `Mutant.mutated` are stripped for
+    display. Restoring only the indentation loses any trailing whitespace,
+    which breaks the round-trip property M1.2.4 asserts -- and a mutation that
+    quietly edits whitespace it was not asked to edit is a mutation whose
+    effect is not fully described by its own diff.
+
+    :param source: the full source text.
+    :param line: 1-based line number to replace.
+    :param text: the replacement content, without indentation.
+    :returns: the full source with that line replaced.
+    """
+    lines = source.splitlines(keepends=True)
+    index = line - 1
+    target = lines[index]
+
+    newline = "\n" if target.endswith("\n") else ""
+    body = target[: -len(newline)] if newline else target
+    indent = body[: len(body) - len(body.lstrip())]
+    # `body.rstrip()` also strips a lone `\r`, so CRLF endings survive intact.
+    trailing = body[len(body.rstrip()):]
+
+    lines[index] = f"{indent}{text}{trailing}{newline}"
+    return "".join(lines)
+
+
 def strip_coding_cookie(text):
     """Neutralise a PEP 263 cookie so the text can be passed to `ast.parse`.
 

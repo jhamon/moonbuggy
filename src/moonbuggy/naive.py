@@ -21,7 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .srcio import detect_encoding, encode_source, read_source
+from .srcio import detect_encoding, encode_source, read_source, replace_line
 
 # pytest exit codes. 1 means tests failed, which is a kill. 2-5 mean pytest
 # itself could not complete -- a collection error, an internal error, a usage
@@ -67,19 +67,15 @@ def _run_one(project_dir, mutant, timeout, python):
 
 
 def _apply(path, mutant):
-    """Replace the mutated line, preserving its original indentation.
+    """Write the mutated line into the copied tree.
 
-    Mutant.mutated is stripped, so the indentation has to come back from the
-    line being replaced -- writing it flush-left would be a syntax error inside
-    any function body.
+    Shares `replace_line` with the fast path, which is the one piece of the
+    naive runner that is allowed to be common code: if the two applied
+    mutations differently, a disagreement between them would be about text
+    handling rather than about the thing the oracle is checking.
     """
     encoding = detect_encoding(path)
-    lines = read_source(path).splitlines(keepends=True)
-    index = mutant.line - 1
-    original = lines[index]
-    indent = original[: len(original) - len(original.lstrip())]
-    newline = "\n" if original.endswith("\n") else ""
-    lines[index] = f"{indent}{mutant.mutated}{newline}"
+    mutated = replace_line(read_source(path), mutant.line, mutant.mutated)
     # Written back in the encoding the file declares, so a mutated latin-1
     # module still matches its own coding cookie.
-    path.write_bytes(encode_source("".join(lines), encoding))
+    path.write_bytes(encode_source(mutated, encoding))

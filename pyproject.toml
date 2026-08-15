@@ -19,6 +19,9 @@ dependencies = [
 dev = [
   "pytest>=8.0",
   "pytest-xdist>=3.5",
+  # Milestone M1.2. The operator tests assert on examples chosen by the person
+  # who wrote the operators, which is the blind spot Hypothesis exists to cover.
+  "hypothesis>=6.100",
 ]
 # Only needed to run the comparative benchmark (criteria G1-G4) and the
 # advisory differential check (A5). Not required to use moonbuggy.

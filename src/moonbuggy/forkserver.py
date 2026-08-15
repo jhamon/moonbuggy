@@ -66,6 +66,7 @@ def run_in_fork(project_dir, mutant, selected, timeout, install_mutation):
 
 def _child(project_dir, mutant, selected, install_mutation, write_fd):
     code = CHILD_CRASHED
+    micros = 0
     try:
         os.chdir(project_dir)
         # Silence the child. Its output is not the report, and interleaving
@@ -81,15 +82,17 @@ def _child(project_dir, mutant, selected, install_mutation, write_fd):
         # -p no:cov: the mutant run needs no coverage instrumentation, and
         # pytest-cov registers hooks on every session. -x: one failure is
         # already a kill, so there is nothing to learn from the rest.
+        began = time.perf_counter()
         code = pytest.main(
             ["-q", "-p", "no:cacheprovider", "-p", "no:cov", "-x", *selected]
         )
+        micros = int((time.perf_counter() - began) * 1_000_000)
         code = int(code)
     except BaseException:
         code = CHILD_CRASHED
     finally:
         try:
-            os.write(write_fd, bytes([min(code, 255)]))
+            os.write(write_fd, _child_payload(code, micros))
         except OSError:
             pass
         # os._exit, not sys.exit: skips atexit handlers and buffer flushing that
@@ -213,6 +216,7 @@ def run_warm_session(
         jobs_write = None
 
         statuses = [None] * len(jobs)
+        child_seconds = 0.0
         done = 0
         while done < len(jobs):
             try:
@@ -221,11 +225,13 @@ def run_warm_session(
                 return None
             index = int.from_bytes(frame[:4], "big")
             status = _STATUS_BY_CODE.get(frame[4], "SUSPICIOUS")
+            test_seconds = int.from_bytes(frame[5:9], "big") / 1_000_000
             statuses[index] = status
+            child_seconds += test_seconds
             done += 1
             if on_result is not None:
-                on_result(index, status)
-        return jobs, statuses
+                on_result(index, status, test_seconds)
+        return jobs, statuses, child_seconds
     finally:
         if jobs_write is not None:
             os.close(jobs_write)
@@ -243,13 +249,23 @@ def _warm_session_host(
         os.dup2(devnull, 1)
         os.dup2(devnull, 2)
 
+        began = time.perf_counter()
         import pytest
 
         from .baseline import OutcomeRecorder
 
+        # Everything up to here is the host becoming ready to run anything:
+        # the fork, the chdir, and importing pytest if the parent had not
+        # already. Reported separately because "warm-session startup" is one of
+        # the phases M2.1.1 names, and it is the one a reader most expects to
+        # be large and most often is not.
+        startup = time.perf_counter() - began
+
         runs = []
         recorder = OutcomeRecorder()
+        coverage_began = time.perf_counter()
         pytest.main(cov_args, plugins=[recorder])
+        coverage_seconds = time.perf_counter() - coverage_began
         runs.append(dict(recorder.outcomes))
 
         # Extra unmutated runs, from the same warm process. Their only purpose
@@ -260,15 +276,26 @@ def _warm_session_host(
             pytest.main(probe_args or cov_args, plugins=[probe])
             runs.append(dict(probe.outcomes))
 
-        payload = pickle.dumps({"runs": runs})
+        payload = pickle.dumps({
+            "runs": runs,
+            "startup": startup,
+            "coverage_seconds": coverage_seconds,
+            "probe_seconds": time.perf_counter() - coverage_began - coverage_seconds,
+        })
         os.write(status_write, len(payload).to_bytes(8, "big"))
         os.write(status_write, payload)
 
         size = int.from_bytes(_read_exactly(jobs_read, 8), "big")
         jobs = pickle.loads(_read_exactly(jobs_read, size))
 
-        def emit(index, status):
-            os.write(status_write, index.to_bytes(4, "big") + bytes([_CODE_BY_STATUS[status]]))
+        def emit(index, status, test_seconds):
+            micros = min(max(int(test_seconds * 1_000_000), 0), 0xFFFFFFFF)
+            os.write(
+                status_write,
+                index.to_bytes(4, "big")
+                + bytes([_CODE_BY_STATUS[status]])
+                + micros.to_bytes(4, "big"),
+            )
 
         _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit)
     except BaseException:
@@ -336,10 +363,11 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
 _STATUS_BY_CODE = {0: "SURVIVED", 1: "KILLED", 2: "TIMEOUT", 3: "SUSPICIOUS"}
 _CODE_BY_STATUS = {v: k for k, v in _STATUS_BY_CODE.items()}
 
-# One streamed result: a 4-byte job index plus a 1-byte status code. Indexed
-# rather than positional because grandchildren finish out of order, and 4 bytes
-# rather than 2 because a large project really can exceed 65535 mutants.
-_FRAME_SIZE = 5
+# One streamed result: a 4-byte job index, a 1-byte status code, and 4 bytes of
+# in-child test microseconds. Indexed rather than positional because
+# grandchildren finish out of order, and 4 bytes for the index rather than 2
+# because a large project really can exceed 65535 mutants.
+_FRAME_SIZE = 9
 
 
 def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd):
@@ -366,8 +394,10 @@ def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, w
 def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
     """Fork one grandchild per job, at most `concurrency` at a time.
 
-    :param emit: if given, called as ``(index, status)`` as each grandchild is
-        reaped, so results can be streamed rather than batched at the end.
+    :param emit: if given, called as ``(index, status, test_seconds)`` as each
+        grandchild is reaped, so results can be streamed rather than batched at
+        the end.
+    :returns: the statuses, in job order.
     """
     statuses = [None] * len(jobs)
     pending = list(enumerate(jobs))
@@ -390,18 +420,18 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
             except ChildProcessError:
                 waited = pid
             if waited == pid:
-                statuses[index] = _status_from(read_fd)
+                statuses[index], test_seconds = _status_from(read_fd)
                 os.close(read_fd)
                 del running[pid]
                 if emit is not None:
-                    emit(index, statuses[index])
+                    emit(index, statuses[index], test_seconds)
             elif time.monotonic() > deadline:
                 _kill(pid)
                 statuses[index] = "TIMEOUT"
                 os.close(read_fd)
                 del running[pid]
                 if emit is not None:
-                    emit(index, "TIMEOUT")
+                    emit(index, "TIMEOUT", float(timeout))
 
         if running:
             time.sleep(0.002)
@@ -411,19 +441,39 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
 
 def _grandchild(mutant, selected, apply_swap, write_fd):
     code = CHILD_CRASHED
+    micros = 0
     try:
         apply_swap(mutant)
         import pytest
 
-        code = int(pytest.main(["-q", "-p", "no:cacheprovider", "-p", "no:cov", "-x", *selected]))
+        began = time.perf_counter()
+        code = int(pytest.main(
+            ["-q", "-p", "no:cacheprovider", "-p", "no:cov", "-x", *selected]
+        ))
+        # Measured inside the child so the parent can separate the cost of
+        # running the tests from the cost of getting a process ready to run
+        # them (criterion M2.1.1). Without this split, "per-mutant fork" and
+        # "in-child test execution" are one indivisible bucket, which is
+        # exactly the bucket the optimisation question is about.
+        micros = int((time.perf_counter() - began) * 1_000_000)
     except BaseException:
         code = CHILD_CRASHED
     finally:
         try:
-            os.write(write_fd, bytes([min(code, 255)]))
+            os.write(write_fd, _child_payload(code, micros))
         except OSError:
             pass
         os._exit(0)
+
+
+# One child result: the pytest exit code plus how long pytest.main took, in
+# microseconds. Four bytes covers 71 minutes, well past any per-mutant timeout.
+_CHILD_PAYLOAD_SIZE = 5
+
+
+def _child_payload(code, micros):
+    capped = min(max(micros, 0), 0xFFFFFFFF)
+    return bytes([min(code, 255)]) + capped.to_bytes(4, "big")
 
 
 def run_batch(project_dir, jobs, timeout, install_mutation, concurrency):
@@ -458,7 +508,7 @@ def run_batch(project_dir, jobs, timeout, install_mutation, concurrency):
             except ChildProcessError:
                 waited = pid
             if waited == pid:
-                statuses[index] = _status_from(read_fd)
+                statuses[index], _ = _status_from(read_fd)
                 os.close(read_fd)
                 del running[pid]
             elif time.monotonic() > deadline:
@@ -479,7 +529,8 @@ def _parent(pid, read_fd, timeout):
         while True:
             waited, raw_status = os.waitpid(pid, os.WNOHANG)
             if waited == pid:
-                return _status_from(read_fd)
+                status, _ = _status_from(read_fd)
+                return status
             if time.monotonic() > deadline:
                 _kill(pid)
                 return "TIMEOUT"
@@ -489,15 +540,27 @@ def _parent(pid, read_fd, timeout):
 
 
 def _status_from(read_fd):
-    payload = os.read(read_fd, 1)
+    """Read one child's result. Returns (status, in-child test seconds).
+
+    An empty payload means the child never reached its own `finally` -- a test
+    that called `os._exit`, or a signal. There is no exit code to read and no
+    honest confident status to give, which is what SUSPICIOUS is for.
+    """
+    payload = os.read(read_fd, _CHILD_PAYLOAD_SIZE)
     if not payload:
-        return "SUSPICIOUS"
+        return "SUSPICIOUS", 0.0
+
     code = payload[0]
+    seconds = (
+        int.from_bytes(payload[1:5], "big") / 1_000_000
+        if len(payload) >= _CHILD_PAYLOAD_SIZE
+        else 0.0
+    )
     if code == PYTEST_OK:
-        return "SURVIVED"
+        return "SURVIVED", seconds
     if code == PYTEST_TESTS_FAILED:
-        return "KILLED"
-    return "SUSPICIOUS"
+        return "KILLED", seconds
+    return "SUSPICIOUS", seconds
 
 
 def _kill(pid):

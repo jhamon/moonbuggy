@@ -59,21 +59,63 @@ def generate_mutants(source, module, on_skip=None):
 
     lines = source.splitlines()
     operators = all_operators()
+    deferred = _function_body_lines(tree)
 
     found = []
     previous_limit = sys.getrecursionlimit()
     sys.setrecursionlimit(max(previous_limit, DEEP_RECURSION_LIMIT))
     try:
-        for node, in_function in _walk(tree):
+        for node in _walk(tree):
+            lineno = getattr(node, "lineno", None)
             for operator in operators:
                 _mutate_node(
-                    node, operator, lines, module, found, not in_function, on_skip
+                    node, operator, lines, module, found,
+                    module_level=lineno not in deferred,
+                    on_skip=on_skip,
                 )
     finally:
         sys.setrecursionlimit(previous_limit)
 
     found.sort(key=lambda m: (m.line, m.operator, m.id))
     return found
+
+
+def _function_body_lines(tree):
+    """Every line that runs only when some function is called.
+
+    The complement -- everything else -- runs at import time, and that is what
+    `Mutant.module_level` records. Selection uses the flag to widen a mutant's
+    test set to the whole suite, because an import-time line is attributed to
+    no test by a coverage map built from test-body execution, and "no covering
+    tests" is indistinguishable from "genuinely uncovered".
+
+    Three subtleties, each of which was wrong before the M1.2.6 property
+    caught it:
+
+    - A function's *body* defers, but its `def` line does not. Default
+      arguments, decorators and annotations are all evaluated where the `def`
+      is written. `def f(p=1 + 2)` at module level has a mutable expression
+      that runs at import time, and calling it deferred selected no tests for
+      it and reported a false SURVIVED.
+    - Class bodies do not defer. They execute at import time like any other
+      module-level statement, despite being indented.
+    - Lambdas do not count as deferring their line, and this is deliberately
+      conservative rather than exact. A module-level lambda's body really does
+      run later, but it shares a line with the module-level statement that
+      creates it, and one line carries one flag. Widening is the safe error
+      here: it costs time, and the other direction costs correctness.
+
+    :param tree: a parsed module.
+    :returns: the set of line numbers belonging to some function body.
+    """
+    deferred = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for statement in node.body:
+            end = statement.end_lineno or statement.lineno
+            deferred.update(range(statement.lineno, end + 1))
+    return deferred
 
 
 def _mutate_node(node, operator, lines, module, found, module_level, on_skip):
@@ -102,31 +144,23 @@ def _mutate_node(node, operator, lines, module, found, module_level, on_skip):
 
 
 def _walk(tree):
-    """Walk the tree, tracking whether each node sits inside a function body.
+    """Yield every node, depth first, left to right.
 
-    ast.walk cannot do this -- it discards the parent relationship, and scope is
-    a property of ancestry. Class bodies count as module level too: they also
-    execute at import time, so they have the same attribution problem.
+    `ast.walk` would do the same job breadth first. The order matters here and
+    is not cosmetic: it decides the occurrence index inside a mutant id, and
+    an id that changes shape silently invalidates every cache entry.
 
     Iterative rather than recursive (criterion M1.4.8). A recursive walk raises
     RecursionError on deeply nested source at a depth well below what CPython
     itself will parse, and the traceback it produces names this function rather
     than the user's file -- a crash report about us for a property of their code.
     """
-    stack = [(tree, False)]
+    stack = [tree]
     while stack:
-        node, in_function = stack.pop()
-        yield node, in_function
-        entering_function = in_function or isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
-        )
+        node = stack.pop()
+        yield node
         # Reversed so children are visited left to right despite the LIFO stack.
-        # Order decides the occurrence index inside a mutant id, so it is part
-        # of the id-stability contract rather than a cosmetic detail.
-        stack.extend(
-            (child, entering_function)
-            for child in reversed(list(ast.iter_child_nodes(node)))
-        )
+        stack.extend(reversed(list(ast.iter_child_nodes(node))))
 
 
 def _build(node, mutated_node, operator, lines, module, found, module_level):

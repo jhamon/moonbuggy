@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import forkserver
+from . import forkserver, profiling
 from .baseline import check as check_baseline
 from .inmemory import install
 from .plugin import MUTANT_ENV_VAR
@@ -273,29 +273,50 @@ def run_session(
         probe_args = ["-q", "-p", "no:cacheprovider", "-p", "no:cov"]
 
         state = {}
+        profiler = profiling.active()
 
         def build_jobs(evidence):
             """Runs in the PARENT once the host's baseline runs are done."""
-            state["flaky"] = check_baseline(evidence["runs"])
-            state["linemap"] = read_coverage_data(data_file, project_dir)
-            state["plan"] = _plan(
-                project_dir, mutants, state["linemap"], cache, state["flaky"]
-            )
-            if on_result is not None:
-                for result in state["plan"]["results"].values():
-                    on_result(result)
-            return [(mutant, selected) for _, mutant, selected in state["plan"]["to_run"]]
+            # The host measured these itself, inside the process that did the
+            # work; the parent was blocked on a pipe for the whole interval and
+            # can only see the sum.
+            profiler.add("warm-session startup", evidence.get("startup", 0.0))
+            profiler.add("coverage pass", evidence.get("coverage_seconds", 0.0))
+            profiler.add("coverage pass", evidence.get("probe_seconds", 0.0))
 
-        def stream(index, status):
+            with profiler.span("planning"):
+                state["flaky"] = check_baseline(evidence["runs"])
+                state["linemap"] = read_coverage_data(data_file, project_dir)
+                state["plan"] = _plan(
+                    project_dir, mutants, state["linemap"], cache, state["flaky"]
+                )
+                if on_result is not None:
+                    for result in state["plan"]["results"].values():
+                        on_result(result)
+                return [
+                    (mutant, selected) for _, mutant, selected in state["plan"]["to_run"]
+                ]
+
+        durations = {}
+
+        def stream(index, status, test_seconds):
+            # Recorded whether or not anyone is listening, so the final
+            # in-order rewrite carries the same durations the streamed partial
+            # file did. Two artifacts of the same run disagreeing about a
+            # number is the kind of small dishonesty that costs trust in the
+            # large ones.
+            durations[index] = test_seconds
             if on_result is None:
                 return
             _, mutant, selected = state["plan"]["to_run"][index]
-            on_result(_result_for(mutant, status, selected))
+            on_result(_result_for(mutant, status, selected, test_seconds))
 
+        mutants_began = time.perf_counter()
         outcome = forkserver.run_warm_session(
             project_dir, cov_args, timeout, jobs, build_jobs, _apply_in_place,
             probe_args=probe_args, probes=probes, on_result=stream,
         )
+        mutant_wall = time.perf_counter() - mutants_began
 
     if outcome is None:
         # The host died. Its baseline verdict died with it, so redo the whole
@@ -306,13 +327,35 @@ def run_session(
             flaky=flaky, on_result=on_result,
         )
 
-    _, statuses = outcome
-    return state["linemap"], _assemble(mutants, state["plan"], statuses, cache)
+    _, statuses, child_seconds = outcome
+
+    # The mutant phase's wall clock, split between getting a process ready and
+    # running tests in it. Children overlap, so their reported durations sum to
+    # more than the elapsed time; the split is proportional rather than
+    # measured, and profiling.split says so.
+    already_attributed = sum(
+        profiler.totals.get(phase, 0.0)
+        for phase in ("warm-session startup", "coverage pass", "planning")
+    )
+    remaining = max(mutant_wall - already_attributed, 0.0)
+    profiler.split(
+        "per-mutant fork",
+        remaining,
+        {
+            "in-child test execution": child_seconds,
+            "per-mutant fork": max(remaining - child_seconds, 0.0),
+        },
+    )
+    profiler.note("mutants_run", len(statuses))
+
+    return state["linemap"], _assemble(
+        mutants, state["plan"], statuses, cache, durations
+    )
 
 
-def _result_for(mutant, status, selected):
+def _result_for(mutant, status, selected, duration=0.0):
     return Result(
-        mutant, status, len(selected), 0.0,
+        mutant, status, len(selected), duration,
         nearest_test=sorted(selected)[0] if status == "SURVIVED" else None,
     )
 
@@ -362,12 +405,14 @@ def _plan(project_dir, mutants, linemap, cache, flaky=()):
     return {"results": results, "keys": keys, "to_run": to_run}
 
 
-def _assemble(mutants, plan, statuses, cache):
+def _assemble(mutants, plan, statuses, cache, durations=None):
+    durations = durations or {}
     results = plan["results"]
-    for (index, mutant, selected), status in zip(plan["to_run"], statuses):
-        results[index] = Result(
-            mutant, status, len(selected), 0.0,
-            nearest_test=sorted(selected)[0] if status == "SURVIVED" else None,
+    for job_index, ((index, mutant, selected), status) in enumerate(
+        zip(plan["to_run"], statuses)
+    ):
+        results[index] = _result_for(
+            mutant, status, selected, durations.get(job_index, 0.0)
         )
 
     if cache is not None:

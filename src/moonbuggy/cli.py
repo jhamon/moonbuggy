@@ -28,6 +28,7 @@ from .report import (
     summarise,
     write_jsonl,
 )
+from . import profiling
 from .runner import run_mutants, run_session
 from .srcio import SourceError, read_source
 
@@ -104,18 +105,27 @@ def _run(args):
         )
         return 2
 
-    source_dir = Path(args.source).resolve() if args.source else find_source_dir(project_dir)
-    source_files = find_source_files(source_dir, project_dir, args.include, args.exclude)
+    profiler = profiling.active()
+
+    with profiler.span("discovery"):
+        source_dir = (
+            Path(args.source).resolve() if args.source else find_source_dir(project_dir)
+        )
+        source_files = find_source_files(
+            source_dir, project_dir, args.include, args.exclude
+        )
     if not source_files:
         print("moonbuggy: no source files to mutate after filtering.", file=sys.stderr)
         return 2
 
     output_dir = project_dir / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    cache = _prepare_cache(args, output_dir)
+    with profiler.span("cache I/O"):
+        cache = _prepare_cache(args, output_dir)
 
     wanted = set(args.operators.split(",")) if args.operators else None
-    mutants, unreadable = _collect_mutants(project_dir, source_files, wanted)
+    with profiler.span("generation"):
+        mutants, unreadable = _collect_mutants(project_dir, source_files, wanted)
 
     if not mutants:
         if unreadable:
@@ -159,23 +169,29 @@ def _run(args):
                 probes=args.flaky_probe, on_result=stream.write,
             )
 
-    # Rewritten in canonical mutant order. The streamed file is valid at every
-    # instant, but it arrives in completion order, and the reported order has to
-    # be stable for unchanged source (criterion C3).
-    write_jsonl(results, jsonl_path)
+    with profiler.span("reporting"):
+        # Rewritten in canonical mutant order. The streamed file is valid at
+        # every instant, but it arrives in completion order, and the reported
+        # order has to be stable for unchanged source (criterion C3).
+        write_jsonl(results, jsonl_path)
 
-    # Derived from the JSONL that was just written, not from the in-memory
-    # results, so the two artifacts cannot disagree (criterion E3).
-    records = read_jsonl(jsonl_path)
-    text_path = output_dir / "results.txt"
-    text_path.write_text(plaintext_from_records(records) + "\n")
+        # Derived from the JSONL that was just written, not from the in-memory
+        # results, so the two artifacts cannot disagree (criterion E3).
+        records = read_jsonl(jsonl_path)
+        text_path = output_dir / "results.txt"
+        text_path.write_text(plaintext_from_records(records) + "\n")
 
-    if not args.quiet:
-        for record in records:
-            print(render_line(record))
+        if not args.quiet:
+            for record in records:
+                print(render_line(record))
 
-    if cache is not None:
-        cache.save()
+    with profiler.span("cache I/O"):
+        if cache is not None:
+            cache.save()
+
+    profiler.note("mutants", len(mutants))
+    profiler.note("source_files", len(source_files))
+    profiler.write()
 
     counts = summarise(records)
     print(

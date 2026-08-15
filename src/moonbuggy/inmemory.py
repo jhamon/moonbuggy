@@ -28,7 +28,7 @@ import sys
 from importlib.machinery import PathFinder, SourceFileLoader
 from pathlib import Path
 
-from .srcio import detect_encoding, encode_source, read_source
+from .srcio import detect_encoding, encode_source, read_source, replace_line
 
 
 def mutated_source(path, line, mutated_text):
@@ -40,14 +40,7 @@ def mutated_source(path, line, mutated_text):
     :returns: the full mutated source as ``str``.
     :raises SourceError: if the file cannot be decoded (see :mod:`moonbuggy.srcio`).
     """
-    original = read_source(path)
-    lines = original.splitlines(keepends=True)
-    index = line - 1
-    target = lines[index]
-    indent = target[: len(target) - len(target.lstrip())]
-    newline = "\n" if target.endswith("\n") else ""
-    lines[index] = f"{indent}{mutated_text}{newline}"
-    return "".join(lines)
+    return replace_line(read_source(path), line, mutated_text)
 
 
 class _MutatingLoader(SourceFileLoader):
