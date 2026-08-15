@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "moonbuggy"
+version = "0.0.1"
+description = "Fast, agent-first mutation testing for Python"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Jennifer Hamon" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-xdist>=3.5",
+]
+# Only needed to run the comparative benchmark (criteria G1-G4) and the
+# advisory differential check (A5). Not required to use moonbuggy.
+bench = [
+  "mutmut>=3.0",
+  "coverage>=7.4",
+]
+
+[project.scripts]
+moonbuggy = "moonbuggy.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/moonbuggy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The fixture project under tests/fixtures is *input data* for moonbuggy's own
+# test suite, not tests of moonbuggy. Its tests are meant to be run by moonbuggy
+# (and by the naive oracle runner), never collected by the outer run -- several
+# of them are designed to be slow or to hang under mutation.
+addopts = "--ignore=tests/fixtures"
