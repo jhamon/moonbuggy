@@ -4,7 +4,7 @@
 
 | group | status |
 |---|---|
-| A — fixture and two-source oracle | met |
+| A — fixture and two-source oracle | A1–A4 met; **A5 not implemented** |
 | B — Phase 0 spikes | met |
 | C — mutation engine | met |
 | D — execution and correctness | met |
@@ -17,6 +17,14 @@
 speed workload — close, but the criterion says lower, and it is not lower. It
 *is* 14.1x faster than the naive baseline, which is the design doc's own stated
 bar (§1.2), but the criterion Jen selected was beat-mutmut.
+
+**A5 is not implemented.** The advisory mutmut cross-check was specified as
+non-gating, and it was dropped in favour of finishing G and H. `make bench` does
+run mutmut on the same fixture and reports its status totals, so the two tools'
+aggregate verdicts are visible (mutmut: 19 killed / 5 survived / 2 timeout
+against the oracle's 15 / 5 / 1 over a different mutant set) — but there is no
+per-mutant differential and no written explanation of each disagreement, which
+is what A5 asks for.
 
 The cause is understood and recorded: mutmut reuses a warm pytest process, while
 moonbuggy pays `pytest.main()` collection inside every forked child. Closing it
