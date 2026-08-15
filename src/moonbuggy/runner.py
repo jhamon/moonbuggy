@@ -263,11 +263,10 @@ def run_session(
         )
 
     profiler = profiling.active()
-    # Importing pytest in the parent, once, so every fork inherits it. Small in
-    # absolute terms and a surprisingly large share of a fast run, which is
-    # exactly the kind of thing an "other" bucket would have hidden.
-    with profiler.span("parent warm-up"):
-        forkserver.warm_up()
+    # Deliberately NOT calling forkserver.warm_up() here. It imports pytest in
+    # the parent so forked children inherit it, which is what the cold path
+    # needs -- but the warm host imports pytest itself, and the parent on this
+    # path never runs a test. See H3 in docs/perf-hypotheses.md.
 
     with tempfile.TemporaryDirectory() as tmp:
         data_file = Path(tmp) / "coverage-data"
