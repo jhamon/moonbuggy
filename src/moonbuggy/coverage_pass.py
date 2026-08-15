@@ -109,7 +109,8 @@ def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
         return read_coverage_data(data_file, project_dir)
 
 
-def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=600):
+def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=600,
+                      extra_args=()):
     """Coverage pass plus flakiness probe, for the paths that cannot fork.
 
     Same evidence as the warm session gathers (see
@@ -123,6 +124,7 @@ def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=60
         probes: extra unmutated runs used to detect flaky tests (M1.4.3).
         python: interpreter to run pytest with when forking is unavailable.
         timeout: seconds before one suite run is abandoned.
+        extra_args: pytest arguments to add to every run.
 
     Returns:
         ``(linemap, flaky_test_ids)``.
@@ -149,6 +151,7 @@ def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=60
                 # Probe runs need no instrumentation: they exist to observe
                 # outcomes, and coverage would only slow them down.
                 args += ["-p", "no:cov"]
+            args += list(extra_args)
 
             env = {"COVERAGE_FILE": str(data_file), **baseline.probe_env(outcomes_file)}
             code = _run_pytest(project_dir, args, env, python, timeout)

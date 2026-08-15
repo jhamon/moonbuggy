@@ -46,7 +46,7 @@ class Result:
 
 def run_mutants(
     project_dir, mutants, linemap, timeout=30, python=None, xdist_workers=0,
-    cache=None, use_fork=None, jobs=None, flaky=(), on_result=None,
+    cache=None, use_fork=None, jobs=None, flaky=(), on_result=None, extra_args=(),
 ):
     """Run every mutant against its selected tests.
 
@@ -64,6 +64,7 @@ def run_mutants(
         flaky: test node ids whose outcome is not reproducible; mutants selecting one
             are settled SUSPICIOUS rather than run (M1.4.3).
         on_result: called with each :class:`Result` as it is settled.
+        extra_args: pytest arguments to add to every run.
 
     Returns:
         a list of :class:`Result`, one per mutant, in the input order.
@@ -262,7 +263,7 @@ def _run_pytest(project_dir, mutant, selected, timeout, python, xdist_workers):
 
 def run_session(
     project_dir, mutants, source_dir, timeout=30, cache=None, jobs=None,
-    probes=1, on_result=None,
+    probes=1, on_result=None, extra_args=(),
 ):
     """Coverage pass and mutant execution in a single warm process.
 
@@ -279,6 +280,11 @@ def run_session(
         cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
         jobs: how many mutants to run concurrently.
         probes: extra unmutated suite runs used to detect flaky tests.
+        extra_args: pytest arguments to add to every run, baseline and mutant
+            alike. A project whose real test command is not bare `pytest` --
+            one that needs `--doctest-modules`, say -- is otherwise measured
+            against a suite smaller than the one it actually runs, and every
+            mutant its doctests would catch is reported as a survivor.
         on_result: called with each :class:`Result` as it is settled, so a run killed
             mid-flight has already emitted what it knew (M1.4.13).
 
@@ -297,10 +303,12 @@ def run_session(
         jobs = max(1, (os.cpu_count() or 2) - 1)
 
     if not forkserver.available():
-        linemap, flaky = run_baseline_pass(project_dir, source_dir, probes)
+        linemap, flaky = run_baseline_pass(
+            project_dir, source_dir, probes, extra_args=extra_args
+        )
         return linemap, run_mutants(
             project_dir, mutants, linemap, timeout, cache=cache, jobs=jobs,
-            flaky=flaky, on_result=on_result,
+            flaky=flaky, on_result=on_result, extra_args=extra_args,
         )
 
     profiler = profiling.active()
@@ -315,8 +323,9 @@ def run_session(
         cov_args = [
             *_base_args(project_dir),
             f"--cov={source_dir}", "--cov-context=test", "--cov-report=",
+            *extra_args,
         ]
-        probe_args = [*_base_args(project_dir), "-p", "no:cov"]
+        probe_args = [*_base_args(project_dir), "-p", "no:cov", *extra_args]
 
         state = {}
 
@@ -375,10 +384,12 @@ def run_session(
     if outcome is None:
         # The host died. Its baseline verdict died with it, so redo the whole
         # thing coldly rather than trusting a half-finished check.
-        linemap, flaky = run_baseline_pass(project_dir, source_dir, probes)
+        linemap, flaky = run_baseline_pass(
+            project_dir, source_dir, probes, extra_args=extra_args
+        )
         return linemap, run_mutants(
             project_dir, mutants, linemap, timeout, cache=cache, jobs=jobs,
-            flaky=flaky, on_result=on_result,
+            flaky=flaky, on_result=on_result, extra_args=extra_args,
         )
 
     _, statuses, child_seconds, child_wall_seconds = outcome

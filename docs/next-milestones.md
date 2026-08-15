@@ -1,6 +1,8 @@
 # moonbuggy — next milestones (Phase 2)
 
-**Status:** proposed, not started.
+**Status:** implemented. See [phase-2-status.md](phase-2-status.md) for the
+criterion-by-criterion record, including what was met, what was met differently
+from the plan, and why.
 **Baseline:** Phase 0 + Phase 1 complete, all criteria in
 [acceptance-criteria.md](acceptance-criteria.md) met. 135 tests. G2 passes at
 1.07x over mutmut, 17.5x over naive.

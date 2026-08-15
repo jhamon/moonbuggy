@@ -96,6 +96,11 @@ def _add_run_arguments(parser):
     parser.add_argument("--no-cache", action="store_true", help="ignore and do not update the cache")
     parser.add_argument("--clear-cache", action="store_true", help="delete the cache, then run")
     parser.add_argument("--quiet", action="store_true", help="only print the summary line")
+    parser.add_argument("--pytest-arg", action="append", default=[], metavar="ARG",
+                        help="extra argument passed to every pytest run, including "
+                             "the baseline and each mutant (repeatable). Needed when "
+                             "your real test command is not bare pytest -- "
+                             "`--pytest-arg=--doctest-modules`, say")
     parser.add_argument("--flaky-probe", type=int, default=1, metavar="N",
                         help="extra unmutated suite runs used to detect flaky tests; "
                              "a test whose outcome varies makes every mutant it covers "
@@ -166,7 +171,9 @@ def _run(args):
             # xdist needs real subprocesses, so the warm single-pass session
             # does not apply; fall back to the separate baseline pass and cold
             # forks.
-            linemap, flaky = run_baseline_pass(project_dir, source_dir, args.flaky_probe)
+            linemap, flaky = run_baseline_pass(
+                project_dir, source_dir, args.flaky_probe, extra_args=args.pytest_arg,
+            )
             results = run_mutants(
                 project_dir, mutants, linemap,
                 timeout=args.timeout, xdist_workers=args.workers, cache=cache,
@@ -177,6 +184,7 @@ def _run(args):
                 project_dir, mutants, source_dir,
                 timeout=args.timeout, cache=cache, jobs=args.jobs or None,
                 probes=args.flaky_probe, on_result=stream.write,
+                extra_args=args.pytest_arg,
             )
 
     with profiler.span("reporting"):

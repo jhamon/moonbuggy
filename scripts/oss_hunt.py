@@ -63,6 +63,10 @@ class Target:
     install: list = field(default_factory=lambda: ["-e", "."])
     extra_requirements: list = field(default_factory=list)
     test_args: list = field(default_factory=list)
+    """Extra pytest arguments this project's own test command uses. Passed to
+    the green-baseline check AND to every moonbuggy run, because measuring a
+    project against a smaller suite than it really runs inflates its survivor
+    count with mutants its own CI would catch."""
     note: str = ""
 
 
@@ -116,8 +120,18 @@ TARGETS = [
         tag="26.1.0",
         source="boltons",
         modules=["iterutils.py", "mathutils.py", "strutils.py"],
+        # boltons' tox command is `pytest --doctest-modules ...`, and its
+        # docstrings carry real assertions. Running bare pytest measures it
+        # against a suite it does not actually use, and the first run did:
+        # four of its survivors were killed by doctests we had not run.
+        # Their tox command names the paths as well as the flag. Without them
+        # pytest collects doctests from the whole repository -- docs, setup
+        # helpers, misc scripts -- and the baseline fails for reasons that have
+        # nothing to do with boltons' library code.
+        test_args=["--doctest-modules", "boltons", "tests"],
         note="Utility collection. Three modules chosen for having dedicated "
-             "test files and no I/O.",
+             "test files and no I/O. Its own test command enables doctests, "
+             "so ours does too.",
     ),
 ]
 
@@ -177,6 +191,8 @@ def mutate(checkout, python, target, timeout):
     ]
     for fragment in target.modules:
         command += ["--include", fragment]
+    for extra in target.test_args:
+        command += ["--pytest-arg", extra]
 
     began = time.perf_counter()
     proc = run(command, cwd=checkout, timeout=7200, check=False)

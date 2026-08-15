@@ -1,0 +1,2111 @@
+{
+  "projects": [
+    {
+      "agree": 16,
+      "ambiguous": 2,
+      "disagreements": [
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "loops.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "KILLED",
+            "KILLED"
+          ],
+          "mutmut": [
+            "KILLED",
+            "KILLED"
+          ],
+          "project": "fixture",
+          "reason": "the change `total = 0` -> `total = 1` occurs 2 times in loops.py, so the join is ambiguous and no pairing can be asserted"
+        }
+      ],
+      "moonbuggy_mutants": 22,
+      "mutmut_mutants": 26,
+      "project": "fixture",
+      "seconds": 31.0,
+      "shared": 16
+    },
+    {
+      "agree": 72,
+      "ambiguous": 48,
+      "disagreements": [
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_2.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_2.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_2.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_2.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_3.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_3.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_3.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_3.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_4.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_4.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_4.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_4.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_5.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_5.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_5.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_5.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_6.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_6.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_6.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_6.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_7.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_7.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_7.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-wide",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_7.py, so the join is ambiguous and no pairing can be asserted"
+        }
+      ],
+      "moonbuggy_mutants": 168,
+      "mutmut_mutants": 216,
+      "project": "gen-wide",
+      "seconds": 1.9,
+      "shared": 72
+    },
+    {
+      "agree": 48,
+      "ambiguous": 32,
+      "disagreements": [
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-deep",
+          "reason": "the change `total += i` -> `total -= i` occurs 8 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-deep",
+          "reason": "the change `total = 0` -> `total = 1` occurs 8 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-deep",
+          "reason": "the change `total += i` -> `total -= i` occurs 8 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-deep",
+          "reason": "the change `total = 0` -> `total = 1` occurs 8 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        }
+      ],
+      "moonbuggy_mutants": 112,
+      "mutmut_mutants": 144,
+      "project": "gen-deep",
+      "seconds": 1.7,
+      "shared": 48
+    },
+    {
+      "agree": 30,
+      "ambiguous": 40,
+      "disagreements": [
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 4 == 0:",
+            "if i % 4 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 4 == 0:",
+            "if i % 4 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 4 == 0:",
+            "if i % 5 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 5 == 0:",
+            "if i % 5 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 5 == 0:",
+            "if i % 5 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 5 == 0:",
+            "if i % 6 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total += i` -> `total -= i` occurs 4 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total = 0` -> `total = 1` occurs 4 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 4 == 0:",
+            "if i % 4 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 4 == 0:",
+            "if i % 4 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 4 == 0:",
+            "if i % 5 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 5 == 0:",
+            "if i % 5 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 5 == 0:",
+            "if i % 5 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 5 == 0:",
+            "if i % 6 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total += i` -> `total -= i` occurs 4 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total = 0` -> `total = 1` occurs 4 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 4 == 0:",
+            "if i % 4 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 4 == 0:",
+            "if i % 4 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 4 == 0:",
+            "if i % 5 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 5 == 0:",
+            "if i % 5 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 5 == 0:",
+            "if i % 5 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 5 == 0:",
+            "if i % 6 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_2.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total += i` -> `total -= i` occurs 4 times in mod_2.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_2.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total = 0` -> `total = 1` occurs 4 times in mod_2.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_3.py",
+            "if i % 4 == 0:",
+            "if i % 4 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_3.py",
+            "if i % 4 == 0:",
+            "if i % 4 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_3.py",
+            "if i % 4 == 0:",
+            "if i % 5 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_3.py",
+            "if i % 5 == 0:",
+            "if i % 5 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_3.py",
+            "if i % 5 == 0:",
+            "if i % 5 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_3.py",
+            "if i % 5 == 0:",
+            "if i % 6 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_3.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total += i` -> `total -= i` occurs 4 times in mod_3.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_3.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total = 0` -> `total = 1` occurs 4 times in mod_3.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_4.py",
+            "if i % 4 == 0:",
+            "if i % 4 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_4.py",
+            "if i % 4 == 0:",
+            "if i % 4 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_4.py",
+            "if i % 4 == 0:",
+            "if i % 5 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_4.py",
+            "if i % 5 == 0:",
+            "if i % 5 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_4.py",
+            "if i % 5 == 0:",
+            "if i % 5 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_4.py",
+            "if i % 5 == 0:",
+            "if i % 6 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-sparse",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_4.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total += i` -> `total -= i` occurs 4 times in mod_4.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_4.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-sparse",
+          "reason": "the change `total = 0` -> `total = 1` occurs 4 times in mod_4.py, so the join is ambiguous and no pairing can be asserted"
+        }
+      ],
+      "moonbuggy_mutants": 140,
+      "mutmut_mutants": 180,
+      "project": "gen-sparse",
+      "seconds": 1.4,
+      "shared": 60
+    },
+    {
+      "agree": 12,
+      "ambiguous": 8,
+      "disagreements": [
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-dense",
+          "reason": "the change `total += i` -> `total -= i` occurs 2 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-dense",
+          "reason": "the change `total = 0` -> `total = 1` occurs 2 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-dense",
+          "reason": "the change `total += i` -> `total -= i` occurs 2 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-dense",
+          "reason": "the change `total = 0` -> `total = 1` occurs 2 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        }
+      ],
+      "moonbuggy_mutants": 28,
+      "mutmut_mutants": 36,
+      "project": "gen-dense",
+      "seconds": 1.8,
+      "shared": 12
+    },
+    {
+      "agree": 18,
+      "ambiguous": 12,
+      "disagreements": [
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "KILLED",
+            "KILLED",
+            "KILLED"
+          ],
+          "mutmut": [
+            "KILLED",
+            "KILLED",
+            "KILLED"
+          ],
+          "project": "gen-slow",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-slow",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "KILLED",
+            "KILLED",
+            "KILLED"
+          ],
+          "mutmut": [
+            "KILLED",
+            "KILLED",
+            "KILLED"
+          ],
+          "project": "gen-slow",
+          "reason": "the change `total += i` -> `total -= i` occurs 3 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-slow",
+          "reason": "the change `total = 0` -> `total = 1` occurs 3 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        }
+      ],
+      "moonbuggy_mutants": 42,
+      "mutmut_mutants": 54,
+      "project": "gen-slow",
+      "seconds": 1.9,
+      "shared": 18
+    },
+    {
+      "agree": 6,
+      "ambiguous": 4,
+      "disagreements": [
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-tiny",
+          "reason": "the change `total += i` -> `total -= i` occurs 2 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-tiny",
+          "reason": "the change `total = 0` -> `total = 1` occurs 2 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        }
+      ],
+      "moonbuggy_mutants": 14,
+      "mutmut_mutants": 18,
+      "project": "gen-tiny",
+      "seconds": 1.6,
+      "shared": 6
+    },
+    {
+      "agree": 60,
+      "ambiguous": 0,
+      "disagreements": [],
+      "moonbuggy_mutants": 84,
+      "mutmut_mutants": 108,
+      "project": "gen-flat",
+      "seconds": 2.1,
+      "shared": 60
+    },
+    {
+      "agree": 36,
+      "ambiguous": 24,
+      "disagreements": [
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-tall",
+          "reason": "the change `total += i` -> `total -= i` occurs 12 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "project": "gen-tall",
+          "reason": "the change `total = 0` -> `total = 1` occurs 12 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        }
+      ],
+      "moonbuggy_mutants": 84,
+      "mutmut_mutants": 108,
+      "project": "gen-tall",
+      "seconds": 2.2,
+      "shared": 36
+    },
+    {
+      "agree": 9,
+      "ambiguous": 36,
+      "disagreements": [
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 3 == 0:",
+            "if i % 3 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 3 == 0:",
+            "if i % 3 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 3 == 0:",
+            "if i % 4 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 4 == 0:",
+            "if i % 4 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 4 == 0:",
+            "if i % 4 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 4 == 0:",
+            "if i % 5 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 5 == 0:",
+            "if i % 5 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 5 == 0:",
+            "if i % 5 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 5 == 0:",
+            "if i % 6 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 6 == 0:",
+            "if i % 6 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 6 == 0:",
+            "if i % 6 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 6 == 0:",
+            "if i % 7 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 7 == 0:",
+            "if i % 7 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 7 == 0:",
+            "if i % 7 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_0.py",
+            "if i % 7 == 0:",
+            "if i % 8 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-uncovered",
+          "reason": "the change `total += i` -> `total -= i` occurs 6 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_0.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-uncovered",
+          "reason": "the change `total = 0` -> `total = 1` occurs 6 times in mod_0.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 3 == 0:",
+            "if i % 3 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 3 == 0:",
+            "if i % 3 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 3 == 0:",
+            "if i % 4 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 4 == 0:",
+            "if i % 4 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 4 == 0:",
+            "if i % 4 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 4 == 0:",
+            "if i % 5 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 5 == 0:",
+            "if i % 5 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 5 == 0:",
+            "if i % 5 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 5 == 0:",
+            "if i % 6 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 6 == 0:",
+            "if i % 6 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 6 == 0:",
+            "if i % 6 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 6 == 0:",
+            "if i % 7 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 7 == 0:",
+            "if i % 7 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 7 == 0:",
+            "if i % 7 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_1.py",
+            "if i % 7 == 0:",
+            "if i % 8 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-uncovered",
+          "reason": "the change `total += i` -> `total -= i` occurs 6 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_1.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-uncovered",
+          "reason": "the change `total = 0` -> `total = 1` occurs 6 times in mod_1.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 3 == 0:",
+            "if i % 3 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 3 == 0:",
+            "if i % 3 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 3 == 0:",
+            "if i % 4 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 4 == 0:",
+            "if i % 4 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 4 == 0:",
+            "if i % 4 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 4 == 0:",
+            "if i % 5 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 5 == 0:",
+            "if i % 5 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 5 == 0:",
+            "if i % 5 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 5 == 0:",
+            "if i % 6 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 6 == 0:",
+            "if i % 6 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 6 == 0:",
+            "if i % 6 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 6 == 0:",
+            "if i % 7 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 7 == 0:",
+            "if i % 7 != 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 7 == 0:",
+            "if i % 7 == 1:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "genuine semantic difference",
+          "key": [
+            "mod_2.py",
+            "if i % 7 == 0:",
+            "if i % 8 == 0:"
+          ],
+          "moonbuggy": "SURVIVED",
+          "mutmut": "SUSPICIOUS",
+          "project": "gen-uncovered",
+          "reason": "no test covers this line at all. moonbuggy reports SURVIVED because an untested line is a finding -- a different finding from `tested but not checked`, but a finding. mutmut has no tests to run for the function and reports the run it could not make rather than the gap it found. Both are defensible; they are answers to different questions"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_2.py",
+            "total += i",
+            "total -= i"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-uncovered",
+          "reason": "the change `total += i` -> `total -= i` occurs 6 times in mod_2.py, so the join is ambiguous and no pairing can be asserted"
+        },
+        {
+          "category": "not actually the same mutant",
+          "key": [
+            "mod_2.py",
+            "total = 0",
+            "total = 1"
+          ],
+          "moonbuggy": [
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED",
+            "SURVIVED"
+          ],
+          "mutmut": [
+            "SURVIVED",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS",
+            "SUSPICIOUS"
+          ],
+          "project": "gen-uncovered",
+          "reason": "the change `total = 0` -> `total = 1` occurs 6 times in mod_2.py, so the join is ambiguous and no pairing can be asserted"
+        }
+      ],
+      "moonbuggy_mutants": 126,
+      "mutmut_mutants": 162,
+      "project": "gen-uncovered",
+      "seconds": 1.7,
+      "shared": 54
+    }
+  ]
+}
