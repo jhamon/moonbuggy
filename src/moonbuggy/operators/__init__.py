@@ -11,11 +11,42 @@ An operator is any class decorated with @register that provides:
     name        str -- stable identifier, matches the operator names in oracle.toml
     mutations() takes an AST node, yields replacement nodes (possibly none)
 
-Operators must not mutate the node they are given; yield a copy.
+Operators must not mutate the node they are given. `replace_operator` is the
+supported way to obey that without paying for a deep copy.
 """
 
+import ast
+import copy  # noqa: F401 - kept importable for operators that genuinely need it
 import importlib
 import pkgutil
+
+
+def replace_operator(node, **changes):
+    """A shallow copy of `node` with some fields replaced.
+
+    Every operator needs the same thing: the original node with one field
+    different. The obvious way to write that is `copy.deepcopy(node)` followed
+    by an assignment, and every operator did -- which makes mutating one
+    expression cost a copy of its entire subtree. An expression with *n* nested
+    operators then costs O(n^2) node copies, and a 6000-term expression took
+    over a minute to generate (found while writing the M1.4.8 tests; hypothesis
+    H6 in docs/perf-hypotheses.md).
+
+    A shallow copy is enough because nothing downstream writes to the tree.
+    Generation unparses the replacement node and throws it away; the children
+    it shares with the original are only ever read. What the deep copy actually
+    bought was protection against an operator that mutated its input, and that
+    protection is better provided by not writing such an operator -- which this
+    function makes the path of least resistance.
+
+    :param node: the AST node being mutated. Not modified.
+    :param changes: field values to replace on the copy.
+    :returns: a new node of the same type, sharing the untouched children.
+    """
+    replacement = copy.copy(node)
+    for field, value in changes.items():
+        setattr(replacement, field, value)
+    return ast.copy_location(replacement, node)
 
 _REGISTRY = []
 

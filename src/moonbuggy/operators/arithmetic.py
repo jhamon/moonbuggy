@@ -5,9 +5,8 @@ its own right, not merely a `+`. See operators.arithmetic_swap in oracle.toml.
 """
 
 import ast
-import copy
 
-from . import register
+from . import register, replace_operator
 
 SWAPS = {
     ast.Add: ast.Sub,
@@ -30,6 +29,4 @@ class ArithmeticSwap:
         replacement = SWAPS.get(type(node.op))
         if replacement is None:
             return
-        mutated = copy.deepcopy(node)
-        mutated.op = replacement()
-        yield mutated
+        yield replace_operator(node, op=replacement())

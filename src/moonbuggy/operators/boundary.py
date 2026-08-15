@@ -5,9 +5,8 @@ oracle.toml.
 """
 
 import ast
-import copy
 
-from . import register
+from . import register, replace_operator
 
 
 @register
@@ -21,8 +20,8 @@ class Boundary:
             return
         if len(node.args) != 1 or node.keywords:
             return
-        mutated = copy.deepcopy(node)
-        mutated.args[0] = ast.BinOp(
-            left=mutated.args[0], op=ast.Sub(), right=ast.Constant(value=1)
-        )
-        yield mutated
+        # The original argument node is reused, not copied. It is never
+        # written to -- only unparsed -- and it is the whole point of H6 that
+        # a nested argument is not deep-copied once per enclosing operator.
+        shifted = ast.BinOp(left=node.args[0], op=ast.Sub(), right=ast.Constant(value=1))
+        yield replace_operator(node, args=[shifted])

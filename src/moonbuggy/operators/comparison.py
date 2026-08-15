@@ -6,9 +6,8 @@ of tests/fixtures/oracle.toml.
 """
 
 import ast
-import copy
 
-from . import register
+from . import register, replace_operator
 
 SWAPS = {
     ast.Lt: ast.LtE,
@@ -31,6 +30,10 @@ class ComparisonSwap:
             replacement = SWAPS.get(type(op))
             if replacement is None:
                 continue
-            mutated = copy.deepcopy(node)
-            mutated.ops[index] = replacement()
-            yield mutated
+            # A chained comparison is one node with several ops. Each is a
+            # separate mutation site, so the ops list is rebuilt with exactly
+            # one entry changed -- mutating two at once would be a different,
+            # weaker test of the same line.
+            ops = list(node.ops)
+            ops[index] = replacement()
+            yield replace_operator(node, ops=ops)
