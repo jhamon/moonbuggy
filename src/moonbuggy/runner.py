@@ -335,7 +335,9 @@ def run_session(
 
             with profiler.span("planning"):
                 state["flaky"] = check_baseline(evidence["runs"])
-                state["linemap"] = read_coverage_data(data_file, project_dir)
+                state["linemap"] = read_coverage_data(
+                    data_file, project_dir, known_tests=evidence["runs"][0]
+                )
                 check_selection_is_runnable(
                     project_dir, state["linemap"].all_tests()
                 )

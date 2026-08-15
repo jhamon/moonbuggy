@@ -157,7 +157,8 @@ def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=60
             runs.append(baseline.read_outcomes(outcomes_file))
 
         flaky = baseline.check(runs)
-        return read_coverage_data(data_file, project_dir), flaky
+        linemap = read_coverage_data(data_file, project_dir, known_tests=runs[0])
+        return linemap, flaky
 
 
 def _run_pytest(project_dir, args, env, python, timeout):
@@ -196,12 +197,19 @@ def _env_with_data_file(data_file):
     return env
 
 
-def read_coverage_data(data_file, project_dir):
+def read_coverage_data(data_file, project_dir, known_tests=()):
     """Build a LineMap from a coverage data file.
 
     Args:
         data_file: path to the coverage database the instrumented run wrote.
         project_dir: the project root, used to resolve module paths.
+        known_tests: every test node id the run actually executed, from the
+            outcome recorder. Coverage contexts only name tests that executed
+            a *measured* line, so a module whose functions are never called
+            during any test contributes no contexts at all -- and then
+            `all_tests()` is empty, and a module-level mutant that widens to
+            "the whole suite" runs nothing and is reported SURVIVED. Found by
+            the M4 hunt; see tests/test_module_level_aliases.py.
 
     Returns:
         A :class:`LineMap` of which tests executed which lines.
@@ -225,4 +233,9 @@ def read_coverage_data(data_file, project_dir):
                 mapping.setdefault((resolved, line), set()).update(covering)
                 tests.update(covering)
 
+    # Union rather than replacement: the recorder knows which tests ran, the
+    # contexts know which touched the source. Selection's stated bias is
+    # toward the larger set, because a missing covering test is a false
+    # SURVIVED and a spurious one only costs time.
+    tests.update(t for t in known_tests if "::" in t and not t.endswith("::<collection>"))
     return LineMap(mapping, tests, project_dir)

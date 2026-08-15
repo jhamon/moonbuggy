@@ -83,7 +83,11 @@ TARGETS = [
         tag="4.16.0",
         source="src/humanize",
         modules=["number.py", "filesize.py"],
-        extra_requirements=["freezegun"],
+        # pytest-benchmark is needed by tests/test_benchmarks.py. Without it
+        # that file errors at collection, the baseline is not green, and M4.1
+        # correctly refuses the whole target -- which was a harness omission
+        # rather than anything wrong with humanize.
+        extra_requirements=["freezegun", "pytest-benchmark"],
         note="Number and filesize formatting; the two modules with the most "
              "branch-heavy arithmetic.",
     ),

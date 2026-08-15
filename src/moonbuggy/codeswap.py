@@ -29,6 +29,7 @@ back to the import-hook path. A silently-unapplied mutation is a false SURVIVED.
 
 import ast
 import linecache
+from types import FunctionType
 
 from .inmemory import mutated_source
 from .srcio import strip_coding_cookie
@@ -69,15 +70,112 @@ def apply_in_place(module, path, line, mutated_text):
         _swap_code(module, source, path, qualname)
 
 
+_MISSING = object()
+
+
 def _exec_module_level(module, source, line):
-    """Re-execute one module-level statement in the module's own namespace."""
+    """Re-execute one module-level statement in the module's own namespace.
+
+    Re-executing is only half the job, and the missing half caused two false
+    SURVIVEDs that the M4 hand verification caught in more-itertools. `exec`
+    rebinds the name **in this module only**. Any other module that did
+    `from here import thing` holds its own reference, taken at import time, and
+    goes on using the unmutated object -- so a test importing from a package's
+    `__init__` tests code the mutation never reached, passes, and the mutant is
+    reported SURVIVED.
+
+    Two repairs, in order of preference:
+
+    - **Preserve identity.** For a plain function, the existing object's
+      `__code__` and defaults are replaced and the *original object* stays
+      bound. Every reference anywhere -- other modules, registries, containers,
+      partials -- then sees the mutation, because there is still only one
+      object.
+    - **Rebind aliases.** Where identity cannot be preserved (a decorated
+      function, a class, a constant), every module attribute that currently
+      *is* the previous object is repointed at the new one. Narrower than the
+      first, since it cannot reach a value inside a list, but it covers the
+      `from x import y` case that matters.
+    """
     statement = _statement_at(source, line)
     if statement is None:
         raise SwapFailed(f"no module-level statement at line {line}")
+
+    names = _bound_names(statement)
+    before = {name: module.__dict__.get(name, _MISSING) for name in names}
+
     try:
         exec(compile(statement, "<moonbuggy>", "exec"), module.__dict__)
     except Exception as error:  # noqa: BLE001 - any failure means fall back
         raise SwapFailed(f"could not exec module-level statement: {error}") from error
+
+    for name in names:
+        previous = before[name]
+        fresh = module.__dict__.get(name, _MISSING)
+        if previous is _MISSING or fresh is _MISSING or fresh is previous:
+            continue
+        if _adopt(previous, fresh):
+            module.__dict__[name] = previous
+        else:
+            _rebind_aliases(name, previous, fresh)
+
+
+def _bound_names(statement):
+    """The module-level names this statement binds."""
+    names = set()
+    for node in ast.walk(ast.parse(statement)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(
+                target.id for target in node.targets if isinstance(target, ast.Name)
+            )
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            if isinstance(node.target, ast.Name):
+                names.add(node.target.id)
+    return names
+
+
+def _adopt(previous, fresh):
+    """Move the new function's body and defaults onto the existing object.
+
+    Returns False when that cannot be done -- a decorated function whose
+    wrapper has different free variables, or anything that is not a plain
+    function -- and the caller falls back to rebinding aliases.
+    """
+    if not (isinstance(previous, FunctionType) and isinstance(fresh, FunctionType)):
+        return False
+    if previous.__qualname__ != fresh.__qualname__:
+        return False
+    try:
+        previous.__code__ = fresh.__code__
+    except (AttributeError, ValueError, TypeError):
+        return False
+    previous.__defaults__ = fresh.__defaults__
+    previous.__kwdefaults__ = fresh.__kwdefaults__
+    return True
+
+
+def _rebind_aliases(name, previous, fresh):
+    """Repoint every module attribute that is still the pre-mutation object.
+
+    Matched on identity *and* on name, so an unrelated attribute holding an
+    equal value is untouched. Where the value is a shared immutable -- a small
+    integer, an interned string -- a same-named attribute elsewhere could match
+    by coincidence. That is the safe direction to be wrong in: it makes a test
+    more likely to notice the mutation, and the failure mode this whole
+    function exists to prevent is a mutation nothing notices.
+    """
+    import sys
+
+    for other in list(sys.modules.values()):
+        if other is None:
+            continue
+        try:
+            if getattr(other, name, None) is previous:
+                setattr(other, name, fresh)
+        except Exception:  # noqa: BLE001 - a module with an exotic __getattr__
+            continue
 
 
 def _statement_at(source, line):
