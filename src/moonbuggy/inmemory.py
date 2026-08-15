@@ -42,14 +42,35 @@ def mutated_source(path, line, mutated_text):
 
 
 class _MutatingLoader(SourceFileLoader):
-    """A normal source loader that serves mutated bytes instead of the file."""
+    """A normal source loader that serves mutated bytes instead of the file.
+
+    Bytecode caching is disabled, and that is not an optimisation detail. A
+    SourceFileLoader writes compiled bytecode to __pycache__ as a side effect of
+    importing, and stamps it with the *real* file's mtime and size -- so the
+    mutated .pyc looks valid for the unmutated source. Every later import picks
+    it up: moonbuggy's next run, the naive oracle's, and the user's own plain
+    `pytest`. Their suite starts failing with mutations they never asked for,
+    the source files are byte-identical, and nothing points at us.
+
+    D3's obvious reading -- hash the .py files -- does not catch this, because
+    the .py files really are untouched. See docs/spike-a-findings.md.
+    """
 
     def __init__(self, fullname, path, source):
         super().__init__(fullname, path)
         self._source = source
+        self._source_path = str(Path(path).resolve())
 
     def get_data(self, path):
-        return self._source.encode("utf-8")
+        if str(Path(path).resolve()) == self._source_path:
+            return self._source.encode("utf-8")
+        # Anything else is a bytecode path. Refusing it forces compilation from
+        # the mutated source rather than any cache lying around on disk.
+        raise OSError(f"moonbuggy: not reading cached bytecode for {path}")
+
+    def set_data(self, path, data, **kwargs):
+        """Never write bytecode for a mutated module. Deliberately a no-op."""
+        return
 
     def get_source(self, fullname):
         return self._source

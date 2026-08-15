@@ -196,6 +196,34 @@ def test_editing_source_invalidates_only_that_files_entries(throwaway):
     assert cached == 0, "editing the mutated module must invalidate its entries"
 
 
+def test_users_own_test_suite_still_passes_afterwards(throwaway):
+    """Criterion D7, and the regression test for the worst bug found so far.
+
+    moonbuggy's loader inherits SourceFileLoader, which writes compiled bytecode
+    to __pycache__ as a side effect of importing -- stamped with the real file's
+    mtime and size, so a mutated .pyc looks valid for the unmutated source. The
+    user's next plain `pytest` then runs mutations they never asked for, with
+    every .py file byte-identical and nothing pointing at moonbuggy.
+
+    Hashing source files does not catch this. Running the user's suite does.
+    """
+    before = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q"],
+        cwd=throwaway, capture_output=True, text=True, timeout=120,
+    )
+    assert before.returncode == 0, before.stdout
+
+    moonbuggy(cwd=throwaway)
+
+    after = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q"],
+        cwd=throwaway, capture_output=True, text=True, timeout=120,
+    )
+    assert after.returncode == 0, (
+        "The project's own suite fails after a moonbuggy run:\n" + after.stdout
+    )
+
+
 def test_running_outside_a_pytest_project_gives_a_clear_error(tmp_path):
     # Criterion H5: actionable message, not a traceback.
     proc = moonbuggy(cwd=tmp_path, expect=2)

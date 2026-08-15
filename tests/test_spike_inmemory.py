@@ -19,6 +19,7 @@ real worker process and a real import sequence.
 """
 
 import json
+import shutil
 import os
 import subprocess
 import sys
@@ -98,6 +99,42 @@ def test_xdist_test_has_teeth():
     assert result.returncode == 0, (
         "Expected the mutant to survive with worker propagation disabled. "
         "It was killed anyway, so the xdist test proves nothing.\n" + result.stdout
+    )
+
+
+def test_mutated_bytecode_is_never_cached_to_disk():
+    """The nastiest failure mode found so far.
+
+    SourceFileLoader writes compiled bytecode to __pycache__ as a side effect of
+    importing. Inheriting from it means a mutated module leaves a mutated .pyc
+    behind, and every LATER run -- moonbuggy's, the naive oracle's, or the
+    user's own plain `pytest` -- silently executes the mutation.
+
+    The source files stay byte-identical throughout, so hashing .py files (the
+    obvious reading of criterion D3) does not catch it. The check that does is
+    running the untouched suite afterwards and requiring it green.
+    """
+    cache_dir = FIXTURE / "sample" / "__pycache__"
+    shutil.rmtree(cache_dir, ignore_errors=True)
+
+    run_fixture_suite()
+
+    # The mutated module must leave no compiled artefact at all. Checking for
+    # absence is the precise test: a .pyc that exists is stamped with the real
+    # file's mtime and size, so it will be treated as valid for the unmutated
+    # source by every later import.
+    written = list(cache_dir.glob("discounts*.pyc")) if cache_dir.exists() else []
+    assert written == [], f"mutated bytecode cached to disk: {written}"
+
+    clean = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+        cwd=FIXTURE, capture_output=True, text=True, timeout=120,
+        env={k: v for k, v in os.environ.items() if k != "MOONBUGGY_MUTANT"},
+    )
+
+    assert clean.returncode == 0, (
+        "The fixture suite fails after a mutated run, which means mutated "
+        "bytecode was left in __pycache__:\n" + clean.stdout
     )
 
 
