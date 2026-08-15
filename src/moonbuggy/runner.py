@@ -363,6 +363,12 @@ def run_session(
         durations = {}
 
         def stream(index, status, test_seconds):
+            # UNAPPLIED is not a result, it is a request to try again coldly.
+            # Emitting it would put a status in the JSONL that no reader has a
+            # meaning for.
+            if status == "UNAPPLIED":
+                durations[index] = test_seconds
+                return
             # Recorded whether or not anyone is listening, so the final
             # in-order rewrite carries the same durations the streamed partial
             # file did. Two artifacts of the same run disagreeing about a
@@ -378,6 +384,7 @@ def run_session(
         outcome = forkserver.run_warm_session(
             project_dir, cov_args, timeout, jobs, build_jobs, _apply_in_place,
             probe_args=probe_args, probes=probes, on_result=stream,
+            extra_args=extra_args,
         )
         mutant_wall = time.perf_counter() - mutants_began
 
@@ -392,7 +399,10 @@ def run_session(
             flaky=flaky, on_result=on_result, extra_args=extra_args,
         )
 
-    _, statuses, child_seconds, child_wall_seconds = outcome
+    jobs, statuses, child_seconds, child_wall_seconds = outcome
+    statuses = _rerun_unapplied(
+        project_dir, jobs, statuses, timeout, profiler, on_result, state, extra_args
+    )
 
     # The mutant phase's wall clock, split between getting a process ready and
     # running tests in it. Children overlap, so both measured totals exceed the
@@ -418,6 +428,56 @@ def run_session(
     return state["linemap"], _assemble(
         mutants, state["plan"], statuses, cache, durations
     )
+
+
+def _rerun_unapplied(project_dir, jobs, statuses, timeout, profiler, on_result, state,
+                     extra_args=()):
+    """Run coldly whatever the warm host could not mutate in place.
+
+    The warm path swaps a mutation into an already-imported module, and that
+    cannot always be done -- a decorator has replaced the function object, a
+    module-level statement will not re-execute, a class body has already been
+    consumed. `codeswap` refuses in those cases rather than guessing, which is
+    right, but until this existed the refusal arrived as SUSPICIOUS and read as
+    a finding about the user's code. One library in the M4 hunt produced 315 of
+    them.
+
+    So they are re-run the slow way instead: a cold fork per mutant, from the
+    parent, which has never imported the module under test. That is the path
+    the import hook was written for and it handles every one of these shapes.
+
+    Args:
+        project_dir: the project root.
+        jobs: the ``(mutant, selected_tests)`` pairs the host was given.
+        statuses: the statuses it returned, some possibly UNAPPLIED.
+        timeout: seconds before one mutant is called TIMEOUT.
+        profiler: the active profiler, for the extra phase.
+        on_result: streamed-result callback, or None.
+        state: the run's shared state, holding the plan.
+        extra_args: pytest arguments every run shares.
+
+    Returns:
+        The statuses with every UNAPPLIED replaced by a real one.
+    """
+    retry = [index for index, status in enumerate(statuses) if status == "UNAPPLIED"]
+    if not retry:
+        return statuses
+
+    profiler.note("rerun_cold", len(retry))
+    with profiler.span("cold fallback"):
+        forkserver.warm_up()
+        cold = forkserver.run_batch(
+            project_dir, [jobs[index] for index in retry], timeout,
+            _apply_in_child, max(1, (os.cpu_count() or 2) - 1), extra_args,
+        )
+
+    statuses = list(statuses)
+    for index, status in zip(retry, cold):
+        statuses[index] = status
+        if on_result is not None:
+            _, mutant, selected = state["plan"]["to_run"][index]
+            on_result(_result_for(mutant, status, selected))
+    return statuses
 
 
 def _result_for(mutant, status, selected, duration=0.0):

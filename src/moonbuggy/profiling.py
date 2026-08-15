@@ -42,6 +42,7 @@ PHASES = (
     "planning",
     "per-mutant fork",
     "in-child test execution",
+    "cold fallback",
     "cache I/O",
     "reporting",
 )

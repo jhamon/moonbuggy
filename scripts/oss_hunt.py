@@ -192,7 +192,9 @@ def mutate(checkout, python, target, timeout):
     for fragment in target.modules:
         command += ["--include", fragment]
     for extra in target.test_args:
-        command += ["--pytest-arg", extra]
+        # `=` form, not two arguments: argparse reads `--pytest-arg
+        # --doctest-modules` as two options rather than an option and its value.
+        command.append(f"--pytest-arg={extra}")
 
     began = time.perf_counter()
     proc = run(command, cwd=checkout, timeout=7200, check=False)

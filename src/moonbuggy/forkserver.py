@@ -66,7 +66,7 @@ def run_in_fork(project_dir, mutant, selected, timeout, install_mutation):
     return _parent(pid, read_fd, timeout)
 
 
-def _child(project_dir, mutant, selected, install_mutation, write_fd):
+def _child(project_dir, mutant, selected, install_mutation, write_fd, extra_args=()):
     code = CHILD_CRASHED
     micros = 0
     try:
@@ -85,7 +85,7 @@ def _child(project_dir, mutant, selected, install_mutation, write_fd):
         # pytest-cov registers hooks on every session. -x: one failure is
         # already a kill, so there is nothing to learn from the rest.
         began = time.perf_counter()
-        code = pytest.main(_mutant_args(selected))
+        code = pytest.main(_mutant_args(selected, extra_args))
         micros = int((time.perf_counter() - began) * 1_000_000)
         code = int(code)
     except BaseException:
@@ -100,7 +100,7 @@ def _child(project_dir, mutant, selected, install_mutation, write_fd):
         os._exit(0)
 
 
-def _mutant_args(selected):
+def _mutant_args(selected, extra_args=()):
     """pytest arguments for one mutant's run, inside an already-chdir'd child.
 
     `--rootdir` is pinned to the cwd, which the child has already set to the
@@ -111,12 +111,18 @@ def _mutant_args(selected):
     `-p no:cov`: the mutant run needs no coverage instrumentation, and
     pytest-cov registers hooks on every session. `-x`: one failure is already a
     kill, so there is nothing to learn from the rest.
+
+    `extra_args` carries whatever the project's own test command needs. It is
+    not optional decoration: a project run with `--doctest-modules` has doctest
+    node ids in its coverage map, and pytest cannot select one without the flag
+    that creates it. Omitting it here made every such mutant exit with a usage
+    error and be reported SUSPICIOUS -- 315 of 434 on boltons.
     """
     import os as _os
 
     return [
         "-q", "-p", "no:cacheprovider", "--rootdir", _os.getcwd(),
-        "-p", "no:cov", "-x", *selected,
+        "-p", "no:cov", "-x", *extra_args, *selected,
     ]
 
 
@@ -175,7 +181,7 @@ def run_pytest_in_fork(cwd, args, env_updates, timeout):
 
 def run_warm_session(
     project_dir, cov_args, timeout, concurrency, build_jobs, apply_swap,
-    probe_args=None, probes=0, on_result=None,
+    probe_args=None, probes=0, on_result=None, extra_args=(),
 ):
     """One suite run that both builds the coverage map and warms the process.
 
@@ -219,7 +225,7 @@ def run_warm_session(
         os.close(status_read)
         _warm_session_host(
             project_dir, cov_args, timeout, concurrency, apply_swap,
-            jobs_read, status_write, probe_args, probes,
+            jobs_read, status_write, probe_args, probes, extra_args,
         )
 
     os.close(jobs_read)
@@ -267,7 +273,7 @@ def run_warm_session(
 
 def _warm_session_host(
     project_dir, cov_args, timeout, concurrency, apply_swap, jobs_read, status_write,
-    probe_args, probes,
+    probe_args, probes, extra_args=(),
 ):
     try:
         os.chdir(project_dir)
@@ -330,7 +336,7 @@ def _warm_session_host(
                 + _micros(child_wall),
             )
 
-        _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit)
+        _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit, extra_args)
     except BaseException:
         pass
     finally:
@@ -393,7 +399,16 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
     return [_STATUS_BY_CODE.get(code, "SUSPICIOUS") for code in collected]
 
 
-_STATUS_BY_CODE = {0: "SURVIVED", 1: "KILLED", 2: "TIMEOUT", 3: "SUSPICIOUS"}
+_STATUS_BY_CODE = {
+    0: "SURVIVED", 1: "KILLED", 2: "TIMEOUT", 3: "SUSPICIOUS",
+    # Not a status the user ever sees. It means the grandchild could not apply
+    # its mutation in place, so nothing was measured and the mutant has to be
+    # re-run on the cold path. Reporting SUSPICIOUS instead -- which is what
+    # happened before this existed -- turns a fixable internal limitation into
+    # a finding about the user's code. The M4 hunt produced 315 of them on one
+    # library that way.
+    4: "UNAPPLIED",
+}
 _CODE_BY_STATUS = {v: k for k, v in _STATUS_BY_CODE.items()}
 
 # One streamed result: a 4-byte job index, a 1-byte status code, 4 bytes of
@@ -428,7 +443,7 @@ def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, w
         os._exit(0)
 
 
-def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
+def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None, extra_args=()):
     """Fork one grandchild per job, at most `concurrency` at a time.
 
     Args:
@@ -455,7 +470,7 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
             pid = os.fork()
             if pid == 0:
                 os.close(read_fd)
-                _grandchild(mutant, selected, apply_swap, write_fd)
+                _grandchild(mutant, selected, apply_swap, write_fd, extra_args)
             os.close(write_fd)
             running[pid] = (index, read_fd, time.monotonic() + timeout, time.monotonic())
 
@@ -485,15 +500,26 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None):
     return statuses
 
 
-def _grandchild(mutant, selected, apply_swap, write_fd):
+# Exit code for "the mutation could not be applied in this process".
+COULD_NOT_APPLY = 71
+
+
+def _grandchild(mutant, selected, apply_swap, write_fd, extra_args=()):
     code = CHILD_CRASHED
     micros = 0
     try:
-        apply_swap(mutant)
+        try:
+            apply_swap(mutant)
+        except BaseException:
+            # Distinguished from every other failure on purpose: this one is
+            # recoverable by running the mutant coldly, and the parent can only
+            # know to do that if the child says which failure it was.
+            code = COULD_NOT_APPLY
+            raise
         import pytest
 
         began = time.perf_counter()
-        code = int(pytest.main(_mutant_args(selected)))
+        code = int(pytest.main(_mutant_args(selected, extra_args)))
         # Measured inside the child so the parent can separate the cost of
         # running the tests from the cost of getting a process ready to run
         # them (criterion M2.1.1). Without this split, "per-mutant fork" and
@@ -501,7 +527,8 @@ def _grandchild(mutant, selected, apply_swap, write_fd):
         # exactly the bucket the optimisation question is about.
         micros = int((time.perf_counter() - began) * 1_000_000)
     except BaseException:
-        code = CHILD_CRASHED
+        if code != COULD_NOT_APPLY:
+            code = CHILD_CRASHED
     finally:
         try:
             os.write(write_fd, _child_payload(code, micros))
@@ -524,7 +551,7 @@ def _micros(seconds):
     return min(max(int(seconds * 1_000_000), 0), 0xFFFFFFFF).to_bytes(4, "big")
 
 
-def run_batch(project_dir, jobs, timeout, install_mutation, concurrency):
+def run_batch(project_dir, jobs, timeout, install_mutation, concurrency, extra_args=()):
     """Run many mutants concurrently, one forked child each.
 
     Mutants are independent by construction -- each child gets its own address
@@ -546,7 +573,8 @@ def run_batch(project_dir, jobs, timeout, install_mutation, concurrency):
             pid = os.fork()
             if pid == 0:
                 os.close(read_fd)
-                _child(project_dir, mutant, selected, install_mutation, write_fd)
+                _child(project_dir, mutant, selected, install_mutation, write_fd,
+                       extra_args)
             os.close(write_fd)
             running[pid] = (index, read_fd, time.monotonic() + timeout)
 
@@ -608,6 +636,8 @@ def _status_from(read_fd):
         return "SURVIVED", seconds
     if code == PYTEST_TESTS_FAILED:
         return "KILLED", seconds
+    if code == COULD_NOT_APPLY:
+        return "UNAPPLIED", seconds
     return "SUSPICIOUS", seconds
 
 
