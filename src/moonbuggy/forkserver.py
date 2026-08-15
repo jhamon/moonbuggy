@@ -77,7 +77,12 @@ def _child(project_dir, mutant, selected, install_mutation, write_fd):
 
         import pytest
 
-        code = pytest.main(["-q", "-p", "no:cacheprovider", "-x", *selected])
+        # -p no:cov: the mutant run needs no coverage instrumentation, and
+        # pytest-cov registers hooks on every session. -x: one failure is
+        # already a kill, so there is nothing to learn from the rest.
+        code = pytest.main(
+            ["-q", "-p", "no:cacheprovider", "-p", "no:cov", "-x", *selected]
+        )
         code = int(code)
     except BaseException:
         code = CHILD_CRASHED
