@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike check-all
+.PHONY: test check-oracle check-spike bench-coverage check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -25,3 +25,8 @@ check-spike:
 	$(PYTHON) -m pytest -m slow tests/test_spike_inmemory.py -v
 
 check-all: test check-oracle check-spike
+
+## Criterion B3: coverage mechanism benchmark.
+## Prints wall-clock and map content for each candidate. See docs/spike-b-findings.md.
+bench-coverage:
+	$(PYTHON) scripts/bench_coverage.py
