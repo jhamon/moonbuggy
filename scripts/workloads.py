@@ -43,6 +43,18 @@ def build(root, shape):
     raise ValueError(f"unknown workload shape: {shape}")
 
 
+def build_custom(root, modules, functions, tests_per_module, iterations):
+    """Build a generated project with explicit parameters.
+
+    The three named shapes are the ones performance work is judged on and are
+    deliberately fixed. The differential harness (M1.3) needs *many* distinct
+    projects rather than three carefully chosen ones, so it varies the
+    parameters itself through this entry point instead of quietly adding
+    shapes that the profiler would then start reporting.
+    """
+    return _build(root, modules, functions, tests_per_module, iterations)
+
+
 def _build(root, modules, functions, tests_per_module, iterations):
     project = Path(root)
     (project / "app").mkdir(parents=True, exist_ok=True)
