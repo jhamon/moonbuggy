@@ -36,4 +36,11 @@ testpaths = ["tests"]
 # test suite, not tests of moonbuggy. Its tests are meant to be run by moonbuggy
 # (and by the naive oracle runner), never collected by the outer run -- several
 # of them are designed to be slow or to hang under mutation.
-addopts = "--ignore=tests/fixtures"
+#
+# `slow` is deselected by default. Those tests spawn one pytest process per
+# mutant (and one of them waits out a real timeout), so they belong to
+# `make check-oracle` rather than to the edit-run-edit loop.
+addopts = "--ignore=tests/fixtures -m 'not slow'"
+markers = [
+  "slow: spawns a subprocess per mutant; run via `make check-oracle`",
+]
