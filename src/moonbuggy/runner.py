@@ -280,13 +280,13 @@ def run_session(
         cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
         jobs: how many mutants to run concurrently.
         probes: extra unmutated suite runs used to detect flaky tests.
+        on_result: called with each :class:`Result` as it is settled, so a run killed
+            mid-flight has already emitted what it knew (M1.4.13).
         extra_args: pytest arguments to add to every run, baseline and mutant
             alike. A project whose real test command is not bare `pytest` --
             one that needs `--doctest-modules`, say -- is otherwise measured
             against a suite smaller than the one it actually runs, and every
             mutant its doctests would catch is reported as a survivor.
-        on_result: called with each :class:`Result` as it is settled, so a run killed
-            mid-flight has already emitted what it knew (M1.4.13).
 
     Returns:
         ``(linemap, results)``.

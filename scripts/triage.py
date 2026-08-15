@@ -14,6 +14,7 @@ for. What the script does is refuse to let a classification go missing: a
 verified finding with no entry here is reported and the run fails.
 """
 
+import ast
 import json
 import sys
 from collections import Counter
@@ -257,41 +258,14 @@ TRIAGE = {
         ),
     ),
     # -------------------------------------------------------------- boltons
-    ("boltons", "boltons/iterutils.py", 75, "return True"): dict(
-        classification=BY_DESIGN,
-        confidence="high",
-        explanation=(
-            "`is_iterable` returning True for a non-iterable is caught by the "
-            "doctest in its own docstring. boltons' real test command is "
-            "`pytest --doctest-modules`, and the first run of this harness used "
-            "bare `pytest`, so the doctests never ran and four survivors were "
-            "reported that the project's own CI catches. The harness now passes "
-            "`--doctest-modules`, and this classification records what the "
-            "first, wrong reading was."
-        ),
-        suggested_test=None,
-    ),
-    ("boltons", "boltons/iterutils.py", 92,
-     "return not is_iterable(obj) and isinstance(obj, (str, bytes))"): dict(
-        classification=BY_DESIGN,
-        confidence="high",
-        explanation=(
-            "Caught by `>>> is_scalar('hello')` in the function's own docstring "
-            "under the project's real test command. Same harness omission as "
-            "the entry above."
-        ),
-        suggested_test=None,
-    ),
-    ("boltons", "boltons/iterutils.py", 106,
-     "return is_iterable(obj) or not isinstance(obj, (str, bytes))"): dict(
-        classification=BY_DESIGN,
-        confidence="high",
-        explanation=(
-            "Caught by `>>> is_collection('hello')` in the docstring under "
-            "`--doctest-modules`. Same harness omission."
-        ),
-        suggested_test=None,
-    ),
+    # Three entries lived here for `is_iterable`, `is_scalar` and
+    # `is_collection`, classified intentional/untested-by-design because their
+    # docstring examples assert exactly the behaviour the mutants broke. They
+    # are gone because the mutants are gone: the harness now runs boltons' real
+    # test command, `pytest --doctest-modules boltons tests`, and under it all
+    # three are KILLED. The first reading was an artefact of measuring a
+    # project against a suite it does not use, and that mistake belongs in the
+    # aggregate observations rather than as stale entries here.
     ("boltons", "boltons/iterutils.py", 160, "if maxsplit != 0:"): dict(
         classification=REAL_GAP,
         confidence="medium",
@@ -318,6 +292,160 @@ TRIAGE = {
             "output closes this and the entry above."
         ),
         suggested_test="as above.",
+    ),
+    ("tomli", "src/tomli/_parser.py", 234, "EXPLICIT_NEST: Final = 2"): dict(
+        classification=EQUIVALENT,
+        confidence="high",
+        explanation=(
+            "`FROZEN = 0` and `EXPLICIT_NEST = 1` are opaque flag values, used "
+            "only by comparison with each other. Changing one to 2 keeps them "
+            "distinct, and nothing depends on the particular integers -- they "
+            "are never serialised, never arithmetic, never indexed with. No "
+            "test can distinguish the two versions, and one that could would "
+            "be asserting an implementation detail."
+        ),
+        suggested_test=None,
+    ),
+    # ------------------------------------------------------------- humanize
+    ("humanize", "src/humanize/number.py", 59,
+     "if math.isinf(value) and value <= 0:"): dict(
+        classification=EQUIVALENT,
+        confidence="high",
+        explanation=(
+            "The guard reads `isinf(value) and value < 0`. Widening to `<= 0` "
+            "adds only the case `value == 0`, and zero is not infinite, so the "
+            "first conjunct already excludes it. The two conditions are true "
+            "for exactly the same inputs."
+        ),
+        suggested_test=None,
+    ),
+    ("humanize", "src/humanize/number.py", 59,
+     "if math.isinf(value) and value < 1:"): dict(
+        classification=EQUIVALENT,
+        confidence="high",
+        explanation=(
+            "Same shape. Given `isinf(value)`, the only values reaching the "
+            "second test are positive and negative infinity, and `< 0` and "
+            "`< 1` agree on both. Nothing exists in between to separate them."
+        ),
+        suggested_test=None,
+    ),
+    ("humanize", "src/humanize/number.py", 61,
+     "if math.isinf(value) or value > 0:"): dict(
+        classification=REAL_GAP,
+        confidence="medium",
+        explanation=(
+            "This one is not equivalent. `and` becoming `or` makes any positive "
+            "finite number return '+Inf' from `_format_not_finite`. The "
+            "function is only called for values already known to be non-finite, "
+            "which is why nothing catches it -- but that precondition lives in "
+            "the callers rather than in the function, and nothing tests that "
+            "the function itself returns the empty string for an ordinary "
+            "number. A future caller that forgets the precondition gets '+Inf' "
+            "for 42.0 and no test objects."
+        ),
+        suggested_test=(
+            "from humanize.number import _format_not_finite\n"
+            "assert _format_not_finite(42.0) == ''"
+        ),
+    ),
+    ("humanize", "src/humanize/number.py", 61,
+     "if math.isinf(value) and value >= 0:"): dict(
+        classification=EQUIVALENT,
+        confidence="high",
+        explanation=(
+            "Given `isinf(value)`, `> 0` and `>= 0` agree: infinity is never "
+            "zero. The same reasoning as the line-59 pair, from the other end."
+        ),
+        suggested_test=None,
+    ),
+    ("humanize", "src/humanize/number.py", 61,
+     "if math.isinf(value) and value > 1:"): dict(
+        classification=EQUIVALENT,
+        confidence="high",
+        explanation=(
+            "`+inf > 0` and `+inf > 1` are both true; `-inf` fails both. The "
+            "constant is unobservable behind the `isinf` guard."
+        ),
+        suggested_test=None,
+    ),
+    ("more-itertools", "more_itertools/recipes.py", 680, "index -= c"): dict(
+        classification=REAL_GAP,
+        confidence="high",
+        explanation=(
+            "`nth_combination` accepts a negative index the way a sequence "
+            "does, by adding the total count to it. Subtracting instead pushes "
+            "every negative index outside `0 <= index < c`, so the documented "
+            "behaviour becomes an IndexError. The docstring shows "
+            "`nth_combination(range(5), 3, -1)` returning a result; no test "
+            "does, so the example in the documentation is the only thing "
+            "asserting it and nothing runs the example."
+        ),
+        suggested_test=(
+            "assert nth_combination(range(5), 3, -1) == nth_combination(range(5), 3, 9)"
+        ),
+    ),
+    ("more-itertools", "more_itertools/recipes.py", 686,
+     "c, n, r = c * r / n, n - 1, r - 1"): dict(
+        classification=REAL_GAP,
+        confidence="medium",
+        explanation=(
+            "Integer division becoming true division turns the running "
+            "combination count into a float. The arithmetic still works for "
+            "small pools because the values stay exact, but `c` is compared "
+            "against and subtracted from an integer index, and past 2**53 a "
+            "float silently loses precision and selects the wrong combination. "
+            "No error, no exception -- a different answer. The tests use small "
+            "pools only, so the failure lives entirely in the range nothing "
+            "exercises."
+        ),
+        suggested_test=(
+            "# comb(60, 30) is far past 2**53, where float arithmetic stops\n"
+            "# being exact and the mutant starts returning a different tuple.\n"
+            "assert nth_combination(range(60), 30, 10**17)[0] == 0"
+        ),
+    ),
+    ("boltons", "boltons/iterutils.py", 173, "split_count = 1"): dict(
+        classification=REAL_GAP,
+        confidence="medium",
+        explanation=(
+            "The counter enforcing `maxsplit` starts at 1 instead of 0, so "
+            "every bounded split produces one fewer group than asked for. Same "
+            "untested parameter as the line-160 entries: nothing passes a "
+            "non-zero maxsplit and checks the result."
+        ),
+        suggested_test=(
+            "assert list(split(range(6), lambda x: x % 2, maxsplit=2)) == "
+            "[[0], [2], [4, 5]]"
+        ),
+    ),
+    ("boltons", "boltons/iterutils.py", 175,
+     "if maxsplit is not None and split_count > maxsplit:"): dict(
+        classification=REAL_GAP,
+        confidence="medium",
+        explanation=(
+            "The off-by-one on the same guard: splitting stops one group late, "
+            "so `maxsplit=1` yields three groups instead of two. The boundary "
+            "of the parameter is exactly what is untested."
+        ),
+        suggested_test="as above; a single maxsplit test closes this one too.",
+    ),
+    ("boltons", "boltons/iterutils.py", 176,
+     "def sep_func(x): return True"): dict(
+        classification=REAL_GAP,
+        confidence="high",
+        explanation=(
+            "Once maxsplit is reached, the separator function is replaced by "
+            "one that never matches, so the remainder stays in a single group. "
+            "Returning True instead makes it match everything, and the "
+            "remainder is split into one group per element -- the exact "
+            "opposite of what maxsplit means. That this survives is the "
+            "clearest statement that the maxsplit path is not exercised at all."
+        ),
+        suggested_test=(
+            "assert list(split('a,b,c,d', sep=',', maxsplit=1)) == "
+            "[['a'], ['b', ',', 'c', ',', 'd']]"
+        ),
     ),
 }
 
@@ -410,6 +538,13 @@ def render(run, verified):
     ]
     for name in (REAL_GAP, EQUIVALENT, BY_DESIGN, OUR_BUG):
         lines.append(f"| {name} | {counts.get(name, 0)} |")
+    lines += [
+        "",
+        "A zero in the last row is a result of this exercise, not a starting",
+        "condition: the first pass of this hunt found three defects in moonbuggy",
+        "(and a fourth in the harness), all fixed before these numbers were",
+        "taken. See the aggregate observations at the end.",
+    ]
 
     confirmed = sum(1 for item in verified if item["verdict"] == "confirmed")
     lines += [
@@ -422,9 +557,15 @@ def render(run, verified):
         "",
         f"- **{confirmed} confirmed** — the full suite still passed, so the",
         "  survivor is real and not an artefact of selection.",
-        f"- **{len(verified) - confirmed} refuted** — the full suite failed, so",
+        f"- **{len(verified) - confirmed} refuted** — the full suite failed, "
+        "which would mean",
         "  something did catch the mutation and moonbuggy's SURVIVED was wrong.",
-        "  Both are classified *moonbuggy bug* below.",
+        "",
+        "An earlier run of this same check refuted 2 of 20, and both were real",
+        "false SURVIVEDs in moonbuggy. They are fixed (commit `c526b5c`), with",
+        "regression tests in `tests/test_module_level_aliases.py`, which is why",
+        "the *moonbuggy bug* count in the table above is now zero. It was not",
+        "zero to begin with, and that is the point of running this check.",
         "",
         "## Findings",
         "",
@@ -450,7 +591,7 @@ def render(run, verified):
             "",
         ]
         if entry["suggested_test"]:
-            lines += ["**Suggested test**", "", "```python", entry["suggested_test"], "```", ""]
+            lines += ["**Suggested test**", "", *_suggested_test(entry["suggested_test"]), ""]
 
     lines += [
         "## Aggregate observations (M4.10)",
@@ -459,6 +600,21 @@ def render(run, verified):
         "",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _suggested_test(text):
+    """Render a suggested test as code, or as prose when it is prose.
+
+    Some entries point at another entry's test rather than repeating it. Those
+    are sentences, and putting a sentence in a Python code fence makes the
+    documentation build fail on a syntax highlighter error -- which is a silly
+    reason for `make docs` to go red, and a sillier one to suppress.
+    """
+    try:
+        ast.parse(text)
+    except SyntaxError:
+        return [f"> {text}"]
+    return ["```python", text, "```"]
 
 
 def _observations(verified):
@@ -481,31 +637,40 @@ def _observations(verified):
         "",
         "What this suggests about the MVP operator set (design section 3.2):",
         "",
-        "- **`constant_int` is the workhorse and the noisiest at once.** Every",
-        "  off-by-one in a slice index or a boundary came from it, and so did",
-        "  both of the clearly-equivalent mutants. It earns its place; it also",
-        "  argues for narrowing it, since incrementing a constant used as a",
-        "  *length* is far more often equivalent than incrementing one used as a",
-        "  *boundary*.",
-        "- **`comparison_swap` found gaps with almost no noise.** Boundary",
-        "  conditions are both where bugs live and where tests are thin, which",
-        "  is the case for keeping it first among the operators.",
-        "- **`boolean_swap` produced no real gaps here**, but every one of its",
-        "  survivors was caught by a doctest the harness initially failed to run.",
-        "  That is not evidence against the operator; it is evidence that a",
-        "  finding is only as good as the suite it was measured against.",
-        "- **`boundary` produced nothing at all** on these libraries, because",
-        "  `range(x)` with a single argument is rare in code written by people",
-        "  who reach for `enumerate` and comprehensions. Post-MVP, effort is",
-        "  better spent on operators aimed at slices and at default arguments,",
-        "  which is where these libraries' untested behaviour actually was.",
+        "- **`constant_int` is the workhorse and the noisiest at once** — 8 real",
+        "  gaps and 6 pieces of noise, more than every other operator combined on",
+        "  both counts. Every off-by-one in a slice index or a boundary came from",
+        "  it, and so did most of the equivalent mutants. It earns its place, and",
+        "  it argues for narrowing it: incrementing a constant used as a *length*",
+        "  or an opaque *flag value* is far more often equivalent than",
+        "  incrementing one used as a *boundary*, and the operator cannot",
+        "  currently tell those apart.",
+        "- **`arithmetic_swap` had the best ratio** — 3 real gaps, no noise. All",
+        "  three were in index arithmetic, where a sign or a division mode is",
+        "  load-bearing and easy to get wrong.",
+        "- **`comparison_swap` split evenly**, 2 and 2. Its noise was entirely",
+        "  comparisons behind a guard that already constrains the value",
+        "  (`isinf(x) and x < 0`), which is a recognisable shape and a plausible",
+        "  future suppression heuristic.",
+        "- **`boundary` produced nothing at all** on these libraries. `range(x)`",
+        "  with a single argument is rare in code written by people who reach for",
+        "  `enumerate` and comprehensions. Post-MVP effort is better spent on",
+        "  operators aimed at slice bounds and at default arguments, which is",
+        "  where these libraries' untested behaviour actually was.",
+        "",
+        "**Where the real gaps clustered** is more useful than any per-operator",
+        "count: parameters with defaults that no test overrides (`maxsplit`), and",
+        "error paths that no test provokes. Four of the fifteen were in code that",
+        "only runs when something has already gone wrong — which is exactly the",
+        "code least likely to be exercised and most annoying to have wrong.",
         "",
         "One methodological finding worth more than any of the above: the first",
         "run of this harness produced three of five targets with almost every",
         "mutant `SUSPICIOUS`, and a fourth measured against a suite smaller than",
-        "the project really runs. Both were defects in us, not in them, and",
-        "neither would have been visible on our own fixture. Running against",
-        "unfamiliar code is the cheapest bug-finding this project has done.",
+        "the project really runs. All of those were defects in us rather than in",
+        "them, and none would have been visible on our own 22-mutant fixture.",
+        "Running against unfamiliar code is the cheapest bug-finding this project",
+        "has done.",
     ])
 
 

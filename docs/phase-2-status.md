@@ -150,9 +150,26 @@ self-certified.
 
 `make oss-hunt` · [oss-findings.md](oss-findings.md)
 
-See that document for the run table, the classification counts, and every
-finding. The standing constraint held: **nothing was posted anywhere and no
-maintainer was contacted.**
+| # | criterion | status |
+|---|---|---|
+| M4.1 | pinned, isolated venv, green baseline first | met |
+| M4.2 | all five complete, or blocker documented and replaced | met — all five complete; two needed harness fixes first, both recorded |
+| M4.3 | mutant count, breakdown, wall clock, score, version | met |
+| M4.4 | findings document to the stated standard | met |
+| M4.5 | every finding classified, zero unclassified | met — the generator fails otherwise |
+| M4.6 | at least 10 findings triaged | met — 25 |
+| M4.7 | every real gap verified by hand | met — mechanically, via the project's full suite |
+| M4.8 | moonbuggy bugs get a failing regression test first | met — three of them |
+| M4.9 | states plainly that nothing was reported upstream | met |
+| M4.10 | aggregate observations on operators | met |
+
+Five targets, 1313 mutants, scores from 0.64 to 0.91. 25 findings triaged:
+15 probable real gaps, 8 equivalent mutants, 2 intentional. All 25 confirmed by
+hand verification — an earlier pass refuted 2 of 20, and both were false
+SURVIVEDs in moonbuggy.
+
+The standing constraint held: **nothing was posted anywhere and no maintainer
+was contacted.**
 
 The most valuable result was not a finding about any of the five libraries. It
 was three defects in moonbuggy, none of which our own fixture could have

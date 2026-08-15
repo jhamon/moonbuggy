@@ -210,6 +210,7 @@ def run_warm_session(
         probes: how many probe runs to make (M1.4.3).
         on_result: called as ``(index, status)`` the moment each mutant finishes, so a
             run killed mid-flight has already reported what it knew.
+        extra_args: pytest arguments every run shares, including each mutant's.
 
     Returns:
         ``(jobs, statuses)``, or None if the host could not complete -- so the caller
@@ -455,6 +456,7 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None, extra
             grandchild is reaped, so results can be streamed rather than
             batched at the end. `child_wall` is measured here rather than in
             the child, because it has to include the fork itself.
+        extra_args: pytest arguments every grandchild's run shares.
 
     Returns:
         the statuses, in job order.
