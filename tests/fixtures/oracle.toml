@@ -1,0 +1,372 @@
+#  Hand-written oracle for the sample_project fixture  (criterion A2b)
+#
+#  WHAT THIS IS
+#  Every mutant moonbuggy is expected to generate for the fixture, with the
+#  status it must report. Written by reasoning about the fixture's source and
+#  tests, before any engine code existed. NEVER regenerate this from moonbuggy's
+#  output -- that would make the criteria self-certifying and is the one failure
+#  mode the whole two-source oracle design exists to prevent.
+#
+#  WHY IT EXISTS ALONGSIDE THE GENERATED ORACLE
+#  The naive differential oracle (A2a) runs each mutant against the full suite
+#  under plain pytest, and covers execution correctness far more cheaply than
+#  hand-labelling. But both it and the fast path consume the same AST operators,
+#  so a mutant that is never *generated* is invisible to it -- both sides agree,
+#  both are wrong. This file is the mutant inventory that closes that gap.
+#
+#  EDITING
+#  Changes belong in their own commit with a written reason. `git log --follow`
+#  on this file is how an evaluator checks the labels were not quietly bent to
+#  match a failing implementation.
+
+[meta]
+fixture = "sample_project"
+total_mutants = 22
+expected_counts = { KILLED = 15, SURVIVED = 5, TIMEOUT = 1, SKIPPED = 1 }
+
+#  OPERATOR SPEC
+#  The inventory below is only well-defined given exact operator semantics, so
+#  they are pinned here. This doubles as the specification the operators in
+#  src/moonbuggy/operators/ are built to satisfy (criterion C1).
+[operators.comparison_swap]
+description = "Each comparison maps to exactly one replacement, chosen to probe the boundary rather than to invert the predicate. One mutant per site keeps mutant counts proportional to code size."
+mapping = { "<" = "<=", "<=" = "<", ">" = ">=", ">=" = ">", "==" = "!=", "!=" = "==" }
+
+[operators.boolean_swap]
+description = "Binary boolean operators only. `not` is not mutated."
+mapping = { "and" = "or", "or" = "and" }
+
+[operators.arithmetic_swap]
+description = "Applies to binary operations and to augmented assignment (`+=` is a site, same as `+`)."
+mapping = { "+" = "-", "-" = "+", "*" = "/", "/" = "*", "//" = "/", "%" = "//", "**" = "*" }
+
+[operators.constant_int]
+description = "Integer literals mutate to n+1. Floats are deliberately NOT mutated: it invites float-comparison flakiness in the oracle for no extra signal."
+rule = "n -> n + 1"
+
+[operators.constant_bool]
+description = "Boolean literals invert. No site in this fixture exercises it; covered by unit tests instead."
+mapping = { "True" = "False", "False" = "True" }
+
+[operators.boundary]
+description = "range(n) -> range(n - 1). Only the single-argument form."
+rule = "range(x) -> range(x - 1)"
+
+# ---------------------------------------------------------------------------
+# sample/discounts.py
+# ---------------------------------------------------------------------------
+
+[[mutant]]
+id = "discounts-L7-const"
+module = "sample/discounts.py"
+line = 7
+operator = "constant_int"
+original = "BULK_THRESHOLD = 10"
+mutated = "BULK_THRESHOLD = 11"
+status = "KILLED"
+killed_by = [
+  "tests/test_pricing.py::test_threshold_exactly_qualifies",
+  "tests/test_pricing.py::test_bulk_discount_is_twenty_percent",
+]
+case = "module-level"
+note = """
+MODULE-LEVEL CASE (A3). This line executes at import time, not inside any test
+body, so a line->test map built from test-body execution alone may attribute it
+to no test at all -- and a tool that then runs zero tests would report SURVIVED.
+That is a silent false negative, and this mutant is here to catch it. Correct
+behaviour: a module-level mutant must select every test that (transitively)
+imports the module.
+"""
+
+[[mutant]]
+id = "discounts-L11-cmp"
+module = "sample/discounts.py"
+line = 11
+operator = "comparison_swap"
+original = "return quantity >= BULK_THRESHOLD"
+mutated = "return quantity > BULK_THRESHOLD"
+status = "KILLED"
+killed_by = ["tests/test_pricing.py::test_threshold_exactly_qualifies"]
+case = "cross-file-kill"
+note = """
+CROSS-FILE CASE (A3). test_discounts.py is the obvious test file for this
+module and every one of its tests PASSES under this mutation -- it never probes
+the boundary. The only killer lives in test_pricing.py. Selection driven by file
+naming, or by any heuristic short of a real coverage map, reports SURVIVED here.
+"""
+
+[[mutant]]
+id = "discounts-L16-const"
+module = "sample/discounts.py"
+line = 16
+operator = "constant_int"
+original = "return 20"
+mutated = "return 21"
+status = "KILLED"
+killed_by = ["tests/test_pricing.py::test_bulk_discount_is_twenty_percent"]
+
+[[mutant]]
+id = "discounts-L17-const"
+module = "sample/discounts.py"
+line = 17
+operator = "constant_int"
+original = "return 0"
+mutated = "return 1"
+status = "KILLED"
+killed_by = ["tests/test_discounts.py::test_no_discount_for_small_order"]
+
+# ---------------------------------------------------------------------------
+# sample/inventory.py
+# ---------------------------------------------------------------------------
+
+[[mutant]]
+id = "inventory-L9-cmp"
+module = "sample/inventory.py"
+line = 9
+operator = "comparison_swap"
+original = "return stock > 0 and not discontinued"
+mutated = "return stock >= 0 and not discontinued"
+status = "SURVIVED"
+killed_by = []
+case = "genuine-survivor"
+note = """
+GENUINE SURVIVOR (A3). A real bug: out-of-stock items would read as available.
+No test passes stock == 0, so nothing notices. This is the mutant a user is
+supposed to act on, and it must appear in the report with a nearest_test.
+"""
+
+[[mutant]]
+id = "inventory-L9-const"
+module = "sample/inventory.py"
+line = 9
+operator = "constant_int"
+original = "return stock > 0 and not discontinued"
+mutated = "return stock > 1 and not discontinued"
+status = "SURVIVED"
+killed_by = []
+note = "Also a real gap -- an item with exactly 1 in stock would read as unavailable. Same missing boundary test as inventory-L9-cmp."
+
+[[mutant]]
+id = "inventory-L9-bool"
+module = "sample/inventory.py"
+line = 9
+operator = "boolean_swap"
+original = "return stock > 0 and not discontinued"
+mutated = "return stock > 0 or not discontinued"
+status = "KILLED"
+killed_by = ["tests/test_inventory.py::test_discontinued_item_is_not_available"]
+note = "Three mutants share line 9, from three different operators. Mutant identity must therefore be finer-grained than file:line (criterion C3)."
+
+[[mutant]]
+id = "inventory-L13-cmp"
+module = "sample/inventory.py"
+line = 13
+operator = "comparison_swap"
+original = "if stock < target:"
+mutated = "if stock <= target:"
+status = "SURVIVED"
+killed_by = []
+note = "No test has stock == target, so the off-by-one at the boundary goes unnoticed."
+
+[[mutant]]
+id = "inventory-L14-arith"
+module = "sample/inventory.py"
+line = 14
+operator = "arithmetic_swap"
+original = "return target - stock"
+mutated = "return target + stock"
+status = "KILLED"
+killed_by = ["tests/test_inventory.py::test_restock_fills_to_target"]
+
+[[mutant]]
+id = "inventory-L15-const"
+module = "sample/inventory.py"
+line = 15
+operator = "constant_int"
+original = "return 0"
+mutated = "return 1"
+status = "SURVIVED"
+killed_by = []
+case = "no-covering-test"
+note = """
+NO-COVERAGE CASE. Line 15 is never executed by any test -- restock_amount is
+only ever called with stock < target. The line->test map must yield an EMPTY
+covering set, and moonbuggy must report SURVIVED without running any test.
+Pins a real semantic decision: uncovered mutants are SURVIVED, not SKIPPED.
+SKIPPED means deliberately excluded; an untested line is a finding, not an
+exclusion, and must not be hidden from the report.
+"""
+
+# ---------------------------------------------------------------------------
+# sample/loops.py
+# ---------------------------------------------------------------------------
+
+[[mutant]]
+id = "loops-L9-const"
+module = "sample/loops.py"
+line = 9
+operator = "constant_int"
+original = "total = 0"
+mutated = "total = 1"
+status = "KILLED"
+killed_by = [
+  "tests/test_loops.py::test_countdown_sums_descending_run",
+  "tests/test_loops.py::test_countdown_of_zero_is_zero",
+]
+
+[[mutant]]
+id = "loops-L10-cmp"
+module = "sample/loops.py"
+line = 10
+operator = "comparison_swap"
+original = "while n > 0:"
+mutated = "while n >= 0:"
+status = "SURVIVED"
+killed_by = []
+case = "equivalent-mutant"
+note = """
+EQUIVALENT MUTANT. Not a coverage gap -- the mutated program is genuinely
+indistinguishable. The extra iteration adds 0 to the total and then exits, so
+countdown returns the same value for every input. NO test can kill this, which
+is exactly why 1.2 rules automatic equivalence detection out of scope.
+
+Expected to be reported SURVIVED. Left unsuppressed on purpose, as the
+counterpart to config-L11-const: this is what an equivalent mutant looks like
+BEFORE a human decides to suppress it, and the report must surface it rather
+than quietly guess.
+
+Note it does NOT hang: n decrements past zero and the loop still terminates.
+Distinguishing it from loops-L12-arith below is a real test of timeout handling.
+"""
+
+[[mutant]]
+id = "loops-L10-const"
+module = "sample/loops.py"
+line = 10
+operator = "constant_int"
+original = "while n > 0:"
+mutated = "while n > 1:"
+status = "KILLED"
+killed_by = ["tests/test_loops.py::test_countdown_sums_descending_run"]
+note = "countdown(3) drops the final +1 and returns 5. test_countdown_of_zero_is_zero still passes, so only one of the two tests kills it."
+
+[[mutant]]
+id = "loops-L11-arith"
+module = "sample/loops.py"
+line = 11
+operator = "arithmetic_swap"
+original = "total += n"
+mutated = "total -= n"
+status = "KILLED"
+killed_by = ["tests/test_loops.py::test_countdown_sums_descending_run"]
+note = "Augmented-assignment site. Confirms `+=` is mutated, not just binary `+`."
+
+[[mutant]]
+id = "loops-L12-arith"
+module = "sample/loops.py"
+line = 12
+operator = "arithmetic_swap"
+original = "n -= 1"
+mutated = "n += 1"
+status = "TIMEOUT"
+killed_by = []
+case = "timeout"
+note = """
+TIMEOUT CASE (A3). n grows without bound, so `while n > 0` never exits and
+countdown() never returns. The run must report TIMEOUT and CONTINUE -- a hang
+here must not take down the whole run, and the overall wall-clock must stay
+bounded. Both tests that call countdown() hang, so the timeout has to fire per
+test-selection unit, not once for the suite.
+"""
+
+[[mutant]]
+id = "loops-L12-const"
+module = "sample/loops.py"
+line = 12
+operator = "constant_int"
+original = "n -= 1"
+mutated = "n -= 2"
+status = "KILLED"
+killed_by = ["tests/test_loops.py::test_countdown_sums_descending_run"]
+note = "countdown(3) sums 3 + 1 = 4. Terminates, unlike the arithmetic mutant on the same line -- two mutants, same line, opposite handling."
+
+[[mutant]]
+id = "loops-L17-const"
+module = "sample/loops.py"
+line = 17
+operator = "constant_int"
+original = "total = 0"
+mutated = "total = 1"
+status = "KILLED"
+killed_by = [
+  "tests/test_loops.py::test_sum_first_excludes_upper_bound",
+  "tests/test_loops.py::test_sum_first_of_zero_is_zero",
+]
+
+[[mutant]]
+id = "loops-L18-boundary"
+module = "sample/loops.py"
+line = 18
+operator = "boundary"
+original = "for i in range(n):"
+mutated = "for i in range(n - 1):"
+status = "KILLED"
+killed_by = ["tests/test_loops.py::test_sum_first_excludes_upper_bound"]
+note = "sum_first(4) returns 3 instead of 6. sum_first(0) becomes range(-1), which is empty, so that test still passes."
+
+[[mutant]]
+id = "loops-L19-arith"
+module = "sample/loops.py"
+line = 19
+operator = "arithmetic_swap"
+original = "total += i"
+mutated = "total -= i"
+status = "KILLED"
+killed_by = ["tests/test_loops.py::test_sum_first_excludes_upper_bound"]
+
+# ---------------------------------------------------------------------------
+# sample/config.py
+# ---------------------------------------------------------------------------
+
+[[mutant]]
+id = "config-L9-const"
+module = "sample/config.py"
+line = 9
+operator = "constant_int"
+original = "MAX_RETRIES = 3"
+mutated = "MAX_RETRIES = 4"
+status = "KILLED"
+killed_by = ["tests/test_config.py::test_retries_stop_at_limit"]
+case = "module-level"
+note = "Second module-level case, this one killed from a conventionally-named test file -- the contrast with discounts-L7-const isolates cross-file selection from module-level attribution."
+
+[[mutant]]
+id = "config-L11-const"
+module = "sample/config.py"
+line = 11
+operator = "constant_int"
+original = "CACHE_SIZE = 128"
+mutated = "CACHE_SIZE = 129"
+status = "SKIPPED"
+killed_by = []
+case = "suppressed"
+note = """
+SUPPRESSION CASE (A3). Suppressed by the inline `# moonbuggy: skip` marker on
+the source line. Genuinely equivalent -- a cache size has no observable
+behaviour to assert on -- so it would otherwise survive forever as permanent
+report noise, which is the workflow 3.3 describes.
+
+Must be reported SKIPPED, not omitted. Silent omission would make the mutant
+count drift from the inventory with no way to tell suppression from a generator
+bug.
+"""
+
+[[mutant]]
+id = "config-L15-cmp"
+module = "sample/config.py"
+line = 15
+operator = "comparison_swap"
+original = "return attempt < MAX_RETRIES"
+mutated = "return attempt <= MAX_RETRIES"
+status = "KILLED"
+killed_by = ["tests/test_config.py::test_retries_stop_at_limit"]
