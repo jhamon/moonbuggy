@@ -10,7 +10,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Jennifer Hamon" }]
-dependencies = []
+dependencies = [
+  "coverage>=7.4",
+  "pytest-cov>=5.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -21,7 +24,6 @@ dev = [
 # advisory differential check (A5). Not required to use moonbuggy.
 bench = [
   "mutmut>=3.0",
-  "coverage>=7.4",
 ]
 
 [project.scripts]

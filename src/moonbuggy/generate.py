@@ -23,10 +23,13 @@ def generate_mutants(source, module):
     operators = all_operators()
 
     found = []
-    for node in ast.walk(tree):
+    for node, in_function in _walk(tree, in_function=False):
         for operator in operators:
             for mutated_node in operator.mutations(node):
-                mutant = _build(node, mutated_node, operator, lines, module, found)
+                mutant = _build(
+                    node, mutated_node, operator, lines, module, found,
+                    module_level=not in_function,
+                )
                 if mutant is not None:
                     found.append(mutant)
 
@@ -34,7 +37,22 @@ def generate_mutants(source, module):
     return found
 
 
-def _build(node, mutated_node, operator, lines, module, found):
+def _walk(node, in_function):
+    """Walk the tree, tracking whether each node sits inside a function body.
+
+    ast.walk cannot do this -- it discards the parent relationship, and scope is
+    a property of ancestry. Class bodies count as module level too: they also
+    execute at import time, so they have the same attribution problem.
+    """
+    yield node, in_function
+    entering_function = isinstance(
+        node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+    )
+    for child in ast.iter_child_nodes(node):
+        yield from _walk(child, in_function or entering_function)
+
+
+def _build(node, mutated_node, operator, lines, module, found, module_level):
     lineno = getattr(node, "lineno", None)
     if lineno is None or lineno > len(lines):
         return None
@@ -56,6 +74,7 @@ def _build(node, mutated_node, operator, lines, module, found):
         original=original_line.strip(),
         mutated=mutated_line.strip(),
         suppressed=SUPPRESS_MARKER in original_line,
+        module_level=module_level,
     )
 
 

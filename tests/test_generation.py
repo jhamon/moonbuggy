@@ -77,6 +77,46 @@ def test_suppressed_mutant_is_still_generated():
     assert any(m.suppressed for m in generate_all())
 
 
+def test_module_level_mutants_are_flagged():
+    """Module-level lines execute at import, not inside any test body.
+
+    Coverage-guided selection therefore cannot find their covering tests the
+    normal way -- the line->test map attributes them to nothing, and running
+    nothing yields a false SURVIVED. Selection needs to know which mutants are
+    module-scoped so it can widen the test set for them, so generation has to
+    say so.
+    """
+    module_level = {
+        (m.module, m.line) for m in generate_all() if m.module_level
+    }
+
+    # Exactly the oracle's two module-level cases, plus the suppressed CACHE_SIZE
+    # line which is also module-level.
+    assert module_level == {
+        ("sample/discounts.py", 7),
+        ("sample/config.py", 9),
+        ("sample/config.py", 11),
+    }
+
+
+def test_function_body_mutants_are_not_flagged_module_level():
+    inside_functions = [
+        m for m in generate_all() if m.module == "sample/loops.py"
+    ]
+
+    assert inside_functions
+    assert not any(m.module_level for m in inside_functions)
+
+
+def test_class_body_counts_as_module_level():
+    # A class body also executes at import time, so it has the same problem.
+    source = "class Config:\n    RETRIES = 3\n"
+
+    mutants = generate_mutants(source, module="m.py")
+
+    assert [m.module_level for m in mutants] == [True]
+
+
 def test_strings_are_never_mutated():
     # Criterion C2. The string contains text that looks mutable in every operator.
     source = "MESSAGE = 'use x >= 1 and y + 2 for range(n)'\n"

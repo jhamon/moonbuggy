@@ -130,6 +130,33 @@ def bench_coverage_py(root):
     return elapsed, pairs, attributions
 
 
+def bench_pytest_cov(root):
+    """coverage.py driven by pytest-cov, which records real pytest node ids.
+
+    This is the configuration moonbuggy actually uses: `dynamic_context =
+    test_function` yields `module.function` strings, which cannot be handed back
+    to pytest as a selection argument.
+    """
+    elapsed = time_run(
+        [PYTHON, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+         "--cov=workload", "--cov-context=test", "--cov-report="],
+        root,
+    )
+    import coverage
+
+    data = coverage.CoverageData(basename=str(root / ".coverage"))
+    data.read()
+    pairs = 0
+    attributions = 0
+    for filename in data.measured_files():
+        for line, contexts in data.contexts_by_lineno(filename).items():
+            real = {c.split("|")[0] for c in contexts if c}
+            if real:
+                pairs += 1
+                attributions += len(real)
+    return elapsed, pairs, attributions
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "bench"
@@ -144,13 +171,17 @@ def main():
         mon_time, mon_pairs, mon_attr = bench_monitoring(root, src, out)
         shutil.rmtree(root / ".pytest_cache", ignore_errors=True)
         cov_time, cov_pairs, cov_attr = bench_coverage_py(root)
+        for stale in (".coverage", ".coveragerc"):
+            (root / stale).unlink(missing_ok=True)
+        pc_time, pc_pairs, pc_attr = bench_pytest_cov(root)
 
         print(f"{'mechanism':<20} {'wall':>8} {'overhead':>10} {'lines':>8} {'attribs':>9}")
         print("-" * 60)
         print(f"{'baseline':<20} {baseline:>7.2f}s {'--':>10} {'--':>8} {'--':>9}")
         for label, t, pairs, attr in (
             ("sys.monitoring", mon_time, mon_pairs, mon_attr),
-            ("coverage.py", cov_time, cov_pairs, cov_attr),
+            ("coverage.py ctx", cov_time, cov_pairs, cov_attr),
+            ("pytest-cov ctx", pc_time, pc_pairs, pc_attr),
         ):
             print(f"{label:<20} {t:>7.2f}s {t / baseline:>9.2f}x {pairs:>8} {attr:>9}")
 

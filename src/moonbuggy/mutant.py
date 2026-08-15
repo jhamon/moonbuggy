@@ -27,3 +27,8 @@ class Mutant:
     original: str
     mutated: str
     suppressed: bool = False
+    module_level: bool = False
+    """True when the mutated line runs at import time rather than inside a
+    function body. Selection has to widen the test set for these: the line->test
+    map is built from test-body execution, so a module-level line is attributed
+    to no test, and running no tests reports a false SURVIVED."""
