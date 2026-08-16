@@ -46,9 +46,14 @@ CHILD_CRASHED = 70
 # so it has to travel back as data rather than being read off a return value
 # in the same frame.
 #
-# UNAPPLIED never becomes a Result: it means the warm host's grandchild could
-# not swap the mutation into an already-imported module, and the caller
-# (runner._rerun_unapplied) retries that job coldly rather than reporting it.
+# UNAPPLIED is meant to stay internal: it means the warm host's grandchild
+# could not swap the mutation into an already-imported module, and the
+# caller is supposed to retry that job coldly rather than report it.
+# `run_warm_session`'s caller does exactly that (runner._rerun_unapplied
+# scrubs every UNAPPLIED before building a Result). `run_warm_batch`'s
+# caller (runner._run_forked_batch) does not -- it builds a Result straight
+# from the returned statuses with no filtering -- so UNAPPLIED can reach a
+# Result on that path today. Pre-existing gap, not introduced or fixed here.
 Status = Literal["SURVIVED", "KILLED", "TIMEOUT", "SUSPICIOUS", "UNAPPLIED"]
 
 
