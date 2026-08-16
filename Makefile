@@ -114,7 +114,7 @@ check-fresh-install:
 check-mutmut:
 	$(PYTHON) scripts/check_mutmut_differential.py
 
-check-all: test check-oracle check-spike check-properties check-robustness check-mutmut check-fresh-install
+check-all: lint format-check typecheck test check-oracle check-spike check-properties check-robustness check-mutmut check-fresh-install
 
 ## Criterion B3: coverage mechanism benchmark.
 ## Prints wall-clock and map content for each candidate. See docs/spike-b-findings.md.
