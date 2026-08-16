@@ -19,8 +19,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Literal
 
+from .mutant import Mutant
 from .srcio import detect_encoding, encode_source, read_source, replace_line
 
 # pytest exit codes. 1 means tests failed, which is a kill. 2-5 mean pytest
@@ -30,11 +33,22 @@ from .srcio import detect_encoding, encode_source, read_source, replace_line
 PYTEST_OK = 0
 PYTEST_TESTS_FAILED = 1
 
+# Mirrors report.py's STATUS_KEYWORDS. Not imported from there because
+# report.py keeps that set untyped as plain strings for the grep-friendly
+# format; this is the one place a mutant's fate is decided, so it is worth
+# a Literal here even though the two are not (yet) the same declaration.
+Status = Literal["SKIPPED", "SURVIVED", "KILLED", "TIMEOUT", "SUSPICIOUS"]
 
-def run_naive(project_dir, mutants, timeout=30, python=None):
+
+def run_naive(
+    project_dir: Path,
+    mutants: Iterable[Mutant],
+    timeout: float = 30,
+    python: str | None = None,
+) -> dict[Mutant, Status]:
     """Run every mutant against the full suite. Returns {Mutant: status}."""
     python = python or sys.executable
-    results = {}
+    results: dict[Mutant, Status] = {}
     for mutant in mutants:
         if mutant.suppressed:
             results[mutant] = "SKIPPED"
@@ -43,7 +57,7 @@ def run_naive(project_dir, mutants, timeout=30, python=None):
     return results
 
 
-def _run_one(project_dir, mutant, timeout, python):
+def _run_one(project_dir: Path, mutant: Mutant, timeout: float, python: str) -> Status:
     with tempfile.TemporaryDirectory() as tmp:
         tree = Path(tmp) / "project"
         shutil.copytree(
@@ -70,7 +84,7 @@ def _run_one(project_dir, mutant, timeout, python):
     return "SUSPICIOUS"
 
 
-def _apply(path, mutant):
+def _apply(path: Path, mutant: Mutant) -> None:
     """Write the mutated line into the copied tree.
 
     Shares `replace_line` with the fast path, which is the one piece of the

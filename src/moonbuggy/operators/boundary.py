@@ -5,6 +5,7 @@ oracle.toml.
 """
 
 import ast
+from collections.abc import Iterator
 
 from . import register, replace_operator
 
@@ -20,7 +21,7 @@ class Boundary:
 
     name = "boundary"
 
-    def mutations(self, node):
+    def mutations(self, node: ast.AST) -> Iterator[ast.AST]:
         """Yield the call with its range shortened by one.
 
         Args:

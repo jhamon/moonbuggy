@@ -16,6 +16,12 @@ takes a record dict rather than a Result.
 """
 
 import json
+import os
+from collections.abc import Iterable
+from types import TracebackType
+from typing import IO, Literal, Protocol, TypedDict
+
+from .mutant import Mutant
 
 STATUS_KEYWORDS = {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
 
@@ -25,7 +31,42 @@ STATUS_KEYWORDS = {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
 ABSENT = "-"
 
 
-def record_for(result):
+class ResultLike(Protocol):
+    """What this module needs from a mutant's outcome.
+
+    Structural rather than importing `runner.Result` directly: `runner.py` is
+    still unannotated (Tasks 5/6), and a Protocol here states report.py's own
+    contract instead of inheriting whatever runner.py's type turns out to be.
+    Note for whoever annotates runner.py next: `Result.mutant` is currently
+    declared as plain `object`, not `Mutant` -- this Protocol only type-checks
+    here because `Mutant` happens to satisfy it structurally.
+    """
+
+    mutant: Mutant
+    status: str
+    nearest_test: str | None
+    tests_run: int
+    duration: float
+
+
+class Record(TypedDict):
+    """The canonical JSONL record for one mutant -- `record_for`'s return shape."""
+
+    id: str
+    status: str
+    file: str
+    line: int
+    operator: str
+    category: str
+    nearest_test: str | None
+    tests_run: int
+    duration: float
+    module_level: bool
+    suppressed: bool
+    diff: str
+
+
+def record_for(result: ResultLike) -> Record:
     """The canonical record for one mutant. This is the JSONL line's content."""
     mutant = result.mutant
     return {
@@ -48,7 +89,7 @@ def record_for(result):
     }
 
 
-def write_jsonl(results, path):
+def write_jsonl(results: Iterable[ResultLike], path: str | os.PathLike[str]) -> None:
     """Stream records to disk, one complete line at a time.
 
     Flushed per record so a run killed partway leaves only whole, parseable
@@ -75,34 +116,44 @@ class StreamingJSONL:
     order once the run finishes.
     """
 
-    def __init__(self, path):
+    def __init__(self, path: str | os.PathLike[str]) -> None:
         self.path = path
-        self._handle = None
+        self._handle: IO[str] | None = None
         self.written = 0
 
-    def __enter__(self):
+    def __enter__(self) -> "StreamingJSONL":
         self._handle = open(self.path, "w")
         return self
 
-    def write(self, result):
+    def write(self, result: ResultLike) -> None:
         """Append one result. Safe to call from a runner callback."""
+        # Only ever None before __enter__ or after __exit__; calling write()
+        # outside that window is a caller bug that already crashed here (with
+        # AttributeError) before this annotation.
+        assert self._handle is not None, "write() called outside the context manager"
         self._handle.write(json.dumps(record_for(result), sort_keys=True) + "\n")
         self._handle.flush()
         self.written += 1
 
-    def __exit__(self, *exc_info):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> Literal[False]:
+        assert self._handle is not None
         self._handle.close()
         self._handle = None
         return False
 
 
-def read_jsonl(path):
+def read_jsonl(path: str | os.PathLike[str]) -> list[Record]:
     """Read every record back from a JSONL file, in file order."""
     with open(path) as handle:
         return [json.loads(line) for line in handle if line.strip()]
 
 
-def render_line(record):
+def render_line(record: Record) -> str:
     """One plaintext line for one record. Never contains a newline."""
     return " ".join(
         [
@@ -117,12 +168,12 @@ def render_line(record):
     )
 
 
-def plaintext_from_records(records):
+def plaintext_from_records(records: Iterable[Record]) -> str:
     """The whole plaintext view: one line per record, no trailing newline."""
     return "\n".join(render_line(record) for record in records)
 
 
-def summarise(records):
+def summarise(records: Iterable[Record]) -> dict[str, int]:
     """Counts per status, for the run's final line."""
     counts = {keyword: 0 for keyword in sorted(STATUS_KEYWORDS)}
     for record in records:
@@ -130,7 +181,7 @@ def summarise(records):
     return counts
 
 
-def find_record(records, mutant_id):
+def find_record(records: Iterable[Record], mutant_id: str) -> Record | None:
     """The record with this mutant id, or None if there is not one."""
     for record in records:
         if record["id"] == mutant_id:

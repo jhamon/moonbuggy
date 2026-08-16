@@ -10,10 +10,15 @@ walks the tree -- adding an operator requires no change here (criterion B4).
 
 import ast
 import sys
+from collections.abc import Callable, Iterator
 
 from .mutant import Mutant
-from .operators import all_operators
+from .operators import Operator, all_operators
 from .srcio import strip_coding_cookie
+
+# Called as (lineno, reason) for a site that could not be turned into a
+# mutant. Returns nothing; the caller only records what it is told.
+OnSkip = Callable[[int, str], None]
 
 SUPPRESS_MARKER = "# moonbuggy: skip"
 
@@ -35,7 +40,9 @@ class GenerationError(RuntimeError):
 DEEP_RECURSION_LIMIT = 20_000
 
 
-def generate_mutants(source, module, on_skip=None):
+def generate_mutants(
+    source: str, module: str, on_skip: OnSkip | None = None
+) -> list[Mutant]:
     """Return every mutant for one module's source, in a stable order.
 
     Args:
@@ -68,7 +75,7 @@ def generate_mutants(source, module, on_skip=None):
     operators = all_operators()
     deferred = _function_body_lines(tree)
 
-    found = []
+    found: list[Mutant] = []
     previous_limit = sys.getrecursionlimit()
     sys.setrecursionlimit(max(previous_limit, DEEP_RECURSION_LIMIT))
     try:
@@ -91,7 +98,7 @@ def generate_mutants(source, module, on_skip=None):
     return found
 
 
-def _function_body_lines(tree):
+def _function_body_lines(tree: ast.Module) -> set[int]:
     """Every line that runs only when some function is called.
 
     The complement -- everything else -- runs at import time, and that is what
@@ -122,7 +129,7 @@ def _function_body_lines(tree):
     Returns:
         the set of line numbers belonging to some function body.
     """
-    deferred = set()
+    deferred: set[int] = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -132,7 +139,15 @@ def _function_body_lines(tree):
     return deferred
 
 
-def _mutate_node(node, operator, lines, module, found, module_level, on_skip):
+def _mutate_node(
+    node: ast.AST,
+    operator: Operator,
+    lines: list[str],
+    module: str,
+    found: list[Mutant],
+    module_level: bool,
+    on_skip: OnSkip | None,
+) -> None:
     """Apply one operator to one node, tolerating a site too deep to rewrite.
 
     Beyond the raised limit, deep-copying or unparsing a single expression can
@@ -162,7 +177,7 @@ def _mutate_node(node, operator, lines, module, found, module_level, on_skip):
             )
 
 
-def _walk(tree):
+def _walk(tree: ast.AST) -> Iterator[ast.AST]:
     """Yield every node, depth first, left to right.
 
     `ast.walk` would do the same job breadth first. The order matters here and
@@ -182,9 +197,22 @@ def _walk(tree):
         stack.extend(reversed(list(ast.iter_child_nodes(node))))
 
 
-def _build(node, mutated_node, operator, lines, module, found, module_level):
+def _build(
+    node: ast.AST,
+    mutated_node: ast.AST,
+    operator: Operator,
+    lines: list[str],
+    module: str,
+    found: list[Mutant],
+    module_level: bool,
+) -> Mutant | None:
     lineno = getattr(node, "lineno", None)
     if lineno is None or lineno > len(lines):
+        return None
+    # Every node with a `lineno` is an `expr` or `stmt` in CPython's ASDL
+    # grammar -- no other node kind carries position attributes -- so this
+    # isinstance check narrows the type without changing which nodes pass.
+    if not isinstance(node, (ast.expr, ast.stmt)):
         return None
 
     original_line = lines[lineno - 1]
@@ -208,7 +236,9 @@ def _build(node, mutated_node, operator, lines, module, found, module_level):
     )
 
 
-def _splice(node, mutated_node, original_line):
+def _splice(
+    node: ast.expr | ast.stmt, mutated_node: ast.AST, original_line: str
+) -> str | None:
     """Rebuild the source line with the mutated fragment in place.
 
     Splicing by column offset rather than unparsing the whole statement, so the
