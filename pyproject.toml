@@ -97,16 +97,21 @@ quiet = false
 # parameter must exist and every parameter must be documented, so a signature
 # change that leaves the docstring behind fails the build.
 style = "google"
-exclude = '\.venv|__pycache__'
+# M5.3: the flip to signature type hints is the M5.3 convention change --
+# mypy strict is being rolled out module by module, and a module has to be
+# annotated before pydoclint can require its signature to carry hints. These
+# are exactly the modules still on the `[[tool.mypy.overrides]]` list in
+# `[tool.mypy]` above: excluded here only until they are annotated. Tasks 4,
+# 5, and 6 each delete their own entries as they land, and Task 7 removes
+# whatever is left.
+exclude = '\.venv|__pycache__|src/moonbuggy/operators|src/moonbuggy/inmemory\.py|src/moonbuggy/codeswap\.py|src/moonbuggy/generate\.py|src/moonbuggy/naive\.py|src/moonbuggy/profiling\.py|src/moonbuggy/report\.py|src/moonbuggy/plugin\.py|src/moonbuggy/baseline\.py|src/moonbuggy/forkserver\.py|src/moonbuggy/coverage_pass\.py|src/moonbuggy/runner\.py|src/moonbuggy/cli\.py'
 # Private helpers are exempt from the coverage gate, so they are exempt from
 # the completeness gate too -- otherwise the exemption is not one.
 skip-checking-short-docstrings = true
 allow-init-docstring = true
-# Type hints are not this codebase's convention. Several core objects cross
-# process boundaries as plain tuples and dicts by design, and annotating them
-# would document a shape the code deliberately does not enforce. What is
-# checked is that the documented arguments match the real ones.
-arg-type-hints-in-signature = false
+# Type hints are now this codebase's convention (M5.3): the signature is the
+# authority, so docstrings are not required to repeat types.
+arg-type-hints-in-signature = true
 arg-type-hints-in-docstring = false
 check-return-types = false
 check-yield-types = false
