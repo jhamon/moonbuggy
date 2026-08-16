@@ -90,9 +90,13 @@ def generate_workload(root, name):
 
 def fresh_copy(root, name):
     target = root / name
-    shutil.copytree(FIXTURE, target, ignore=shutil.ignore_patterns(
-        "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
-    ))
+    shutil.copytree(
+        FIXTURE,
+        target,
+        ignore=shutil.ignore_patterns(
+            "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
+        ),
+    )
     return target
 
 
@@ -110,9 +114,15 @@ def run_moonbuggy(project):
     # cold mutmut would be meaningless.
     elapsed, proc = timed(
         [
-            PYTHON, "-m", "moonbuggy.cli", "--no-cache", "--quiet",
-            "--timeout", str(TIMEOUT),
-            "--jobs", os.environ.get("MB_JOBS", "0"),
+            PYTHON,
+            "-m",
+            "moonbuggy.cli",
+            "--no-cache",
+            "--quiet",
+            "--timeout",
+            str(TIMEOUT),
+            "--jobs",
+            os.environ.get("MB_JOBS", "0"),
         ],
         project,
     )
@@ -139,9 +149,15 @@ def run_mutmut(project, package="sample"):
     if not totals:
         raise SystemExit(f"could not parse mutmut output:\n{output[-2000:]}")
     _, total, killed, timeout, survived = totals[-1]
-    return elapsed, int(total), {
-        "KILLED": int(killed), "TIMEOUT": int(timeout), "SURVIVED": int(survived),
-    }
+    return (
+        elapsed,
+        int(total),
+        {
+            "KILLED": int(killed),
+            "TIMEOUT": int(timeout),
+            "SURVIVED": int(survived),
+        },
+    )
 
 
 def run_naive(project, package="sample"):
@@ -180,8 +196,10 @@ def report(title, note, rows):
 
 
 def main():
-    print(f"python: {platform.python_version()}   "
-          f"platform: {platform.system()} {platform.release()}   timeout: {TIMEOUT}s")
+    print(
+        f"python: {platform.python_version()}   "
+        f"platform: {platform.system()} {platform.release()}   timeout: {TIMEOUT}s"
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -226,10 +244,14 @@ def main():
 
     print("\nVerdicts (on the speed workload)")
     beats_mutmut = moon["time"] < mutmut["time"]
-    print(f"  G2  faster than mutmut : {_verdict(beats_mutmut)}  "
-          f"({mutmut['time'] / moon['time']:.2f}x)")
-    print(f"      faster than naive  : {_verdict(moon['time'] < naive['time'])}  "
-          f"({naive['time'] / moon['time']:.2f}x)")
+    print(
+        f"  G2  faster than mutmut : {_verdict(beats_mutmut)}  "
+        f"({mutmut['time'] / moon['time']:.2f}x)"
+    )
+    print(
+        f"      faster than naive  : {_verdict(moon['time'] < naive['time'])}  "
+        f"({naive['time'] / moon['time']:.2f}x)"
+    )
     print(
         f"  G3  mutant counts      : moonbuggy {moon['count']}, "
         f"mutmut {mutmut['count']}, naive {naive['count']}"
@@ -240,8 +262,10 @@ def main():
     # different operator sets. The naive baseline shares moonbuggy's operators
     # exactly, so an equal count there proves nothing was pruned.
     no_pruning = moon["count"] == naive["count"]
-    print(f"  G3  no mutants pruned  : {_verdict(no_pruning)}  "
-          f"(moonbuggy {moon['count']} == naive {naive['count']}, same operator set)")
+    print(
+        f"  G3  no mutants pruned  : {_verdict(no_pruning)}  "
+        f"(moonbuggy {moon['count']} == naive {naive['count']}, same operator set)"
+    )
 
     if moon["count"] < mutmut["count"]:
         print(

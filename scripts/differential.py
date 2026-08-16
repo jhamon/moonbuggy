@@ -176,6 +176,7 @@ def _split_diff(diff):
 # Classification (M1.3.2)
 # --------------------------------------------------------------------------
 
+
 def classify(key, ours, theirs):
     """Explain one disagreement, or return None if it cannot be explained.
 
@@ -187,28 +188,36 @@ def classify(key, ours, theirs):
     mine, yours = ours["status"], theirs["status"]
 
     if ours["suppressed"]:
-        return ("genuine semantic difference",
-                "moonbuggy honours `# moonbuggy: skip`; mutmut has no such marker")
+        return (
+            "genuine semantic difference",
+            "moonbuggy honours `# moonbuggy: skip`; mutmut has no such marker",
+        )
 
     if "TIMEOUT" in (mine, yours):
-        return ("genuine semantic difference",
-                "mutmut derives its own timeout from a baseline run rather than "
-                "taking ours, so which mutants time out need not match")
+        return (
+            "genuine semantic difference",
+            "mutmut derives its own timeout from a baseline run rather than "
+            "taking ours, so which mutants time out need not match",
+        )
 
     if mine == "SURVIVED" and ours["tests_run"] == 0:
-        return ("genuine semantic difference",
-                "no test covers this line at all. moonbuggy reports SURVIVED "
-                "because an untested line is a finding -- a different finding "
-                "from `tested but not checked`, but a finding. mutmut has no "
-                "tests to run for the function and reports the run it could "
-                "not make rather than the gap it found. Both are defensible; "
-                "they are answers to different questions")
+        return (
+            "genuine semantic difference",
+            "no test covers this line at all. moonbuggy reports SURVIVED "
+            "because an untested line is a finding -- a different finding "
+            "from `tested but not checked`, but a finding. mutmut has no "
+            "tests to run for the function and reports the run it could "
+            "not make rather than the gap it found. Both are defensible; "
+            "they are answers to different questions",
+        )
 
     if mine == "SUSPICIOUS":
-        return ("genuine semantic difference",
-                "moonbuggy declines a confident status where mutmut gives one; "
-                "see M1.4.3 -- a flaky covering test makes both KILLED and "
-                "SURVIVED unsupportable")
+        return (
+            "genuine semantic difference",
+            "moonbuggy declines a confident status where mutmut gives one; "
+            "see M1.4.3 -- a flaky covering test makes both KILLED and "
+            "SURVIVED unsupportable",
+        )
 
     return None
 
@@ -235,15 +244,18 @@ def compare(name, records, their_mutants):
             # The same textual change appears more than once in the module, so
             # which one matches which is undecidable from the key alone.
             entry["ambiguous"] += len(mine)
-            entry["disagreements"].append({
-                "project": name, "key": list(key),
-                "moonbuggy": [m["status"] for m in mine],
-                "mutmut": [t["status"] for t in theirs],
-                "category": "not actually the same mutant",
-                "reason": f"the change `{key[1]}` -> `{key[2]}` occurs "
-                          f"{max(len(mine), len(theirs))} times in {key[0]}, so the "
-                          "join is ambiguous and no pairing can be asserted",
-            })
+            entry["disagreements"].append(
+                {
+                    "project": name,
+                    "key": list(key),
+                    "moonbuggy": [m["status"] for m in mine],
+                    "mutmut": [t["status"] for t in theirs],
+                    "category": "not actually the same mutant",
+                    "reason": f"the change `{key[1]}` -> `{key[2]}` occurs "
+                    f"{max(len(mine), len(theirs))} times in {key[0]}, so the "
+                    "join is ambiguous and no pairing can be asserted",
+                }
+            )
             continue
 
         entry["shared"] += 1
@@ -253,12 +265,16 @@ def compare(name, records, their_mutants):
             continue
 
         classified = classify(key, record, other)
-        entry["disagreements"].append({
-            "project": name, "key": list(key),
-            "moonbuggy": record["status"], "mutmut": other["status"],
-            "category": classified[0] if classified else None,
-            "reason": classified[1] if classified else None,
-        })
+        entry["disagreements"].append(
+            {
+                "project": name,
+                "key": list(key),
+                "moonbuggy": record["status"],
+                "mutmut": other["status"],
+                "category": classified[0] if classified else None,
+                "reason": classified[1] if classified else None,
+            }
+        )
 
     return entry
 
@@ -267,9 +283,19 @@ def compare(name, records, their_mutants):
 # Running the two tools
 # --------------------------------------------------------------------------
 
+
 def run_moonbuggy(project, source, timeout):
-    command = [PYTHON, "-m", "moonbuggy.cli", "--no-cache", "--quiet",
-               "--source", str(source), "--timeout", str(timeout)]
+    command = [
+        PYTHON,
+        "-m",
+        "moonbuggy.cli",
+        "--no-cache",
+        "--quiet",
+        "--source",
+        str(source),
+        "--timeout",
+        str(timeout),
+    ]
     subprocess.run(command, cwd=project, capture_output=True, text=True, timeout=3600)
     results = project / ".moonbuggy" / "results.jsonl"
     if not results.exists():
@@ -286,8 +312,9 @@ def run_mutmut(project, package, tests):
     (project / "pyproject.toml").write_text(
         f'[tool.mutmut]\nsource_paths = ["{package}/"]\n'
     )
-    proc = subprocess.run([MUTMUT, "run"], cwd=project, capture_output=True,
-                          text=True, timeout=7200)
+    proc = subprocess.run(
+        [MUTMUT, "run"], cwd=project, capture_output=True, text=True, timeout=7200
+    )
     tree = project / "mutants"
     if not tree.exists():
         return None, proc.stdout[-2000:] + proc.stderr[-2000:]
@@ -358,9 +385,13 @@ def build_projects(root):
     projects = []
 
     fixture = root / "fixture"
-    shutil.copytree(FIXTURE, fixture, ignore=shutil.ignore_patterns(
-        "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
-    ))
+    shutil.copytree(
+        FIXTURE,
+        fixture,
+        ignore=shutil.ignore_patterns(
+            "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
+        ),
+    )
     projects.append(("fixture", fixture, "sample", "tests"))
 
     for name, params in GENERATED:
@@ -387,15 +418,18 @@ def main(argv=None):
             if "blocker" in entry:
                 print(f"    BLOCKED: {entry['blocker'][:200]}")
                 continue
-            print(f"    shared {entry['shared']}, agree {entry['agree']}, "
-                  f"disagree {len(entry['disagreements'])}, "
-                  f"ambiguous {entry['ambiguous']}  ({entry['seconds']}s)")
+            print(
+                f"    shared {entry['shared']}, agree {entry['agree']}, "
+                f"disagree {len(entry['disagreements'])}, "
+                f"ambiguous {entry['ambiguous']}  ({entry['seconds']}s)"
+            )
 
     payload = {"projects": entries}
     Path(args.out).write_text(json.dumps(payload, indent=2, sort_keys=True))
 
     unclassified = [
-        d for entry in entries
+        d
+        for entry in entries
         for d in entry.get("disagreements", [])
         if d["category"] is None
     ]
@@ -405,9 +439,11 @@ def main(argv=None):
     if unclassified:
         print(f"\n{len(unclassified)} UNCLASSIFIED disagreement(s):")
         for item in unclassified[:20]:
-            print(f"  {item['project']} {item['key'][0]}: "
-                  f"`{item['key'][1]}` -> `{item['key'][2]}`  "
-                  f"moonbuggy={item['moonbuggy']} mutmut={item['mutmut']}")
+            print(
+                f"  {item['project']} {item['key'][0]}: "
+                f"`{item['key'][1]}` -> `{item['key'][2]}`  "
+                f"moonbuggy={item['moonbuggy']} mutmut={item['mutmut']}"
+            )
         raise SystemExit(
             "M1.3.2 requires zero unclassified disagreements. Each one above is "
             "a moonbuggy bug, a mutmut bug, a genuine semantic difference, or "
@@ -419,7 +455,8 @@ def main(argv=None):
 def write_markdown(path, entries, unclassified):
     categories = Counter(
         d["category"] or "UNCLASSIFIED"
-        for entry in entries for d in entry.get("disagreements", [])
+        for entry in entries
+        for d in entry.get("disagreements", [])
     )
     completed = [e for e in entries if "blocker" not in e]
 

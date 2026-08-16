@@ -123,8 +123,16 @@ def _mutant_args(selected, extra_args=()):
     import os as _os
 
     return [
-        "-q", "-p", "no:cacheprovider", "--rootdir", _os.getcwd(),
-        "-p", "no:cov", "-x", *extra_args, *selected,
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--rootdir",
+        _os.getcwd(),
+        "-p",
+        "no:cov",
+        "-x",
+        *extra_args,
+        *selected,
     ]
 
 
@@ -180,8 +188,16 @@ def run_pytest_in_fork(cwd, args, env_updates, timeout):
 
 
 def run_warm_session(
-    project_dir, cov_args, timeout, concurrency, build_jobs, apply_swap,
-    probe_args=None, probes=0, on_result=None, extra_args=(),
+    project_dir,
+    cov_args,
+    timeout,
+    concurrency,
+    build_jobs,
+    apply_swap,
+    probe_args=None,
+    probes=0,
+    on_result=None,
+    extra_args=(),
 ):
     """One suite run that both builds the coverage map and warms the process.
 
@@ -225,8 +241,16 @@ def run_warm_session(
         os.close(jobs_write)
         os.close(status_read)
         _warm_session_host(
-            project_dir, cov_args, timeout, concurrency, apply_swap,
-            jobs_read, status_write, probe_args, probes, extra_args,
+            project_dir,
+            cov_args,
+            timeout,
+            concurrency,
+            apply_swap,
+            jobs_read,
+            status_write,
+            probe_args,
+            probes,
+            extra_args,
         )
 
     os.close(jobs_read)
@@ -273,8 +297,16 @@ def run_warm_session(
 
 
 def _warm_session_host(
-    project_dir, cov_args, timeout, concurrency, apply_swap, jobs_read, status_write,
-    probe_args, probes, extra_args=(),
+    project_dir,
+    cov_args,
+    timeout,
+    concurrency,
+    apply_swap,
+    jobs_read,
+    status_write,
+    probe_args,
+    probes,
+    extra_args=(),
 ):
     try:
         os.chdir(project_dir)
@@ -309,12 +341,16 @@ def _warm_session_host(
             pytest.main(probe_args or cov_args, plugins=[probe])
             runs.append(dict(probe.outcomes))
 
-        payload = pickle.dumps({
-            "runs": runs,
-            "startup": startup,
-            "coverage_seconds": coverage_seconds,
-            "probe_seconds": time.perf_counter() - coverage_began - coverage_seconds,
-        })
+        payload = pickle.dumps(
+            {
+                "runs": runs,
+                "startup": startup,
+                "coverage_seconds": coverage_seconds,
+                "probe_seconds": time.perf_counter()
+                - coverage_began
+                - coverage_seconds,
+            }
+        )
         os.write(status_write, len(payload).to_bytes(8, "big"))
         os.write(status_write, payload)
 
@@ -401,7 +437,10 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
 
 
 _STATUS_BY_CODE = {
-    0: "SURVIVED", 1: "KILLED", 2: "TIMEOUT", 3: "SUSPICIOUS",
+    0: "SURVIVED",
+    1: "KILLED",
+    2: "TIMEOUT",
+    3: "SUSPICIOUS",
     # Not a status the user ever sees. It means the grandchild could not apply
     # its mutation in place, so nothing was measured and the mutant has to be
     # re-run on the cold path. Reporting SUSPICIOUS instead -- which is what
@@ -479,7 +518,10 @@ def _fork_grandchildren(
                 _grandchild(mutant, selected, apply_swap, write_fd, extra_args)
             os.close(write_fd)
             running[pid] = (
-                index, read_fd, time.monotonic() + timeout, time.monotonic(),
+                index,
+                read_fd,
+                time.monotonic() + timeout,
+                time.monotonic(),
             )
 
         for pid, (index, read_fd, deadline, forked_at) in list(running.items()):
@@ -492,8 +534,12 @@ def _fork_grandchildren(
                 os.close(read_fd)
                 del running[pid]
                 if emit is not None:
-                    emit(index, statuses[index], test_seconds,
-                         time.monotonic() - forked_at)
+                    emit(
+                        index,
+                        statuses[index],
+                        test_seconds,
+                        time.monotonic() - forked_at,
+                    )
             elif time.monotonic() > deadline:
                 _kill(pid)
                 statuses[index] = "TIMEOUT"
@@ -579,8 +625,14 @@ def run_batch(project_dir, jobs, timeout, install_mutation, concurrency, extra_a
             pid = os.fork()
             if pid == 0:
                 os.close(read_fd)
-                _child(project_dir, mutant, selected, install_mutation, write_fd,
-                       extra_args)
+                _child(
+                    project_dir,
+                    mutant,
+                    selected,
+                    install_mutation,
+                    write_fd,
+                    extra_args,
+                )
             os.close(write_fd)
             running[pid] = (index, read_fd, time.monotonic() + timeout)
 

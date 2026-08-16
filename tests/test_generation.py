@@ -92,9 +92,7 @@ def test_module_level_mutants_are_flagged():
     module-scoped so it can widen the test set for them, so generation has to
     say so.
     """
-    module_level = {
-        (m.module, m.line) for m in generate_all() if m.module_level
-    }
+    module_level = {(m.module, m.line) for m in generate_all() if m.module_level}
 
     # Exactly the oracle's two module-level cases, plus the suppressed CACHE_SIZE
     # line which is also module-level.
@@ -106,9 +104,7 @@ def test_module_level_mutants_are_flagged():
 
 
 def test_function_body_mutants_are_not_flagged_module_level():
-    inside_functions = [
-        m for m in generate_all() if m.module == "sample/loops.py"
-    ]
+    inside_functions = [m for m in generate_all() if m.module == "sample/loops.py"]
 
     assert inside_functions
     assert not any(m.module_level for m in inside_functions)

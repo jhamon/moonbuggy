@@ -14,7 +14,7 @@ import pytest
 
 pytestmark = pytest.mark.slow
 
-PROJECT = '''\
+PROJECT = """\
 def clamp(value, ceiling):
     if value > ceiling:
         return ceiling
@@ -26,9 +26,9 @@ def total(values):
     for value in values:
         running += value
     return running
-'''
+"""
 
-TESTS = '''\
+TESTS = """\
 from calc import clamp, total
 
 
@@ -42,7 +42,7 @@ def test_clamp_caps_large_values():
 
 def test_total_sums():
     assert total([1, 2, 3]) == 6
-'''
+"""
 
 
 @pytest.fixture
@@ -61,12 +61,15 @@ def throwaway(tmp_path):
 def moonbuggy(*args, cwd, expect=None):
     proc = subprocess.run(
         [sys.executable, "-m", "moonbuggy.cli", *args],
-        cwd=cwd, capture_output=True, text=True, timeout=300,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
     if expect is not None:
-        assert (
-            proc.returncode == expect
-        ), f"{proc.returncode}\n{proc.stdout}\n{proc.stderr}"
+        assert proc.returncode == expect, (
+            f"{proc.returncode}\n{proc.stdout}\n{proc.stderr}"
+        )
     return proc
 
 
@@ -116,8 +119,11 @@ def test_grep_for_survived_matches_the_jsonl(throwaway):
         for line in out.joinpath("results.jsonl").read_text().splitlines()
     ]
     expected = sum(1 for r in records if r["status"] == "SURVIVED")
-    grepped = sum(1 for line in out.joinpath("results.txt").read_text().splitlines()
-                  if line.startswith("SURVIVED"))
+    grepped = sum(
+        1
+        for line in out.joinpath("results.txt").read_text().splitlines()
+        if line.startswith("SURVIVED")
+    )
 
     assert grepped == expected
 
@@ -223,7 +229,10 @@ def test_users_own_test_suite_still_passes_afterwards(throwaway):
     """
     before = subprocess.run(
         [sys.executable, "-m", "pytest", "-q"],
-        cwd=throwaway, capture_output=True, text=True, timeout=120,
+        cwd=throwaway,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert before.returncode == 0, before.stdout
 
@@ -231,7 +240,10 @@ def test_users_own_test_suite_still_passes_afterwards(throwaway):
 
     after = subprocess.run(
         [sys.executable, "-m", "pytest", "-q"],
-        cwd=throwaway, capture_output=True, text=True, timeout=120,
+        cwd=throwaway,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert after.returncode == 0, (
         "The project's own suite fails after a moonbuggy run:\n" + after.stdout

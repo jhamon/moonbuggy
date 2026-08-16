@@ -124,8 +124,8 @@ def records(project):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 '''
 
-doctest_global_cleanup = '''
+doctest_global_cleanup = """
 for _holder in _TEMPORARY_DIRECTORIES:
     _holder.cleanup()
 _TEMPORARY_DIRECTORIES.clear()
-'''
+"""

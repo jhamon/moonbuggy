@@ -63,7 +63,10 @@ def apply_in_place(module, path, line, mutated_text):
 
     # Keep tracebacks honest even though nothing was re-imported (D4).
     linecache.cache[str(path)] = (
-        len(source), None, source.splitlines(keepends=True), str(path),
+        len(source),
+        None,
+        source.splitlines(keepends=True),
+        str(path),
     )
 
     if qualname is None:
@@ -111,9 +114,7 @@ def _exec_module_level(module, source, line):
     # Any failure here means fall back to rebinding aliases instead -- the
     # exception is deliberately broad, not narrowed to a specific type.
     except Exception as error:
-        raise SwapFailed(
-            f"could not exec module-level statement: {error}"
-        ) from error
+        raise SwapFailed(f"could not exec module-level statement: {error}") from error
 
     for name in names:
         previous = before[name]

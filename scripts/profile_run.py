@@ -49,7 +49,13 @@ OVERHEAD_CEILING = 1.20
 def run_once(project, profile_path=None):
     """One moonbuggy run. Returns (external wall clock, profile dict or None)."""
     command = [
-        PYTHON, "-m", "moonbuggy.cli", "--no-cache", "--quiet", "--timeout", "10",
+        PYTHON,
+        "-m",
+        "moonbuggy.cli",
+        "--no-cache",
+        "--quiet",
+        "--timeout",
+        "10",
     ]
     env = None
     if profile_path is not None:
@@ -125,13 +131,17 @@ def report(summary):
     )
 
     share = attributed / wall
-    print(f"\n  M2.1.2 phases cover >= 95% of wall clock : "
-          f"{_verdict(share >= ATTRIBUTION_FLOOR)}  ({share:.1%})")
+    print(
+        f"\n  M2.1.2 phases cover >= 95% of wall clock : "
+        f"{_verdict(share >= ATTRIBUTION_FLOOR)}  ({share:.1%})"
+    )
 
     overhead = summary["external_wall"] / summary["unprofiled_wall"]
-    print(f"  M2.1.4 profiled run within 20% of plain  : "
-          f"{_verdict(overhead <= OVERHEAD_CEILING)}  "
-          f"({overhead:.2f}x, {summary['unprofiled_wall']:.3f}s unprofiled)")
+    print(
+        f"  M2.1.4 profiled run within 20% of plain  : "
+        f"{_verdict(overhead <= OVERHEAD_CEILING)}  "
+        f"({overhead:.2f}x, {summary['unprofiled_wall']:.3f}s unprofiled)"
+    )
     return share >= ATTRIBUTION_FLOOR, overhead <= OVERHEAD_CEILING
 
 

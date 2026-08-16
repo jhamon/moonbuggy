@@ -104,10 +104,17 @@ def bench_monitoring(root, src, out):
     env["MOONBUGGY_COVERAGE_OUTPUT"] = str(out)
     elapsed = time_run(
         [
-            PYTHON, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-            "-p", "moonbuggy.covplugin",
+            PYTHON,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-p",
+            "moonbuggy.covplugin",
         ],
-        root, env=env,
+        root,
+        env=env,
     )
     entries = json.loads(out.read_text())
     return elapsed, len(entries), sum(len(e["tests"]) for e in entries)
@@ -119,8 +126,15 @@ def bench_coverage_py(root):
     )
     elapsed = time_run(
         [
-            PYTHON, "-m", "coverage", "run", "-m", "pytest", "-q",
-            "-p", "no:cacheprovider",
+            PYTHON,
+            "-m",
+            "coverage",
+            "run",
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
         ],
         root,
     )
@@ -147,8 +161,17 @@ def bench_pytest_cov(root):
     to pytest as a selection argument.
     """
     elapsed = time_run(
-        [PYTHON, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-         "--cov=workload", "--cov-context=test", "--cov-report="],
+        [
+            PYTHON,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "--cov=workload",
+            "--cov-context=test",
+            "--cov-report=",
+        ],
         root,
     )
     import coverage

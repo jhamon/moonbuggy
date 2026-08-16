@@ -59,13 +59,15 @@ def test_a_project_nested_inside_another_still_gets_confident_statuses(tmp_path)
     contain.
     """
     (tmp_path / "pyproject.toml").write_text(
-        "[tool.pytest.ini_options]\n"
-        "addopts = \"\"\n"
+        '[tool.pytest.ini_options]\naddopts = ""\n'
     )
-    inner = write_project(tmp_path / "inner", {
-        "calc.py": CALC,
-        "test_calc.py": CALC_TESTS,
-    })
+    inner = write_project(
+        tmp_path / "inner",
+        {
+            "calc.py": CALC,
+            "test_calc.py": CALC_TESTS,
+        },
+    )
     # No pytest.ini in the inner project: that is what sends rootdir upwards.
     (inner / "pytest.ini").unlink()
 

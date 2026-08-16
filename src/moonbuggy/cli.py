@@ -89,18 +89,42 @@ def _add_run_arguments(parser):
         "--source", default=None, help="directory to mutate (default: discovered)"
     )
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--timeout", type=float, default=30.0,
-                        help="seconds before a mutant is called TIMEOUT (default: 30)")
-    parser.add_argument("--operators", default=None,
-                        help="comma-separated operator names to use (default: all)")
-    parser.add_argument("--include", action="append", default=[],
-                        help="only mutate paths containing this fragment (repeatable)")
-    parser.add_argument("--exclude", action="append", default=[],
-                        help="skip paths containing this fragment (repeatable)")
-    parser.add_argument("--jobs", type=int, default=0,
-                        help="mutants to run concurrently (default: CPU count - 1)")
-    parser.add_argument("-n", "--workers", type=int, default=0,
-                        help="pytest-xdist workers per mutant run (default: 0, serial)")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="seconds before a mutant is called TIMEOUT (default: 30)",
+    )
+    parser.add_argument(
+        "--operators",
+        default=None,
+        help="comma-separated operator names to use (default: all)",
+    )
+    parser.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        help="only mutate paths containing this fragment (repeatable)",
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help="skip paths containing this fragment (repeatable)",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=0,
+        help="mutants to run concurrently (default: CPU count - 1)",
+    )
+    parser.add_argument(
+        "-n",
+        "--workers",
+        type=int,
+        default=0,
+        help="pytest-xdist workers per mutant run (default: 0, serial)",
+    )
     parser.add_argument(
         "--no-cache", action="store_true", help="ignore and do not update the cache"
     )
@@ -110,15 +134,25 @@ def _add_run_arguments(parser):
     parser.add_argument(
         "--quiet", action="store_true", help="only print the summary line"
     )
-    parser.add_argument("--pytest-arg", action="append", default=[], metavar="ARG",
-                        help="extra argument passed to every pytest run, including "
-                             "the baseline and each mutant (repeatable). Needed when "
-                             "your real test command is not bare pytest -- "
-                             "`--pytest-arg=--doctest-modules`, say")
-    parser.add_argument("--flaky-probe", type=int, default=1, metavar="N",
-                        help="extra unmutated suite runs used to detect flaky tests; "
-                             "a test whose outcome varies makes every mutant it covers "
-                             "SUSPICIOUS (default: 1, 0 disables)")
+    parser.add_argument(
+        "--pytest-arg",
+        action="append",
+        default=[],
+        metavar="ARG",
+        help="extra argument passed to every pytest run, including "
+        "the baseline and each mutant (repeatable). Needed when "
+        "your real test command is not bare pytest -- "
+        "`--pytest-arg=--doctest-modules`, say",
+    )
+    parser.add_argument(
+        "--flaky-probe",
+        type=int,
+        default=1,
+        metavar="N",
+        help="extra unmutated suite runs used to detect flaky tests; "
+        "a test whose outcome varies makes every mutant it covers "
+        "SUSPICIOUS (default: 1, 0 disables)",
+    )
 
 
 def _run(args):
@@ -189,18 +223,32 @@ def _run(args):
             # does not apply; fall back to the separate baseline pass and cold
             # forks.
             linemap, flaky = run_baseline_pass(
-                project_dir, source_dir, args.flaky_probe, extra_args=args.pytest_arg,
+                project_dir,
+                source_dir,
+                args.flaky_probe,
+                extra_args=args.pytest_arg,
             )
             results = run_mutants(
-                project_dir, mutants, linemap,
-                timeout=args.timeout, xdist_workers=args.workers, cache=cache,
-                jobs=args.jobs or None, flaky=flaky, on_result=stream.write,
+                project_dir,
+                mutants,
+                linemap,
+                timeout=args.timeout,
+                xdist_workers=args.workers,
+                cache=cache,
+                jobs=args.jobs or None,
+                flaky=flaky,
+                on_result=stream.write,
             )
         else:
             _, results = run_session(
-                project_dir, mutants, source_dir,
-                timeout=args.timeout, cache=cache, jobs=args.jobs or None,
-                probes=args.flaky_probe, on_result=stream.write,
+                project_dir,
+                mutants,
+                source_dir,
+                timeout=args.timeout,
+                cache=cache,
+                jobs=args.jobs or None,
+                probes=args.flaky_probe,
+                on_result=stream.write,
                 extra_args=args.pytest_arg,
             )
 

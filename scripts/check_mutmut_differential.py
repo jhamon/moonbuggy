@@ -31,7 +31,10 @@ MUTMUT = str(REPO / ".venv" / "bin" / "mutmut")
 
 # mutmut's status glyphs, from its progress line.
 GLYPHS = {
-    "🎉": "KILLED", "🙁": "SURVIVED", "⏰": "TIMEOUT", "🤔": "SUSPICIOUS",
+    "🎉": "KILLED",
+    "🙁": "SURVIVED",
+    "⏰": "TIMEOUT",
+    "🤔": "SUSPICIOUS",
     "🫥": "SKIPPED",
 }
 
@@ -73,8 +76,11 @@ def run_mutmut(project):
         raise SystemExit(f"could not parse mutmut output:\n{output[-2000:]}")
     _, total, killed, skipped, timeout, suspicious, survived = match[-1]
     return int(total), {
-        "KILLED": int(killed), "SKIPPED": int(skipped), "TIMEOUT": int(timeout),
-        "SUSPICIOUS": int(suspicious), "SURVIVED": int(survived),
+        "KILLED": int(killed),
+        "SKIPPED": int(skipped),
+        "TIMEOUT": int(timeout),
+        "SUSPICIOUS": int(suspicious),
+        "SURVIVED": int(survived),
     }
 
 
@@ -85,9 +91,13 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         project = Path(tmp) / "fixture"
-        shutil.copytree(FIXTURE, project, ignore=shutil.ignore_patterns(
-            "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
-        ))
+        shutil.copytree(
+            FIXTURE,
+            project,
+            ignore=shutil.ignore_patterns(
+                "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
+            ),
+        )
         mutmut_total, mutmut_counts = run_mutmut(project)
 
     print("Criterion A5 -- advisory mutmut cross-check (never gates the build)\n")

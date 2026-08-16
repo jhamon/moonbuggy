@@ -43,7 +43,7 @@ EXAMPLES = 500
 PROPERTY = settings(
     max_examples=EXAMPLES,
     deadline=None,  # Module size varies enough that a per-example deadline
-                    # would fail on the large tail rather than on a bug.
+    # would fail on the large tail rather than on a bug.
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large],
 )
 
@@ -81,6 +81,7 @@ def _mutate(source, mutant):
 # M1.2.1 -- every generated mutant compiles
 # --------------------------------------------------------------------------
 
+
 @PROPERTY
 @given(module_source())
 @example(TRAILING_WHITESPACE_CASE)
@@ -106,6 +107,7 @@ def test_every_mutant_compiles(source):
 # M1.2.2 -- mutation never changes string or comment content
 # --------------------------------------------------------------------------
 
+
 def _string_literals(source):
     """Every string constant's *value*, as a multiset.
 
@@ -123,9 +125,7 @@ def _comments(source):
     """Every comment's text, as a multiset. Read with tokenize, which is the
     only thing that knows a `#` inside a string is not a comment."""
     tokens = tokenize.generate_tokens(io.StringIO(source).readline)
-    return Counter(
-        token.string for token in tokens if token.type == tokenize.COMMENT
-    )
+    return Counter(token.string for token in tokens if token.type == tokenize.COMMENT)
 
 
 @PROPERTY
@@ -155,6 +155,7 @@ def test_mutation_never_edits_a_string_or_a_comment(source):
 # M1.2.3 -- ids are stable and unique
 # --------------------------------------------------------------------------
 
+
 @PROPERTY
 @given(module_source())
 def test_ids_are_stable_across_runs_and_unique_within_a_module(source):
@@ -164,16 +165,15 @@ def test_ids_are_stable_across_runs_and_unique_within_a_module(source):
     second = [m.id for m in generate_mutants(source, module="generated.py")]
 
     assert first == second
-    assert len(set(first)) == len(first), (
-        "duplicate ids: " + ", ".join(
-            i for i, count in Counter(first).items() if count > 1
-        )
+    assert len(set(first)) == len(first), "duplicate ids: " + ", ".join(
+        i for i, count in Counter(first).items() if count > 1
     )
 
 
 # --------------------------------------------------------------------------
 # M1.2.4 -- splicing round-trips
 # --------------------------------------------------------------------------
+
 
 @PROPERTY
 @given(module_source())
@@ -198,6 +198,7 @@ def test_splicing_round_trips_byte_for_byte(source):
 # --------------------------------------------------------------------------
 # M1.2.5 -- line attribution is correct
 # --------------------------------------------------------------------------
+
 
 @PROPERTY
 @given(module_source())
@@ -369,12 +370,12 @@ def test_the_strategy_reaches_every_named_feature():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", NonInteractiveExampleWarning)
         trees = [
-            ast.parse(strategy.example())
-            for _ in range(SAMPLES_FOR_FEATURE_COVERAGE)
+            ast.parse(strategy.example()) for _ in range(SAMPLES_FOR_FEATURE_COVERAGE)
         ]
 
     missing = sorted(
-        feature for feature, predicate in FEATURES.items()
+        feature
+        for feature, predicate in FEATURES.items()
         if not any(predicate(tree) for tree in trees)
     )
     assert not missing, (

@@ -44,9 +44,22 @@ def run_fixture_suite(*extra_args, env_extra=None):
     env["MOONBUGGY_MUTANT"] = json.dumps(MUTANT)
     env.update(env_extra or {})
     return subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-         "-p", "moonbuggy.plugin", *extra_args],
-        cwd=FIXTURE, capture_output=True, text=True, timeout=120, env=env,
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-p",
+            "moonbuggy.plugin",
+            *extra_args,
+        ],
+        cwd=FIXTURE,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
     )
 
 
@@ -73,9 +86,21 @@ def test_unmutated_run_is_green():
     env = dict(os.environ)
     env.pop("MOONBUGGY_MUTANT", None)
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-         "-p", "moonbuggy.plugin"],
-        cwd=FIXTURE, capture_output=True, text=True, timeout=120, env=env,
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-p",
+            "moonbuggy.plugin",
+        ],
+        cwd=FIXTURE,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
     )
 
     assert result.returncode == 0, result.stdout
@@ -130,7 +155,10 @@ def test_mutated_bytecode_is_never_cached_to_disk():
 
     clean = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
-        cwd=FIXTURE, capture_output=True, text=True, timeout=120,
+        cwd=FIXTURE,
+        capture_output=True,
+        text=True,
+        timeout=120,
         env={k: v for k, v in os.environ.items() if k != "MOONBUGGY_MUTANT"},
     )
 
@@ -144,6 +172,7 @@ def test_source_file_on_disk_is_untouched():
     # Criterion D3. In-memory means in-memory.
     run_fixture_suite()
 
-    assert "return quantity >= BULK_THRESHOLD" in (
-        FIXTURE / "sample" / "discounts.py"
-    ).read_text()
+    assert (
+        "return quantity >= BULK_THRESHOLD"
+        in (FIXTURE / "sample" / "discounts.py").read_text()
+    )

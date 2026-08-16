@@ -86,7 +86,10 @@ def checkout(ref, destination):
     """Put `ref` in its own worktree at `destination`."""
     subprocess.run(
         ["git", "worktree", "add", "--detach", str(destination), ref],
-        cwd=REPO, check=True, capture_output=True, text=True,
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     return destination
 
@@ -94,7 +97,9 @@ def checkout(ref, destination):
 def remove_worktree(destination):
     subprocess.run(
         ["git", "worktree", "remove", "--force", str(destination)],
-        cwd=REPO, capture_output=True, text=True,
+        cwd=REPO,
+        capture_output=True,
+        text=True,
     )
 
 
@@ -109,13 +114,14 @@ def run_once(tree, project):
     began = time.perf_counter()
     proc = subprocess.run(
         [PYTHON, "-m", "moonbuggy.cli", "--no-cache", "--quiet", "--timeout", "10"],
-        cwd=project, capture_output=True, text=True, env=env,
+        cwd=project,
+        capture_output=True,
+        text=True,
+        env=env,
     )
     elapsed = time.perf_counter() - began
     if proc.returncode not in (0, 1):
-        raise SystemExit(
-            f"moonbuggy failed in {tree}:\n{proc.stdout}\n{proc.stderr}"
-        )
+        raise SystemExit(f"moonbuggy failed in {tree}:\n{proc.stdout}\n{proc.stderr}")
     return elapsed
 
 
@@ -204,10 +210,18 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--baseline", required=True, help="git ref to measure against")
     parser.add_argument("--candidate", required=True, help="git ref to measure")
-    parser.add_argument("--runs", type=int, default=DEFAULT_RUNS,
-                        help=f"runs per side (default and minimum: {DEFAULT_RUNS})")
-    parser.add_argument("--shape", default=None, choices=workloads.SHAPES,
-                        help="one workload shape (default: all three)")
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=DEFAULT_RUNS,
+        help=f"runs per side (default and minimum: {DEFAULT_RUNS})",
+    )
+    parser.add_argument(
+        "--shape",
+        default=None,
+        choices=workloads.SHAPES,
+        help="one workload shape (default: all three)",
+    )
     args = parser.parse_args(argv)
 
     if args.runs < DEFAULT_RUNS:

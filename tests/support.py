@@ -52,7 +52,10 @@ def moonbuggy(*args, cwd, expect=None, timeout=300):
     """
     proc = subprocess.run(
         [sys.executable, "-m", "moonbuggy.cli", *args],
-        cwd=cwd, capture_output=True, text=True, timeout=timeout,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
     if expect is not None:
         assert proc.returncode == expect, (

@@ -93,8 +93,7 @@ def test_selection_runs_fewer_tests_than_the_whole_suite(serial_results, linemap
     # Criterion D2. The whole speed argument rests on this being true.
     total = len(linemap.all_tests())
     narrowed = [
-        r for r in serial_results
-        if r.status == "KILLED" and not r.mutant.module_level
+        r for r in serial_results if r.status == "KILLED" and not r.mutant.module_level
     ]
 
     assert narrowed
@@ -123,7 +122,8 @@ def test_uncovered_mutant_runs_no_tests_at_all(serial_results):
     # inventory-L15-const: no covering tests, so nothing to run. It must still
     # be reported SURVIVED rather than hidden.
     uncovered = [
-        r for r in serial_results
+        r
+        for r in serial_results
         if (r.mutant.module, r.mutant.line) == ("sample/inventory.py", 15)
     ]
 

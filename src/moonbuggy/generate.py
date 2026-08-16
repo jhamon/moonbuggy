@@ -76,7 +76,11 @@ def generate_mutants(source, module, on_skip=None):
             lineno = getattr(node, "lineno", None)
             for operator in operators:
                 _mutate_node(
-                    node, operator, lines, module, found,
+                    node,
+                    operator,
+                    lines,
+                    module,
+                    found,
                     module_level=lineno not in deferred,
                     on_skip=on_skip,
                 )
@@ -140,7 +144,12 @@ def _mutate_node(node, operator, lines, module, found, module_level, on_skip):
     try:
         for mutated_node in operator.mutations(node):
             mutant = _build(
-                node, mutated_node, operator, lines, module, found,
+                node,
+                mutated_node,
+                operator,
+                lines,
+                module,
+                found,
                 module_level=module_level,
             )
             if mutant is not None:

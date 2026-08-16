@@ -15,9 +15,25 @@ from pathlib import Path
 
 # Directories never treated as source under test, regardless of layout.
 EXCLUDED = {
-    "tests", "test", "testing", "docs", "doc", "examples", "example",
-    "build", "dist", "site-packages", "node_modules", "__pycache__",
-    ".venv", "venv", ".git", ".tox", ".nox", "migrations", "scripts",
+    "tests",
+    "test",
+    "testing",
+    "docs",
+    "doc",
+    "examples",
+    "example",
+    "build",
+    "dist",
+    "site-packages",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".git",
+    ".tox",
+    ".nox",
+    "migrations",
+    "scripts",
 }
 
 

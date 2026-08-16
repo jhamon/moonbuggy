@@ -188,7 +188,7 @@ def replace_line(source, line, text):
     body = target[: -len(newline)] if newline else target
     indent = body[: len(body) - len(body.lstrip())]
     # `body.rstrip()` also strips a lone `\r`, so CRLF endings survive intact.
-    trailing = body[len(body.rstrip()):]
+    trailing = body[len(body.rstrip()) :]
 
     lines[index] = f"{indent}{text}{trailing}{newline}"
     return "".join(lines)

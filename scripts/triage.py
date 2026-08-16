@@ -64,7 +64,9 @@ TRIAGE = {
         ),
     ),
     (
-        "tomli", "src/tomli/_parser.py", 128,
+        "tomli",
+        "src/tomli/_parser.py",
+        128,
         'colno = pos - doc.rindex("\\n", 1, pos)',
     ): dict(
         classification=REAL_GAP,
@@ -99,8 +101,12 @@ TRIAGE = {
             "assert repr('\\x00') in str(raised.value)"
         ),
     ),
-    ("tomli", "src/tomli/_parser.py", 363,
-     'src, pos + 2, "\\n", error_on=ILLEGAL_COMMENT_CHARS, error_on_eof=False'): dict(
+    (
+        "tomli",
+        "src/tomli/_parser.py",
+        363,
+        'src, pos + 2, "\\n", error_on=ILLEGAL_COMMENT_CHARS, error_on_eof=False',
+    ): dict(
         classification=REAL_GAP,
         confidence="medium",
         explanation=(
@@ -115,7 +121,7 @@ TRIAGE = {
         ),
     ),
     # ------------------------------------------------------------- sqlparse
-    ("sqlparse", "sqlparse/filters/tokens.py", 50, 'if value[:3] == "\'\'":'): dict(
+    ("sqlparse", "sqlparse/filters/tokens.py", 50, "if value[:3] == \"''\":"): dict(
         classification=EQUIVALENT,
         confidence="medium",
         explanation=(
@@ -189,8 +195,12 @@ TRIAGE = {
         ),
     ),
     # -------------------------------------------------------- more-itertools
-    ("more-itertools", "more_itertools/recipes.py", 110,
-     "_max_heap_available = False"): dict(
+    (
+        "more-itertools",
+        "more_itertools/recipes.py",
+        110,
+        "_max_heap_available = False",
+    ): dict(
         classification=BY_DESIGN,
         confidence="high",
         explanation=(
@@ -202,8 +212,12 @@ TRIAGE = {
         ),
         suggested_test=None,
     ),
-    ("more-itertools", "more_itertools/recipes.py", 197,
-     "deque(iterator, maxlen=1)"): dict(
+    (
+        "more-itertools",
+        "more_itertools/recipes.py",
+        197,
+        "deque(iterator, maxlen=1)",
+    ): dict(
         classification=EQUIVALENT,
         confidence="high",
         explanation=(
@@ -215,8 +229,12 @@ TRIAGE = {
         ),
         suggested_test=None,
     ),
-    ("more-itertools", "more_itertools/recipes.py", 467,
-     "return chain.from_iterable(combinations(s, r) for r in range(len(s) + 2))"): dict(
+    (
+        "more-itertools",
+        "more_itertools/recipes.py",
+        467,
+        "return chain.from_iterable(combinations(s, r) for r in range(len(s) + 2))",
+    ): dict(
         classification=EQUIVALENT,
         confidence="high",
         explanation=(
@@ -228,8 +246,12 @@ TRIAGE = {
         ),
         suggested_test=None,
     ),
-    ("more-itertools", "more_itertools/recipes.py", 129,
-     "def tabulate(function, start=1):"): dict(
+    (
+        "more-itertools",
+        "more_itertools/recipes.py",
+        129,
+        "def tabulate(function, start=1):",
+    ): dict(
         classification=OUR_BUG,
         confidence="high",
         explanation=(
@@ -246,8 +268,12 @@ TRIAGE = {
             "tests/test_module_level_aliases.py"
         ),
     ),
-    ("more-itertools", "more_itertools/recipes.py", 521,
-     "def unique(iterable, key=None, reverse=True):"): dict(
+    (
+        "more-itertools",
+        "more_itertools/recipes.py",
+        521,
+        "def unique(iterable, key=None, reverse=True):",
+    ): dict(
         classification=OUR_BUG,
         confidence="high",
         explanation=(
@@ -310,8 +336,12 @@ TRIAGE = {
         suggested_test=None,
     ),
     # ------------------------------------------------------------- humanize
-    ("humanize", "src/humanize/number.py", 59,
-     "if math.isinf(value) and value <= 0:"): dict(
+    (
+        "humanize",
+        "src/humanize/number.py",
+        59,
+        "if math.isinf(value) and value <= 0:",
+    ): dict(
         classification=EQUIVALENT,
         confidence="high",
         explanation=(
@@ -322,8 +352,12 @@ TRIAGE = {
         ),
         suggested_test=None,
     ),
-    ("humanize", "src/humanize/number.py", 59,
-     "if math.isinf(value) and value < 1:"): dict(
+    (
+        "humanize",
+        "src/humanize/number.py",
+        59,
+        "if math.isinf(value) and value < 1:",
+    ): dict(
         classification=EQUIVALENT,
         confidence="high",
         explanation=(
@@ -333,8 +367,12 @@ TRIAGE = {
         ),
         suggested_test=None,
     ),
-    ("humanize", "src/humanize/number.py", 61,
-     "if math.isinf(value) or value > 0:"): dict(
+    (
+        "humanize",
+        "src/humanize/number.py",
+        61,
+        "if math.isinf(value) or value > 0:",
+    ): dict(
         classification=REAL_GAP,
         confidence="medium",
         explanation=(
@@ -352,8 +390,12 @@ TRIAGE = {
             "assert _format_not_finite(42.0) == ''"
         ),
     ),
-    ("humanize", "src/humanize/number.py", 61,
-     "if math.isinf(value) and value >= 0:"): dict(
+    (
+        "humanize",
+        "src/humanize/number.py",
+        61,
+        "if math.isinf(value) and value >= 0:",
+    ): dict(
         classification=EQUIVALENT,
         confidence="high",
         explanation=(
@@ -362,8 +404,12 @@ TRIAGE = {
         ),
         suggested_test=None,
     ),
-    ("humanize", "src/humanize/number.py", 61,
-     "if math.isinf(value) and value > 1:"): dict(
+    (
+        "humanize",
+        "src/humanize/number.py",
+        61,
+        "if math.isinf(value) and value > 1:",
+    ): dict(
         classification=EQUIVALENT,
         confidence="high",
         explanation=(
@@ -388,8 +434,12 @@ TRIAGE = {
             "assert nth_combination(range(5), 3, -1) == nth_combination(range(5), 3, 9)"
         ),
     ),
-    ("more-itertools", "more_itertools/recipes.py", 686,
-     "c, n, r = c * r / n, n - 1, r - 1"): dict(
+    (
+        "more-itertools",
+        "more_itertools/recipes.py",
+        686,
+        "c, n, r = c * r / n, n - 1, r - 1",
+    ): dict(
         classification=REAL_GAP,
         confidence="medium",
         explanation=(
@@ -422,8 +472,12 @@ TRIAGE = {
             "[[0], [2], [4, 5]]"
         ),
     ),
-    ("boltons", "boltons/iterutils.py", 175,
-     "if maxsplit is not None and split_count > maxsplit:"): dict(
+    (
+        "boltons",
+        "boltons/iterutils.py",
+        175,
+        "if maxsplit is not None and split_count > maxsplit:",
+    ): dict(
         classification=REAL_GAP,
         confidence="medium",
         explanation=(
@@ -433,8 +487,7 @@ TRIAGE = {
         ),
         suggested_test="as above; a single maxsplit test closes this one too.",
     ),
-    ("boltons", "boltons/iterutils.py", 176,
-     "def sep_func(x): return True"): dict(
+    ("boltons", "boltons/iterutils.py", 176, "def sep_func(x): return True"): dict(
         classification=REAL_GAP,
         confidence="high",
         explanation=(
@@ -597,8 +650,10 @@ def render(run, verified):
         ]
         if entry["suggested_test"]:
             lines += [
-                "**Suggested test**", "",
-                *_suggested_test(entry["suggested_test"]), "",
+                "**Suggested test**",
+                "",
+                *_suggested_test(entry["suggested_test"]),
+                "",
             ]
 
     lines += [
@@ -637,52 +692,53 @@ def _observations(verified):
 
     real = ", ".join(f"`{k}` ({v})" for k, v in by_operator.most_common()) or "none"
     noise = (
-        ", ".join(f"`{k}` ({v})" for k, v in noise_by_operator.most_common())
-        or "none"
+        ", ".join(f"`{k}` ({v})" for k, v in noise_by_operator.most_common()) or "none"
     )
 
-    return "\n".join([
-        f"**Operators that produced real gaps:** {real}.",
-        "",
-        f"**Operators that produced noise** (equivalent or by-design): {noise}.",
-        "",
-        "What this suggests about the MVP operator set (design section 3.2):",
-        "",
-        "- **`constant_int` is the workhorse and the noisiest at once** — 8 real",
-        "  gaps and 6 pieces of noise, more than every other operator combined on",
-        "  both counts. Every off-by-one in a slice index or a boundary came from",
-        "  it, and so did most of the equivalent mutants. It earns its place, and",
-        "  it argues for narrowing it: incrementing a constant used as a *length*",
-        "  or an opaque *flag value* is far more often equivalent than",
-        "  incrementing one used as a *boundary*, and the operator cannot",
-        "  currently tell those apart.",
-        "- **`arithmetic_swap` had the best ratio** — 3 real gaps, no noise. All",
-        "  three were in index arithmetic, where a sign or a division mode is",
-        "  load-bearing and easy to get wrong.",
-        "- **`comparison_swap` split evenly**, 2 and 2. Its noise was entirely",
-        "  comparisons behind a guard that already constrains the value",
-        "  (`isinf(x) and x < 0`), which is a recognisable shape and a plausible",
-        "  future suppression heuristic.",
-        "- **`boundary` produced nothing at all** on these libraries. `range(x)`",
-        "  with a single argument is rare in code written by people who reach for",
-        "  `enumerate` and comprehensions. Post-MVP effort is better spent on",
-        "  operators aimed at slice bounds and at default arguments, which is",
-        "  where these libraries' untested behaviour actually was.",
-        "",
-        "**Where the real gaps clustered** is more useful than any per-operator",
-        "count: parameters with defaults that no test overrides (`maxsplit`), and",
-        "error paths that no test provokes. Four of the fifteen were in code that",
-        "only runs when something has already gone wrong — which is exactly the",
-        "code least likely to be exercised and most annoying to have wrong.",
-        "",
-        "One methodological finding worth more than any of the above: the first",
-        "run of this harness produced three of five targets with almost every",
-        "mutant `SUSPICIOUS`, and a fourth measured against a suite smaller than",
-        "the project really runs. All of those were defects in us rather than in",
-        "them, and none would have been visible on our own 22-mutant fixture.",
-        "Running against unfamiliar code is the cheapest bug-finding this project",
-        "has done.",
-    ])
+    return "\n".join(
+        [
+            f"**Operators that produced real gaps:** {real}.",
+            "",
+            f"**Operators that produced noise** (equivalent or by-design): {noise}.",
+            "",
+            "What this suggests about the MVP operator set (design section 3.2):",
+            "",
+            "- **`constant_int` is the workhorse and the noisiest at once** — 8 real",
+            "  gaps and 6 pieces of noise, more than every other operator combined on",
+            "  both counts. Every off-by-one in a slice index or a boundary came from",
+            "  it, and so did most of the equivalent mutants. It earns its place, and",
+            "  it argues for narrowing it: incrementing a constant used as a *length*",
+            "  or an opaque *flag value* is far more often equivalent than",
+            "  incrementing one used as a *boundary*, and the operator cannot",
+            "  currently tell those apart.",
+            "- **`arithmetic_swap` had the best ratio** — 3 real gaps, no noise. All",
+            "  three were in index arithmetic, where a sign or a division mode is",
+            "  load-bearing and easy to get wrong.",
+            "- **`comparison_swap` split evenly**, 2 and 2. Its noise was entirely",
+            "  comparisons behind a guard that already constrains the value",
+            "  (`isinf(x) and x < 0`), which is a recognisable shape and a plausible",
+            "  future suppression heuristic.",
+            "- **`boundary` produced nothing at all** on these libraries. `range(x)`",
+            "  with a single argument is rare in code written by people who reach for",
+            "  `enumerate` and comprehensions. Post-MVP effort is better spent on",
+            "  operators aimed at slice bounds and at default arguments, which is",
+            "  where these libraries' untested behaviour actually was.",
+            "",
+            "**Where the real gaps clustered** is more useful than any per-operator",
+            "count: parameters with defaults that no test overrides (`maxsplit`), and",
+            "error paths that no test provokes. Four of the fifteen were in code that",
+            "only runs when something has already gone wrong — which is exactly the",
+            "code least likely to be exercised and most annoying to have wrong.",
+            "",
+            "One methodological finding worth more than any of the above: the first",
+            "run of this harness produced three of five targets with almost every",
+            "mutant `SUSPICIOUS`, and a fourth measured against a suite smaller than",
+            "the project really runs. All of those were defects in us rather than in",
+            "them, and none would have been visible on our own 22-mutant fixture.",
+            "Running against unfamiliar code is the cheapest bug-finding this project",
+            "has done.",
+        ]
+    )
 
 
 if __name__ == "__main__":

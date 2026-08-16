@@ -51,6 +51,7 @@ def replace_operator(node, **changes):
         setattr(replacement, field, value)
     return ast.copy_location(replacement, node)
 
+
 _REGISTRY = []
 
 

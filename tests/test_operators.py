@@ -32,6 +32,7 @@ def mutate(operator, node):
 
 # --- comparison_swap -------------------------------------------------------
 
+
 def test_swaps_greater_equal_to_greater():
     assert mutate(ComparisonSwap(), parse_expr("x >= 1")) == ["x > 1"]
 
@@ -59,6 +60,7 @@ def test_comparison_swap_ignores_identity_and_membership():
 
 # --- arithmetic_swap -------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "source,expected",
     [
@@ -84,6 +86,7 @@ def test_arithmetic_swap_mutates_augmented_assignment():
 
 # --- boolean_swap ----------------------------------------------------------
 
+
 def test_boolean_swap_maps_and_to_or():
     assert mutate(BooleanSwap(), parse_expr("a and b")) == ["a or b"]
 
@@ -98,6 +101,7 @@ def test_boolean_swap_leaves_not_alone():
 
 
 # --- constant_int / constant_bool ------------------------------------------
+
 
 def test_constant_int_increments():
     assert mutate(ConstantInt(), parse_expr("10")) == ["11"]
@@ -126,6 +130,7 @@ def test_constant_bool_ignores_integers():
 
 
 # --- boundary --------------------------------------------------------------
+
 
 def test_boundary_shrinks_single_argument_range():
     assert mutate(Boundary(), parse_expr("range(n)")) == ["range(n - 1)"]

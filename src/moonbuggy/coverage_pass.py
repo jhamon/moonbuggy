@@ -66,15 +66,22 @@ class LineMap:
         }
 
 
-def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
-                      use_fork=None, timeout=600):
+def run_coverage_pass(
+    project_dir, source_dir, python=None, extra_args=(), use_fork=None, timeout=600
+):
     """Run the suite once under coverage, returning a LineMap."""
     project_dir = Path(project_dir)
     python = python or sys.executable
 
     args = [
-        "-q", "-p", "no:cacheprovider", "--rootdir", str(project_dir),
-        f"--cov={source_dir}", "--cov-context=test", "--cov-report=",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--rootdir",
+        str(project_dir),
+        f"--cov={source_dir}",
+        "--cov-context=test",
+        "--cov-report=",
         *extra_args,
     ]
 
@@ -96,7 +103,9 @@ def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
         else:
             proc = subprocess.run(
                 [python, "-m", "pytest", *args],
-                cwd=project_dir, capture_output=True, text=True,
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
                 env=_env_with_data_file(data_file),
             )
             code, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
@@ -109,8 +118,9 @@ def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
         return read_coverage_data(data_file, project_dir)
 
 
-def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=600,
-                      extra_args=()):
+def run_baseline_pass(
+    project_dir, source_dir, probes=1, python=None, timeout=600, extra_args=()
+):
     """Coverage pass plus flakiness probe, for the paths that cannot fork.
 
     Same evidence as the warm session gathers (see
@@ -143,8 +153,15 @@ def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=60
 
         for index in range(1 + probes):
             outcomes_file = tmp / f"outcomes-{index}.json"
-            args = ["-q", "-p", "no:cacheprovider", "--rootdir", str(project_dir),
-                    "-p", "moonbuggy.baseline"]
+            args = [
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "--rootdir",
+                str(project_dir),
+                "-p",
+                "moonbuggy.baseline",
+            ]
             if index == 0:
                 args += [f"--cov={source_dir}", "--cov-context=test", "--cov-report="]
             else:
@@ -177,7 +194,10 @@ def _run_pytest(project_dir, args, env, python, timeout):
     full_env.update(env)
     proc = subprocess.run(
         [python, "-m", "pytest", *args],
-        cwd=project_dir, capture_output=True, text=True, env=full_env,
+        cwd=project_dir,
+        capture_output=True,
+        text=True,
+        env=full_env,
     )
     return proc.returncode
 

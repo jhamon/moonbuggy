@@ -94,15 +94,24 @@ def expressions(depth=2):
         # comparison operator has to mutate one at a time.
         st.builds(
             "({} {} {} {} {})".format,
-            inner, st.sampled_from(COMPARE_OPS), inner,
-            st.sampled_from(COMPARE_OPS), inner,
+            inner,
+            st.sampled_from(COMPARE_OPS),
+            inner,
+            st.sampled_from(COMPARE_OPS),
+            inner,
         ),
         st.builds("range({})".format, inner),
         st.builds("len([{} for {} in range({})])".format, inner, identifiers(), inner),
-        st.builds("{{{}: {} for {} in range({})}}".format,
-                  inner, inner, identifiers(), inner),
-        st.builds("(lambda {}={}: {})({})".format,
-                  st.sampled_from(PARAMS), inner, inner, inner),
+        st.builds(
+            "{{{}: {} for {} in range({})}}".format, inner, inner, identifiers(), inner
+        ),
+        st.builds(
+            "(lambda {}={}: {})({})".format,
+            st.sampled_from(PARAMS),
+            inner,
+            inner,
+            inner,
+        ),
         # f-string replacement fields take a restricted expression. PEP 701
         # permits nested quotes but still forbids `#` inside a field, and the
         # trap strings deliberately contain one -- so an unrestricted inner
@@ -118,8 +127,12 @@ def expressions(depth=2):
 def _simple_statements(expression):
     return st.one_of(
         st.builds(lambda n, e: ("assign", n, e), identifiers(), expression),
-        st.builds(lambda n, o, e: ("augassign", n, o, e),
-                  identifiers(), st.sampled_from(AUG_OPS), expression),
+        st.builds(
+            lambda n, o, e: ("augassign", n, o, e),
+            identifiers(),
+            st.sampled_from(AUG_OPS),
+            expression,
+        ),
         st.builds(lambda e: ("expr", e), expression),
         st.builds(lambda c: ("comment", c), st.sampled_from(TRAP_COMMENTS)),
         st.just(("pass",)),
@@ -143,7 +156,9 @@ def statements(depth=2, expression_depth=2):
         # distinction criterion M1.2.6 is about.
         st.builds(
             lambda n, d, b: ("def", n, d, [], b, False),
-            identifiers(), st.lists(expression, max_size=2), body,
+            identifiers(),
+            st.lists(expression, max_size=2),
+            body,
         ),
     )
     return st.lists(st.one_of(simple, compound), min_size=1, max_size=3)
@@ -169,9 +184,12 @@ def _definition(depth=2):
             st.lists(
                 st.builds(
                     lambda n, b, d: ("def", n, [], d, b, False),
-                    identifiers(), statements(1), decorators,
+                    identifiers(),
+                    statements(1),
+                    decorators,
                 ),
-                min_size=1, max_size=2,
+                min_size=1,
+                max_size=2,
             ),
         ),
     )

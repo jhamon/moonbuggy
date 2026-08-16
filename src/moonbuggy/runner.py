@@ -45,8 +45,18 @@ class Result:
 
 
 def run_mutants(
-    project_dir, mutants, linemap, timeout=30, python=None, xdist_workers=0,
-    cache=None, use_fork=None, jobs=None, flaky=(), on_result=None, extra_args=(),
+    project_dir,
+    mutants,
+    linemap,
+    timeout=30,
+    python=None,
+    xdist_workers=0,
+    cache=None,
+    use_fork=None,
+    jobs=None,
+    flaky=(),
+    on_result=None,
+    extra_args=(),
 ):
     """Run every mutant against its selected tests.
 
@@ -88,8 +98,15 @@ def run_mutants(
     results = []
     for mutant in mutants:
         result = run_one(
-            project_dir, mutant, linemap, timeout, python, xdist_workers, cache,
-            use_fork, flaky,
+            project_dir,
+            mutant,
+            linemap,
+            timeout,
+            python,
+            xdist_workers,
+            cache,
+            use_fork,
+            flaky,
         )
         results.append(result)
         if on_result is not None:
@@ -98,8 +115,14 @@ def run_mutants(
 
 
 def _run_forked_batch(
-    project_dir, mutants, linemap, timeout, cache, concurrency,
-    flaky=(), on_result=None,
+    project_dir,
+    mutants,
+    linemap,
+    timeout,
+    cache,
+    concurrency,
+    flaky=(),
+    on_result=None,
 ):
     """Resolve cache hits and trivial cases first, then fork the rest in parallel."""
     plan = _plan(project_dir, mutants, linemap, cache, flaky)
@@ -117,8 +140,12 @@ def _run_forked_batch(
         # cannot be applied in place -- never silently, since an unapplied
         # mutation reports a false SURVIVED.
         statuses = forkserver.run_warm_batch(
-            project_dir, jobs_for_fork, timeout, concurrency,
-            _warm_up_args(project_dir, linemap), _apply_in_place,
+            project_dir,
+            jobs_for_fork,
+            timeout,
+            concurrency,
+            _warm_up_args(project_dir, linemap),
+            _apply_in_place,
         )
         if statuses is None:
             statuses = forkserver.run_batch(
@@ -130,7 +157,10 @@ def _run_forked_batch(
         share = (time.perf_counter() - started) / len(to_run)
         for (index, mutant, selected), status in zip(to_run, statuses, strict=True):
             results[index] = Result(
-                mutant, status, len(selected), share,
+                mutant,
+                status,
+                len(selected),
+                share,
                 nearest_test=sorted(selected)[0] if status == "SURVIVED" else None,
             )
             if on_result is not None:
@@ -141,18 +171,28 @@ def _run_forked_batch(
             # Suppressed mutants have no key: they never consult the cache, so
             # storing them would only add entries nothing ever reads.
             if index in keys and not result.from_cache:
-                cache.put(keys[index], {
-                    "status": result.status,
-                    "tests_run": result.tests_run,
-                    "nearest_test": result.nearest_test,
-                })
+                cache.put(
+                    keys[index],
+                    {
+                        "status": result.status,
+                        "tests_run": result.tests_run,
+                        "nearest_test": result.nearest_test,
+                    },
+                )
 
     return [results[index] for index in range(len(mutants))]
 
 
 def run_one(
-    project_dir, mutant, linemap, timeout, python, xdist_workers=0, cache=None,
-    use_fork=False, flaky=(),
+    project_dir,
+    mutant,
+    linemap,
+    timeout,
+    python,
+    xdist_workers=0,
+    cache=None,
+    use_fork=False,
+    flaky=(),
 ):
     """Run one mutant against its selected tests.
 
@@ -233,8 +273,13 @@ def run_one(
 
 def _run_pytest(project_dir, mutant, selected, timeout, python, xdist_workers):
     command = [
-        python, "-m", "pytest", *_base_args(project_dir),
-        "-p", "moonbuggy.plugin", *selected,
+        python,
+        "-m",
+        "pytest",
+        *_base_args(project_dir),
+        "-p",
+        "moonbuggy.plugin",
+        *selected,
     ]
     if xdist_workers:
         command += ["-n", str(xdist_workers)]
@@ -263,8 +308,15 @@ def _run_pytest(project_dir, mutant, selected, timeout, python, xdist_workers):
 
 
 def run_session(
-    project_dir, mutants, source_dir, timeout=30, cache=None, jobs=None,
-    probes=1, on_result=None, extra_args=(),
+    project_dir,
+    mutants,
+    source_dir,
+    timeout=30,
+    cache=None,
+    jobs=None,
+    probes=1,
+    on_result=None,
+    extra_args=(),
 ):
     """Coverage pass and mutant execution in a single warm process.
 
@@ -308,8 +360,15 @@ def run_session(
             project_dir, source_dir, probes, extra_args=extra_args
         )
         return linemap, run_mutants(
-            project_dir, mutants, linemap, timeout, cache=cache, jobs=jobs,
-            flaky=flaky, on_result=on_result, extra_args=extra_args,
+            project_dir,
+            mutants,
+            linemap,
+            timeout,
+            cache=cache,
+            jobs=jobs,
+            flaky=flaky,
+            on_result=on_result,
+            extra_args=extra_args,
         )
 
     profiler = profiling.active()
@@ -323,7 +382,9 @@ def run_session(
         os.environ["COVERAGE_FILE"] = str(data_file)
         cov_args = [
             *_base_args(project_dir),
-            f"--cov={source_dir}", "--cov-context=test", "--cov-report=",
+            f"--cov={source_dir}",
+            "--cov-context=test",
+            "--cov-report=",
             *extra_args,
         ]
         probe_args = [*_base_args(project_dir), "-p", "no:cov", *extra_args]
@@ -348,9 +409,7 @@ def run_session(
                 state["linemap"] = read_coverage_data(
                     data_file, project_dir, known_tests=evidence["runs"][0]
                 )
-                check_selection_is_runnable(
-                    project_dir, state["linemap"].all_tests()
-                )
+                check_selection_is_runnable(project_dir, state["linemap"].all_tests())
                 state["plan"] = _plan(
                     project_dir, mutants, state["linemap"], cache, state["flaky"]
                 )
@@ -384,8 +443,15 @@ def run_session(
 
         mutants_began = time.perf_counter()
         outcome = forkserver.run_warm_session(
-            project_dir, cov_args, timeout, jobs, build_jobs, _apply_in_place,
-            probe_args=probe_args, probes=probes, on_result=stream,
+            project_dir,
+            cov_args,
+            timeout,
+            jobs,
+            build_jobs,
+            _apply_in_place,
+            probe_args=probe_args,
+            probes=probes,
+            on_result=stream,
             extra_args=extra_args,
         )
         mutant_wall = time.perf_counter() - mutants_began
@@ -397,8 +463,15 @@ def run_session(
             project_dir, source_dir, probes, extra_args=extra_args
         )
         return linemap, run_mutants(
-            project_dir, mutants, linemap, timeout, cache=cache, jobs=jobs,
-            flaky=flaky, on_result=on_result, extra_args=extra_args,
+            project_dir,
+            mutants,
+            linemap,
+            timeout,
+            cache=cache,
+            jobs=jobs,
+            flaky=flaky,
+            on_result=on_result,
+            extra_args=extra_args,
         )
 
     jobs, statuses, child_seconds, child_wall_seconds = outcome
@@ -415,7 +488,10 @@ def run_session(
     already_attributed = sum(
         profiler.totals.get(phase, 0.0)
         for phase in (
-            "warm-session startup", "coverage pass", "flaky probe", "planning",
+            "warm-session startup",
+            "coverage pass",
+            "flaky probe",
+            "planning",
         )
     )
     remaining = max(mutant_wall - already_attributed, 0.0)
@@ -434,8 +510,9 @@ def run_session(
     )
 
 
-def _rerun_unapplied(project_dir, jobs, statuses, timeout, profiler, on_result, state,
-                     extra_args=()):
+def _rerun_unapplied(
+    project_dir, jobs, statuses, timeout, profiler, on_result, state, extra_args=()
+):
     """Run coldly whatever the warm host could not mutate in place.
 
     The warm path swaps a mutation into an already-imported module, and that
@@ -471,8 +548,12 @@ def _rerun_unapplied(project_dir, jobs, statuses, timeout, profiler, on_result, 
     with profiler.span("cold fallback"):
         forkserver.warm_up()
         cold = forkserver.run_batch(
-            project_dir, [jobs[index] for index in retry], timeout,
-            _apply_in_child, max(1, (os.cpu_count() or 2) - 1), extra_args,
+            project_dir,
+            [jobs[index] for index in retry],
+            timeout,
+            _apply_in_child,
+            max(1, (os.cpu_count() or 2) - 1),
+            extra_args,
         )
 
     statuses = list(statuses)
@@ -486,7 +567,10 @@ def _rerun_unapplied(project_dir, jobs, statuses, timeout, profiler, on_result, 
 
 def _result_for(mutant, status, selected, duration=0.0):
     return Result(
-        mutant, status, len(selected), duration,
+        mutant,
+        status,
+        len(selected),
+        duration,
         nearest_test=sorted(selected)[0] if status == "SURVIVED" else None,
     )
 
@@ -532,8 +616,12 @@ def _plan(project_dir, mutants, linemap, cache, flaky=()):
             hit = cache.get(keys[index])
             if hit is not None:
                 results[index] = Result(
-                    mutant, hit["status"], hit["tests_run"], 0.0,
-                    nearest_test=hit["nearest_test"], from_cache=True,
+                    mutant,
+                    hit["status"],
+                    hit["tests_run"],
+                    0.0,
+                    nearest_test=hit["nearest_test"],
+                    from_cache=True,
                 )
                 continue
 
@@ -558,11 +646,14 @@ def _assemble(mutants, plan, statuses, cache, durations=None):
     if cache is not None:
         for index, result in results.items():
             if index in plan["keys"] and not result.from_cache:
-                cache.put(plan["keys"][index], {
-                    "status": result.status,
-                    "tests_run": result.tests_run,
-                    "nearest_test": result.nearest_test,
-                })
+                cache.put(
+                    plan["keys"][index],
+                    {
+                        "status": result.status,
+                        "tests_run": result.tests_run,
+                        "nearest_test": result.nearest_test,
+                    },
+                )
 
     return [results[index] for index in range(len(mutants))]
 
@@ -606,7 +697,8 @@ def check_selection_is_runnable(project_dir, selected):
     """
     project_dir = Path(project_dir)
     missing = sorted(
-        node_id for node_id in selected
+        node_id
+        for node_id in selected
         if not (project_dir / node_id.split("::")[0]).exists()
     )
     if not missing:
