@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage lint format-check oss-hunt check-differential check-fresh-install check-all
+.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -51,6 +51,11 @@ lint:
 ## Milestone M5.2: the formatting gate. Checks only; `ruff format` reformats.
 format-check:
 	$(dir $(PYTHON))ruff format --check .
+
+## Milestone M5.3: the type gate. Strict, over src/moonbuggy only.
+## The override list in pyproject.toml is the remaining un-annotated work.
+typecheck:
+	$(PYTHON) -m mypy
 
 ## Milestone M3.3.10: every code example in the docs is executed.
 docs-test:

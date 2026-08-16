@@ -24,7 +24,11 @@ tighten with evidence.
 import hashlib
 import json
 import os
+from collections.abc import Iterable
 from pathlib import Path
+from typing import TypedDict
+
+from .mutant import Mutant
 
 # Bumped whenever the key derivation or record shape changes. An old cache is
 # then ignored rather than misread -- entries keyed by a different algorithm are
@@ -32,14 +36,22 @@ from pathlib import Path
 CACHE_VERSION = 1
 
 
+class CacheRecord(TypedDict):
+    """One mutant's stored outcome, as read back by `runner.run_one`."""
+
+    status: str
+    tests_run: int
+    nearest_test: str | None
+
+
 class ResultCache:
     """Mutant outcomes from previous runs, keyed on everything they depend on."""
 
-    def __init__(self, path):
+    def __init__(self, path: str | os.PathLike[str]) -> None:
         self.path = Path(path)
         self._entries = self._load()
 
-    def _load(self):
+    def _load(self) -> dict[str, CacheRecord]:
         if not self.path.exists():
             return {}
         try:
@@ -52,7 +64,12 @@ class ResultCache:
         entries = payload.get("entries")
         return entries if isinstance(entries, dict) else {}
 
-    def key_for(self, mutant, project_dir, selected_tests):
+    def key_for(
+        self,
+        mutant: Mutant,
+        project_dir: str | os.PathLike[str],
+        selected_tests: Iterable[str],
+    ) -> str:
         """The cache key for one mutant.
 
         Args:
@@ -76,15 +93,15 @@ class ResultCache:
             digest.update(_read_bytes(project_dir / test_file))
         return digest.hexdigest()
 
-    def get(self, key):
+    def get(self, key: str) -> CacheRecord | None:
         """The stored record for `key`, or None if there is not one."""
         return self._entries.get(key)
 
-    def put(self, key, record):
+    def put(self, key: str, record: CacheRecord) -> None:
         """Store `record` under `key`. Not written to disk until `save`."""
         self._entries[key] = record
 
-    def save(self):
+    def save(self) -> None:
         """Persist the cache, atomically.
 
         Written to a sibling temp file and renamed, so a run killed during the
@@ -101,16 +118,16 @@ class ResultCache:
         )
         os.replace(temporary, self.path)
 
-    def clear(self):
+    def clear(self) -> None:
         """Forget everything, on disk and in memory."""
         self._entries = {}
         self.path.unlink(missing_ok=True)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._entries)
 
 
-def _read_bytes(path):
+def _read_bytes(path: str | os.PathLike[str]) -> bytes:
     try:
         return Path(path).read_bytes()
     except OSError:

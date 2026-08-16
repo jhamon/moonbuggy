@@ -160,3 +160,31 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 "scripts/profile_run.py" = ["E402"]
 "scripts/verify_findings.py" = ["E402"]
 "tests/test_ab_harness.py" = ["E402"]
+
+[tool.mypy]
+# Milestone M5.3. Strict over the package only -- tests/ and scripts/ are
+# harnesses and benchmark drivers, and annotating them buys ceremony.
+python_version = "3.12"
+files = ["src/moonbuggy"]
+strict = true
+# An un-annotated module is not an excuse for a red gate while M5.3 is in
+# progress. Each of Tasks 4-6 deletes its modules from the list below, so
+# `make typecheck` is green at every commit and the list is the visible
+# remaining work.
+[[tool.mypy.overrides]]
+module = [
+  "moonbuggy.operators.*",
+  "moonbuggy.inmemory",
+  "moonbuggy.codeswap",
+  "moonbuggy.generate",
+  "moonbuggy.naive",
+  "moonbuggy.profiling",
+  "moonbuggy.report",
+  "moonbuggy.plugin",
+  "moonbuggy.baseline",
+  "moonbuggy.forkserver",
+  "moonbuggy.coverage_pass",
+  "moonbuggy.runner",
+  "moonbuggy.cli",
+]
+ignore_errors = true

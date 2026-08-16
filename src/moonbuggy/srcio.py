@@ -27,6 +27,7 @@ import contextlib
 import os
 import re
 import tokenize
+from collections.abc import Iterable
 
 DEFAULT_ENCODING = "utf-8"
 
@@ -44,7 +45,7 @@ class SourceError(RuntimeError):
     """A source file could not be read as Python text."""
 
 
-def detect_encoding(path):
+def detect_encoding(path: str | os.PathLike[str]) -> str:
     """The encoding Python itself would use to read `path`.
 
     Args:
@@ -72,10 +73,10 @@ def detect_encoding(path):
 # module's source, and every mutant runs in its own forked process -- so a
 # process-local cache is worth nothing on its own. It pays only because the
 # warm host fills it BEFORE forking, and every grandchild inherits it.
-_SOURCE_CACHE = {}
+_SOURCE_CACHE: dict[tuple[str, int, int], str] = {}
 
 
-def read_source(path):
+def read_source(path: str | os.PathLike[str]) -> str:
     """Read a Python source file as text, honouring its declared encoding.
 
     Args:
@@ -103,7 +104,7 @@ def read_source(path):
     return text
 
 
-def prewarm(paths):
+def prewarm(paths: Iterable[str | os.PathLike[str]]) -> None:
     """Fill the source cache for `paths`, ignoring any that cannot be read.
 
     Called in the warm host once the job list is known, so the cost of reading
@@ -117,7 +118,7 @@ def prewarm(paths):
             read_source(path)
 
 
-def _read_source_uncached(path):
+def _read_source_uncached(path: str | os.PathLike[str]) -> str:
     try:
         with tokenize.open(str(path)) as handle:
             return handle.read()
@@ -138,7 +139,7 @@ def _read_source_uncached(path):
         raise SourceError(f"cannot read {path}: {error}") from error
 
 
-def encode_source(text, encoding):
+def encode_source(text: str, encoding: str) -> bytes:
     """Encode source text back to the bytes an importer will decode.
 
     Args:
@@ -157,7 +158,7 @@ def encode_source(text, encoding):
         raise SourceError(f"cannot re-encode source as {encoding}: {error}") from error
 
 
-def replace_line(source, line, text):
+def replace_line(source: str, line: int, text: str) -> str:
     """Replace one line's content, keeping everything around it byte for byte.
 
     The single place mutation is applied to text. It was previously written
@@ -194,7 +195,7 @@ def replace_line(source, line, text):
     return "".join(lines)
 
 
-def strip_coding_cookie(text):
+def strip_coding_cookie(text: str) -> str:
     """Neutralise a PEP 263 cookie so the text can be passed to `ast.parse`.
 
     `compile()` and `ast.parse()` refuse a coding declaration inside a `str`,
