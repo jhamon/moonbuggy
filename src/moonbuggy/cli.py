@@ -11,6 +11,7 @@ drift apart.
 
 import argparse
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from . import __version__, profiling
@@ -24,6 +25,7 @@ from .discover import (
     looks_like_pytest_project,
 )
 from .generate import GenerationError, generate_mutants
+from .mutant import Mutant
 from .report import (
     StreamingJSONL,
     find_record,
@@ -39,7 +41,7 @@ from .srcio import SourceError, read_source
 DEFAULT_OUTPUT_DIR = ".moonbuggy"
 
 
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> int:
     """Run moonbuggy.
 
     Args:
@@ -63,7 +65,7 @@ def main(argv=None):
         return 2
 
 
-def _build_parser():
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="moonbuggy",
         description="Fast, agent-first mutation testing for Python.",
@@ -83,7 +85,7 @@ def _build_parser():
     return parser
 
 
-def _add_run_arguments(parser):
+def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--project", default=".", help="project root (default: cwd)")
     parser.add_argument(
         "--source", default=None, help="directory to mutate (default: discovered)"
@@ -155,7 +157,7 @@ def _add_run_arguments(parser):
     )
 
 
-def _run(args):
+def _run(args: argparse.Namespace) -> int:
     project_dir = Path(args.project).resolve()
     profiler = profiling.active()
 
@@ -287,7 +289,9 @@ def _run(args):
     return 1 if counts["SURVIVED"] else 0
 
 
-def _collect_mutants(project_dir, source_files, wanted):
+def _collect_mutants(
+    project_dir: Path, source_files: list[str], wanted: set[str] | None
+) -> tuple[list[Mutant], list[str]]:
     """Generate mutants for every readable source file.
 
     One unparseable or undecodable file must not end the run: the other files
@@ -305,16 +309,26 @@ def _collect_mutants(project_dir, source_files, wanted):
         ``(mutants, unreadable)`` -- the mutants found, and the relative paths that
             were skipped.
     """
-    mutants = []
-    unreadable = []
+    mutants: list[Mutant] = []
+    unreadable: list[str] = []
     for relative in source_files:
-        skipped = []
+        skipped: list[int] = []
+
+        def _note_skip(line: int, why: str, skipped: list[int] = skipped) -> None:
+            # `skipped=skipped` is the usual late-binding fix for a closure
+            # inside a loop -- captures THIS iteration's list rather than
+            # whatever `skipped` is bound to when `generate_mutants` calls
+            # back, even though nothing here is async or deferred past the
+            # loop body. A plain `def` in place of the original lambda, since
+            # a lambda's parameters cannot carry annotations.
+            skipped.append(line)
+
         try:
             source = read_source(project_dir / relative)
             found = generate_mutants(
                 source,
                 module=relative,
-                on_skip=lambda line, why, skipped=skipped: skipped.append(line),
+                on_skip=_note_skip,
             )
         except (SourceError, GenerationError) as error:
             print(f"moonbuggy: skipping {relative}: {error}", file=sys.stderr)
@@ -331,14 +345,14 @@ def _collect_mutants(project_dir, source_files, wanted):
     return mutants, unreadable
 
 
-def _prepare_cache(args, output_dir):
+def _prepare_cache(args: argparse.Namespace, output_dir: Path) -> ResultCache | None:
     cache = ResultCache(output_dir / "cache.json")
     if args.clear_cache:
         cache.clear()
     return None if args.no_cache else cache
 
 
-def _show(args):
+def _show(args: argparse.Namespace) -> int:
     path = Path(args.output_dir) / "results.jsonl"
     if not path.exists():
         path = Path(".") / args.output_dir / "results.jsonl"

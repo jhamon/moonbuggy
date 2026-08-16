@@ -19,9 +19,9 @@ import json
 import os
 from collections.abc import Iterable
 from types import TracebackType
-from typing import IO, Literal, Protocol, TypedDict
+from typing import IO, Literal, TypedDict
 
-from .mutant import Mutant
+from .runner import Result
 
 STATUS_KEYWORDS = {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
 
@@ -29,24 +29,6 @@ STATUS_KEYWORDS = {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
 # string keeps the token count per line constant, so whitespace-splitting
 # parsers do not have to special-case missing fields.
 ABSENT = "-"
-
-
-class ResultLike(Protocol):
-    """What this module needs from a mutant's outcome.
-
-    Structural rather than importing `runner.Result` directly: `runner.py` is
-    still unannotated (Tasks 5/6), and a Protocol here states report.py's own
-    contract instead of inheriting whatever runner.py's type turns out to be.
-    Note for whoever annotates runner.py next: `Result.mutant` is currently
-    declared as plain `object`, not `Mutant` -- this Protocol only type-checks
-    here because `Mutant` happens to satisfy it structurally.
-    """
-
-    mutant: Mutant
-    status: str
-    nearest_test: str | None
-    tests_run: int
-    duration: float
 
 
 class Record(TypedDict):
@@ -66,7 +48,7 @@ class Record(TypedDict):
     diff: str
 
 
-def record_for(result: ResultLike) -> Record:
+def record_for(result: Result) -> Record:
     """The canonical record for one mutant. This is the JSONL line's content."""
     mutant = result.mutant
     return {
@@ -89,7 +71,7 @@ def record_for(result: ResultLike) -> Record:
     }
 
 
-def write_jsonl(results: Iterable[ResultLike], path: str | os.PathLike[str]) -> None:
+def write_jsonl(results: Iterable[Result], path: str | os.PathLike[str]) -> None:
     """Stream records to disk, one complete line at a time.
 
     Flushed per record so a run killed partway leaves only whole, parseable
@@ -125,7 +107,7 @@ class StreamingJSONL:
         self._handle = open(self.path, "w")
         return self
 
-    def write(self, result: ResultLike) -> None:
+    def write(self, result: Result) -> None:
         """Append one result. Safe to call from a runner callback."""
         # Only ever None before __enter__ or after __exit__; calling write()
         # outside that window is a caller bug that already crashed here (with
