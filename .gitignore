@@ -13,3 +13,7 @@ mutants/
 
 .oss-hunt/
 docs/_build/
+
+# Isolated workspaces and subagent-driven-development scratch (Phase 3).
+.worktrees/
+.superpowers/
