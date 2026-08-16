@@ -126,7 +126,10 @@ target-version = "py312"
 # project maintains. It deliberately contains a file with a syntax error
 # (M1.4.1) and a file in a non-UTF8 encoding (M1.4.7). A linter pointed at it
 # fails on input it is designed to fail on.
-extend-exclude = ["tests/fixtures", "docs/_build", ".venv"]
+# "*.md" excludes Markdown files -- ruff format rewrites Python code fences
+# inside them, and docs/oss-findings.md's fences are quoted suggested tests
+# against other people's projects, not source this project maintains.
+extend-exclude = ["tests/fixtures", "docs/_build", ".venv", "*.md"]
 
 [tool.ruff.lint]
 # M5.1: chosen for this code rather than inherited from ALL and then riddled

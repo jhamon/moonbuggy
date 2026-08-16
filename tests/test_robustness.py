@@ -363,7 +363,10 @@ def test_a_declared_latin1_module_is_mutated_correctly(tmp_path):
 def test_undeclared_non_utf8_bytes_are_refused_by_name(tmp_path):
     project = write_project(tmp_path, {
         # No coding cookie, so PEP 263 says UTF-8, and these bytes are not.
-        "mojibake.py": b"VALUE = '\xff\xfe'\n\n\ndef double(x):\n    return x * 2\n",
+        "mojibake.py": (
+            b"VALUE = '\xff\xfe'\n\n\ndef double(x):\n"
+            b"    return x * 2\n"
+        ),
         "good.py": "def triple(x):\n    return x * 3\n",
         "test_good.py": (
             "from good import triple\n\ndef test_triple():\n"
