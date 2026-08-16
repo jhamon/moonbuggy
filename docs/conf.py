@@ -61,7 +61,15 @@ myst_enable_extensions = ["deflist", "colon_fence"]
 myst_heading_anchors = 3
 
 templates_path = []
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
+# M5.3: `docs/superpowers` holds this project's own development record -- the
+# design spec and implementation plan for building moonbuggy itself, not
+# documentation about moonbuggy. They're checked in as a record, not written
+# for or linked from any page a user would reach, so they have no toctree
+# entry -- which `-W` turns into a build error unless excluded here. Beyond
+# quieting the warning, this keeps them out of `docs/_build/html`, which
+# Task 12 publishes to GitHub Pages: internal planning documents should not
+# ship to users.
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "superpowers"]
 
 html_theme = "furo"
 html_title = f"moonbuggy {release}"
