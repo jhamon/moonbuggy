@@ -52,8 +52,9 @@ lint:
 format-check:
 	$(dir $(PYTHON))ruff format --check .
 
-## Milestone M5.3: the type gate. Strict, over src/moonbuggy only.
-## The override list in pyproject.toml is the remaining un-annotated work.
+## Milestone M5.3: the type gate. Strict, over src/moonbuggy only, with
+## nothing carved out. tests/ and scripts/ are deliberately outside it --
+## they are harnesses and benchmark drivers, not the shipped tool.
 typecheck:
 	$(PYTHON) -m mypy
 
