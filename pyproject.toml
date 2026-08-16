@@ -102,8 +102,16 @@ exclude = '\.venv|__pycache__'
 # the completeness gate too -- otherwise the exemption is not one.
 skip-checking-short-docstrings = true
 allow-init-docstring = true
-# Type hints are now this codebase's convention (M5.3): the signature is the
-# authority, so docstrings are not required to repeat types.
+# M5.3 reversed the decision this comment used to record: that type hints
+# were not this codebase's convention because core objects cross process
+# boundaries as plain tuples and dicts, so annotating them would document a
+# shape the code did not enforce. Those objects still cross process
+# boundaries -- but now as NamedTuple/TypedDict declarations (Job, Status,
+# WarmSessionEvidence, WarmSessionOutcome at the top of forkserver.py;
+# OutcomesFile in baseline.py), each carrying a comment naming the direction
+# it travels. The shape is enforced rather than implied, which is what
+# removed the objection. The signature is now the authority, so docstrings
+# are not required to repeat types.
 arg-type-hints-in-signature = true
 arg-type-hints-in-docstring = false
 check-return-types = false
