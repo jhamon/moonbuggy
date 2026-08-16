@@ -104,7 +104,7 @@ style = "google"
 # `[tool.mypy]` above: excluded here only until they are annotated. Tasks 4,
 # 5, and 6 each delete their own entries as they land, and Task 7 removes
 # whatever is left.
-exclude = '\.venv|__pycache__|src/moonbuggy/plugin\.py|src/moonbuggy/baseline\.py|src/moonbuggy/forkserver\.py|src/moonbuggy/coverage_pass\.py|src/moonbuggy/runner\.py|src/moonbuggy/cli\.py'
+exclude = '\.venv|__pycache__|src/moonbuggy/runner\.py|src/moonbuggy/cli\.py'
 # Private helpers are exempt from the coverage gate, so they are exempt from
 # the completeness gate too -- otherwise the exemption is not one.
 skip-checking-short-docstrings = true
@@ -178,10 +178,6 @@ strict = true
 # remaining work.
 [[tool.mypy.overrides]]
 module = [
-  "moonbuggy.plugin",
-  "moonbuggy.baseline",
-  "moonbuggy.forkserver",
-  "moonbuggy.coverage_pass",
   "moonbuggy.runner",
   "moonbuggy.cli",
 ]

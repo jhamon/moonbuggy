@@ -38,6 +38,9 @@ out-of-process (subprocess) paths collect identical evidence.
 
 import json
 import os
+from typing import TypedDict
+
+import pytest
 
 OUTCOMES_ENV_VAR = "MOONBUGGY_OUTCOMES"
 
@@ -50,6 +53,19 @@ class BaselineError(RuntimeError):
     """The suite is not in a state where mutation results would mean anything."""
 
 
+class OutcomesFile(TypedDict):
+    """The JSON written to ``OUTCOMES_ENV_VAR`` at session end.
+
+    Direction: child (this pytest process, in-process or forked) -> parent.
+    Written once per run by :func:`pytest_sessionfinish` and read back with
+    :func:`read_outcomes`, which only ever consults ``outcomes`` -- but the
+    file also carries ``exit_status`` for a human inspecting it by hand.
+    """
+
+    exit_status: int
+    outcomes: dict[str, str]
+
+
 class OutcomeRecorder:
     """Collects one outcome per test node id from a pytest run.
 
@@ -58,10 +74,10 @@ class OutcomeRecorder:
     is what separates a red baseline from a flake.
     """
 
-    def __init__(self):
-        self.outcomes = {}
+    def __init__(self) -> None:
+        self.outcomes: dict[str, str] = {}
 
-    def pytest_runtest_logreport(self, report):
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         """Record the worst outcome seen for this test across its three phases."""
         current = self.outcomes.get(report.nodeid)
         if report.outcome in _FAILING:
@@ -69,7 +85,7 @@ class OutcomeRecorder:
         elif current is None:
             self.outcomes[report.nodeid] = report.outcome
 
-    def pytest_collectreport(self, report):
+    def pytest_collectreport(self, report: pytest.CollectReport) -> None:
         """A module that fails to import produces no tests at all.
 
         Left unrecorded, a collection error would look like an empty but green
@@ -79,29 +95,33 @@ class OutcomeRecorder:
             self.outcomes[f"{report.nodeid}::<collection>"] = "failed"
 
 
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config) -> None:
     """Plugin hook: install a recorder when MOONBUGGY_OUTCOMES names a file."""
     path = os.environ.get(OUTCOMES_ENV_VAR)
     if not path:
         return
     recorder = OutcomeRecorder()
     config.pluginmanager.register(recorder, "moonbuggy-outcomes")
-    config._moonbuggy_recorder = recorder
+    config._moonbuggy_recorder = recorder  # type: ignore[attr-defined]  # our own marker, not a pytest attribute
 
 
-def pytest_sessionfinish(session, exitstatus):
+def pytest_sessionfinish(
+    session: pytest.Session, exitstatus: int | pytest.ExitCode
+) -> None:
     """Plugin hook: write the recorded outcomes where the parent can read them."""
     path = os.environ.get(OUTCOMES_ENV_VAR)
     recorder = getattr(session.config, "_moonbuggy_recorder", None)
     if not path or recorder is None:
         return
+    payload: OutcomesFile = {
+        "exit_status": int(exitstatus),
+        "outcomes": recorder.outcomes,
+    }
     with open(path, "w") as handle:
-        json.dump(
-            {"exit_status": int(exitstatus), "outcomes": recorder.outcomes}, handle
-        )
+        json.dump(payload, handle)
 
 
-def classify(runs):
+def classify(runs: list[dict[str, str]]) -> tuple[set[str], set[str]]:
     """Split tests into consistently-failing and inconsistent, given several runs.
 
     Args:
@@ -115,7 +135,7 @@ def classify(runs):
     if not runs:
         return set(), set()
 
-    seen = {}
+    seen: dict[str, set[str]] = {}
     for run in runs:
         for node_id, outcome in run.items():
             seen.setdefault(node_id, set()).add(outcome)
@@ -134,7 +154,7 @@ def classify(runs):
     return failing, flaky
 
 
-def check(runs, allow_empty=False):
+def check(runs: list[dict[str, str]], allow_empty: bool = False) -> set[str]:
     """Raise if the baseline cannot support a mutation run.
 
     Args:
@@ -173,12 +193,12 @@ def check(runs, allow_empty=False):
     return flaky
 
 
-def probe_env(path):
+def probe_env(path: str | os.PathLike[str]) -> dict[str, str]:
     """Environment additions that make a pytest run record its outcomes."""
     return {OUTCOMES_ENV_VAR: str(path)}
 
 
-def read_outcomes(path):
+def read_outcomes(path: str | os.PathLike[str]) -> dict[str, str]:
     """Read one run's recorded outcomes back.
 
     Args:
@@ -190,6 +210,7 @@ def read_outcomes(path):
     """
     try:
         with open(path) as handle:
-            return json.load(handle)["outcomes"]
+            payload: OutcomesFile = json.load(handle)
+            return payload["outcomes"]
     except (OSError, ValueError, KeyError):
         return {}

@@ -15,6 +15,9 @@ free because the controller does exactly the same thing.
 
 import json
 import os
+from typing import TypedDict
+
+import pytest
 
 from .inmemory import install
 
@@ -27,7 +30,23 @@ MUTANT_ENV_VAR = "MOONBUGGY_MUTANT"
 CONTROLLER_ONLY_ENV_VAR = "MOONBUGGY_SPIKE_CONTROLLER_ONLY"
 
 
-def pytest_configure(config):
+class MutantEnvPayload(TypedDict):
+    """The JSON carried by ``MUTANT_ENV_VAR``.
+
+    Written by ``runner._env_for`` in the parent (or controller) process and
+    read here by every process that runs tests for that mutant -- the plain
+    serial run, a forked child, and each pytest-xdist worker alike, since all
+    of them inherit the same environment. Crosses via an environment variable
+    rather than a pipe, which is what lets an xdist worker -- spawned by
+    execnet, not by moonbuggy -- see it at all.
+    """
+
+    path: str
+    line: int
+    mutated: str
+
+
+def pytest_configure(config: pytest.Config) -> None:
     """Install the active mutant, if this process was told about one.
 
     Runs in every pytest process -- controller and each xdist worker -- which
@@ -39,10 +58,10 @@ def pytest_configure(config):
     payload = os.environ.get(MUTANT_ENV_VAR)
     controller_only = os.environ.get(CONTROLLER_ONLY_ENV_VAR)
     if payload and not (controller_only and _is_xdist_worker(config)):
-        mutant = json.loads(payload)
+        mutant: MutantEnvPayload = json.loads(payload)
         install(mutant["path"], mutant["line"], mutant["mutated"])
 
 
-def _is_xdist_worker(config):
+def _is_xdist_worker(config: pytest.Config) -> bool:
     # xdist sets `workerinput` on the config of each worker process only.
     return hasattr(config, "workerinput")
