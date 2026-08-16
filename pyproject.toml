@@ -44,6 +44,13 @@ docs = [
   # nothing enforces is a convention the next file quietly breaks.
   "pydoclint>=0.5",
 ]
+# Milestone M5: the static quality gate. Pinned here so a clean venv can run
+# `make lint`, `make format-check`, and `make typecheck` from a fresh checkout.
+# Not required to use moonbuggy.
+lint = [
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
 
 [project.scripts]
 moonbuggy = "moonbuggy.cli:main"
@@ -108,3 +115,45 @@ check-yield-types = false
 # the caller has to handle, and where the `raise` statement physically lives
 # is not information the caller needs.
 skip-checking-raises = true
+
+[tool.ruff]
+# Milestone M5.2. 88 is ruff's default. The prose comments in this codebase
+# wrap nearer 79, and the formatter does not rewrap comments or docstrings, so
+# they stay as written -- the extra width is available to code.
+line-length = 88
+target-version = "py312"
+# tests/fixtures is *input data* for moonbuggy's own suite, not code this
+# project maintains. It deliberately contains a file with a syntax error
+# (M1.4.1) and a file in a non-UTF8 encoding (M1.4.7). A linter pointed at it
+# fails on input it is designed to fail on.
+extend-exclude = ["tests/fixtures", "docs/_build", ".venv"]
+
+[tool.ruff.lint]
+# M5.1: chosen for this code rather than inherited from ALL and then riddled
+# with suppressions. E/F/W are the pyflakes and pycodestyle core, I sorts
+# imports, UP catches syntax kept alive past its Python version, B is bugbear,
+# SIM is the readability set.
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# conf.py must adjust sys.path before importing the package, which is E402.
+# That is the file's contract with Sphinx, not a style choice, so it is
+# exempted here rather than with a `# noqa` -- M5.1.2 wants zero inline
+# suppressions. (The file also carries a `# noqa: A001` for Sphinx's required
+# module-level `copyright` name. A-rules are not in `select`, so that
+# suppression is inert and Task 1 Step 8 simply deletes it.)
+"docs/conf.py" = ["E402"]
+# `copy` is re-exported here on purpose, not consumed here -- it is kept
+# importable as `moonbuggy.operators.copy` for operators that need it, without
+# every operator module having to import it itself (M5.1.3).
+"src/moonbuggy/operators/__init__.py" = ["F401"]
+# These scripts and this test module each need `sys.path.insert` to run before
+# a local, not-installed module can be imported (the sibling `workloads`
+# module, or a script's own `scripts/` or `src/` directory). That ordering is
+# the file's contract, not a style choice -- the same reasoning as
+# docs/conf.py above.
+"scripts/ab_compare.py" = ["E402"]
+"scripts/differential.py" = ["E402"]
+"scripts/profile_run.py" = ["E402"]
+"scripts/verify_findings.py" = ["E402"]
+"tests/test_ab_harness.py" = ["E402"]

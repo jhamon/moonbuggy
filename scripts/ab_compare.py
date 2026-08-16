@@ -42,7 +42,7 @@ REPO = Path(__file__).resolve().parent.parent
 PYTHON = str(REPO / ".venv" / "bin" / "python")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import workloads  # noqa: E402
+import workloads
 
 DEFAULT_RUNS = 7  # M2.3.1's floor, not a target.
 BOOTSTRAP_SAMPLES = 10_000

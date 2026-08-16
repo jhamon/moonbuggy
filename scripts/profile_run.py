@@ -34,7 +34,7 @@ REPO = Path(__file__).resolve().parent.parent
 PYTHON = str(REPO / ".venv" / "bin" / "python")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import workloads  # noqa: E402
+import workloads
 
 # Each shape is run this many times and the median taken. One run of a
 # sub-second workload is mostly scheduler noise, and a profile built from
@@ -119,7 +119,10 @@ def report(summary):
 
     attributed = sum(seconds for _, seconds in rows)
     unattributed = wall - attributed
-    print(f"  {'other (unattributed)':<26} {unattributed:>8.4f}s {unattributed / wall:>6.1%}")
+    print(
+        f"  {'other (unattributed)':<26} {unattributed:>8.4f}s "
+        f"{unattributed / wall:>6.1%}"
+    )
 
     share = attributed / wall
     print(f"\n  M2.1.2 phases cover >= 95% of wall clock : "

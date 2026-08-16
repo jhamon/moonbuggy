@@ -96,7 +96,9 @@ def pytest_sessionfinish(session, exitstatus):
     if not path or recorder is None:
         return
     with open(path, "w") as handle:
-        json.dump({"exit_status": int(exitstatus), "outcomes": recorder.outcomes}, handle)
+        json.dump(
+            {"exit_status": int(exitstatus), "outcomes": recorder.outcomes}, handle
+        )
 
 
 def classify(runs):

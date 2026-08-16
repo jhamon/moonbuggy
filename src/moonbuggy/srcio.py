@@ -23,10 +23,10 @@ the rest of the file has to stay exactly where it was, because mutant splicing
 and line attribution are both offset-based.
 """
 
+import contextlib
 import os
 import re
 import tokenize
-from pathlib import Path
 
 DEFAULT_ENCODING = "utf-8"
 
@@ -62,7 +62,9 @@ def detect_encoding(path):
             encoding, _ = tokenize.detect_encoding(handle.readline)
         return encoding
     except (OSError, SyntaxError, LookupError, ValueError) as error:
-        raise SourceError(f"cannot determine the encoding of {path}: {error}") from error
+        raise SourceError(
+            f"cannot determine the encoding of {path}: {error}"
+        ) from error
 
 
 # Keyed by (path, mtime, size), so an edit during a run is a miss rather than a
@@ -111,10 +113,8 @@ def prewarm(paths):
     a message about that file.
     """
     for path in paths:
-        try:
+        with contextlib.suppress(SourceError):
             read_source(path)
-        except SourceError:
-            pass
 
 
 def _read_source_uncached(path):

@@ -19,7 +19,12 @@ from moonbuggy.runner import run_mutants
 FIXTURES = Path(__file__).parent / "fixtures"
 FIXTURE = FIXTURES / "sample_project"
 ORACLE = tomllib.loads((FIXTURES / "oracle.toml").read_text())
-MODULES = ["sample/discounts.py", "sample/inventory.py", "sample/loops.py", "sample/config.py"]
+MODULES = [
+    "sample/discounts.py",
+    "sample/inventory.py",
+    "sample/loops.py",
+    "sample/config.py",
+]
 
 pytestmark = pytest.mark.slow
 
@@ -106,7 +111,9 @@ def test_module_level_mutants_deliberately_run_everything(serial_results, linema
     failure mode.
     """
     total = len(linemap.all_tests())
-    module_level = [r for r in serial_results if r.mutant.module_level and not r.mutant.suppressed]
+    module_level = [
+        r for r in serial_results if r.mutant.module_level and not r.mutant.suppressed
+    ]
 
     assert module_level
     assert all(r.tests_run == total for r in module_level)

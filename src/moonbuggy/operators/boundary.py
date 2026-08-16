@@ -38,5 +38,7 @@ class Boundary:
         # The original argument node is reused, not copied. It is never
         # written to -- only unparsed -- and it is the whole point of H6 that
         # a nested argument is not deep-copied once per enclosing operator.
-        shifted = ast.BinOp(left=node.args[0], op=ast.Sub(), right=ast.Constant(value=1))
+        shifted = ast.BinOp(
+            left=node.args[0], op=ast.Sub(), right=ast.Constant(value=1)
+        )
         yield replace_operator(node, args=[shifted])

@@ -50,7 +50,8 @@ MUTMUT = str(REPO / ".venv" / "bin" / "mutmut")
 FIXTURE = REPO / "tests" / "fixtures" / "sample_project"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import workloads  # noqa: E402
+import workloads
+
 
 # mutmut records a raw child exit code per mutant in `<module>.py.meta`.
 # 0 and 1 are pytest's; a negative value is a signal, and -24 (SIGXCPU) is how
@@ -147,7 +148,9 @@ def _single_line_change(original, mutated):
     """(before, after) if exactly one line differs, else None."""
     if len(original) != len(mutated):
         return None
-    differing = [i for i, (a, b) in enumerate(zip(original, mutated)) if a != b]
+    differing = [
+        i for i, (a, b) in enumerate(zip(original, mutated, strict=True)) if a != b
+    ]
     if len(differing) != 1:
         return None
     index = differing[0]
@@ -271,7 +274,9 @@ def run_moonbuggy(project, source, timeout):
     results = project / ".moonbuggy" / "results.jsonl"
     if not results.exists():
         return None
-    return [json.loads(line) for line in results.read_text().splitlines() if line.strip()]
+    return [
+        json.loads(line) for line in results.read_text().splitlines() if line.strip()
+    ]
 
 
 def run_mutmut(project, package, tests):
@@ -438,7 +443,8 @@ def write_markdown(path, entries, unclassified):
         "code has no decorators, no classes, no closures and no third-party",
         "imports, so it cannot surface the disagreements those produce.",
         "",
-        "| project | moonbuggy mutants | mutmut mutants | shared | agree | disagree | ambiguous |",
+        "| project | moonbuggy mutants | mutmut mutants | shared | agree | disagree "
+        "| ambiguous |",
         "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for entry in entries:

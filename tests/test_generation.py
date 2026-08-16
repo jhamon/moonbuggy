@@ -15,7 +15,12 @@ from moonbuggy.generate import generate_mutants
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_project"
 ORACLE = tomllib.loads((Path(__file__).parent / "fixtures" / "oracle.toml").read_text())
-MODULES = ["sample/discounts.py", "sample/inventory.py", "sample/loops.py", "sample/config.py"]
+MODULES = [
+    "sample/discounts.py",
+    "sample/inventory.py",
+    "sample/loops.py",
+    "sample/config.py",
+]
 
 
 def generate_all():
@@ -42,7 +47,8 @@ def test_each_oracle_mutant_is_generated_with_expected_text(expected):
     matches = [
         m
         for m in generate_all()
-        if (m.module, m.line, m.operator) == (expected["module"], expected["line"], expected["operator"])
+        if (m.module, m.line, m.operator)
+        == (expected["module"], expected["line"], expected["operator"])
     ]
 
     assert len(matches) == 1, f"expected exactly one mutant, got {len(matches)}"

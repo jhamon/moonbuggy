@@ -98,7 +98,8 @@ def run_mutants(
 
 
 def _run_forked_batch(
-    project_dir, mutants, linemap, timeout, cache, concurrency, flaky=(), on_result=None,
+    project_dir, mutants, linemap, timeout, cache, concurrency,
+    flaky=(), on_result=None,
 ):
     """Resolve cache hits and trivial cases first, then fork the rest in parallel."""
     plan = _plan(project_dir, mutants, linemap, cache, flaky)
@@ -127,7 +128,7 @@ def _run_forked_batch(
         # is an average rather than a measurement. Recorded as such instead of
         # pretending to a precision forking does not allow.
         share = (time.perf_counter() - started) / len(to_run)
-        for (index, mutant, selected), status in zip(to_run, statuses):
+        for (index, mutant, selected), status in zip(to_run, statuses, strict=True):
             results[index] = Result(
                 mutant, status, len(selected), share,
                 nearest_test=sorted(selected)[0] if status == "SURVIVED" else None,
@@ -357,7 +358,8 @@ def run_session(
                     for result in state["plan"]["results"].values():
                         on_result(result)
                 return [
-                    (mutant, selected) for _, mutant, selected in state["plan"]["to_run"]
+                    (mutant, selected)
+                    for _, mutant, selected in state["plan"]["to_run"]
                 ]
 
         durations = {}
@@ -412,7 +414,9 @@ def run_session(
     # documents itself as doing.
     already_attributed = sum(
         profiler.totals.get(phase, 0.0)
-        for phase in ("warm-session startup", "coverage pass", "flaky probe", "planning")
+        for phase in (
+            "warm-session startup", "coverage pass", "flaky probe", "planning",
+        )
     )
     remaining = max(mutant_wall - already_attributed, 0.0)
     profiler.split(
@@ -472,7 +476,7 @@ def _rerun_unapplied(project_dir, jobs, statuses, timeout, profiler, on_result, 
         )
 
     statuses = list(statuses)
-    for index, status in zip(retry, cold):
+    for index, status in zip(retry, cold, strict=True):
         statuses[index] = status
         if on_result is not None:
             _, mutant, selected = state["plan"]["to_run"][index]
@@ -545,7 +549,7 @@ def _assemble(mutants, plan, statuses, cache, durations=None):
     durations = durations or {}
     results = plan["results"]
     for job_index, ((index, mutant, selected), status) in enumerate(
-        zip(plan["to_run"], statuses)
+        zip(plan["to_run"], statuses, strict=True)
     ):
         results[index] = _result_for(
             mutant, status, selected, durations.get(job_index, 0.0)

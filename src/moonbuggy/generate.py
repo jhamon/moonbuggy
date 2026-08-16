@@ -60,7 +60,9 @@ def generate_mutants(source, module, on_skip=None):
             f"syntax error at line {error.lineno}: {error.msg}"
         ) from error
     except (RecursionError, MemoryError, ValueError) as error:
-        raise GenerationError(f"cannot parse: {type(error).__name__}: {error}") from error
+        raise GenerationError(
+            f"cannot parse: {type(error).__name__}: {error}"
+        ) from error
 
     lines = source.splitlines()
     operators = all_operators()

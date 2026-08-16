@@ -28,7 +28,6 @@ Two fixes, and both are tested here because they fail differently:
 """
 
 import pytest
-
 from support import assert_no_traceback, moonbuggy, records, write_project
 
 pytestmark = pytest.mark.slow

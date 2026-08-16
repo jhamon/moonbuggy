@@ -19,7 +19,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from ab_compare import (  # noqa: E402
+from ab_compare import (
     DEFAULT_RUNS,
     main,
     median_confidence_interval,

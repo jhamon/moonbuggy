@@ -19,8 +19,8 @@ real worker process and a real import sequence.
 """
 
 import json
-import shutil
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -94,7 +94,9 @@ def test_xdist_test_has_teeth():
     # same run must report the mutant as surviving. If this ever starts failing,
     # test_mutation_reaches_xdist_workers is passing for the wrong reason and
     # no longer detects the failure mode it exists to catch.
-    result = run_fixture_suite("-n", "2", env_extra={"MOONBUGGY_SPIKE_CONTROLLER_ONLY": "1"})
+    result = run_fixture_suite(
+        "-n", "2", env_extra={"MOONBUGGY_SPIKE_CONTROLLER_ONLY": "1"}
+    )
 
     assert result.returncode == 0, (
         "Expected the mutant to survive with worker propagation disabled. "

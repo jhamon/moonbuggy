@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage oss-hunt check-differential check-fresh-install check-all
+.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage lint oss-hunt check-differential check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -42,6 +42,11 @@ docs: docstring-coverage
 docstring-coverage:
 	$(PYTHON) -m interrogate -c pyproject.toml src/moonbuggy
 	$(dir $(PYTHON))pydoclint --style=google --config=pyproject.toml src/moonbuggy
+
+## Milestone M5.1: the lint gate.
+## Config and the reason for every disabled rule live in pyproject.toml.
+lint:
+	$(dir $(PYTHON))ruff check .
 
 ## Milestone M3.3.10: every code example in the docs is executed.
 docs-test:

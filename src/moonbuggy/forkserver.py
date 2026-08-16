@@ -22,10 +22,10 @@ POSIX only. Windows has no fork, so runner.py keeps the subprocess path as a
 fallback rather than this being the only way to run.
 """
 
+import contextlib
 import os
 import pickle
 import signal
-import sys
 import time
 
 FORK_AVAILABLE = hasattr(os, "fork")
@@ -49,7 +49,11 @@ def warm_up():
     Deliberately imports nothing from the project under test -- see the module
     docstring for why that would be a correctness bug rather than a slow path.
     """
-    import pytest  # noqa: F401
+    import pytest
+
+    # Referenced so the import is not "unused" -- its value is not needed,
+    # only the side effect of pytest being loaded into sys.modules.
+    _ = pytest
 
 
 def run_in_fork(project_dir, mutant, selected, timeout, install_mutation):
@@ -91,10 +95,8 @@ def _child(project_dir, mutant, selected, install_mutation, write_fd, extra_args
     except BaseException:
         code = CHILD_CRASHED
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.write(write_fd, _child_payload(code, micros))
-        except OSError:
-            pass
         # os._exit, not sys.exit: skips atexit handlers and buffer flushing that
         # belong to the parent's state, which this child only borrowed.
         os._exit(0)
@@ -157,10 +159,8 @@ def run_pytest_in_fork(cwd, args, env_updates, timeout):
         except BaseException:
             code = CHILD_CRASHED
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 os.write(write_fd, bytes([min(code, 255)]))
-            except OSError:
-                pass
             os._exit(0)
 
     os.close(write_fd)
@@ -375,7 +375,9 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
 
     if pid == 0:
         os.close(read_fd)
-        _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd)
+        _warm_host(
+            project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd
+        )
 
     os.close(write_fd)
     deadline = time.monotonic() + timeout * max(1, len(jobs))
@@ -388,10 +390,8 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
             collected += chunk
             if time.monotonic() > deadline:
                 break
-        try:
+        with contextlib.suppress(ChildProcessError):
             os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
     finally:
         os.close(read_fd)
 
@@ -423,7 +423,9 @@ _CODE_BY_STATUS = {v: k for k, v in _STATUS_BY_CODE.items()}
 _FRAME_SIZE = 13
 
 
-def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd):
+def _warm_host(
+    project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd
+):
     try:
         os.chdir(project_dir)
         devnull = os.open(os.devnull, os.O_WRONLY)
@@ -444,7 +446,9 @@ def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, w
         os._exit(0)
 
 
-def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None, extra_args=()):
+def _fork_grandchildren(
+    jobs, timeout, concurrency, apply_swap, emit=None, extra_args=()
+):
     """Fork one grandchild per job, at most `concurrency` at a time.
 
     Args:
@@ -474,7 +478,9 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None, extra
                 os.close(read_fd)
                 _grandchild(mutant, selected, apply_swap, write_fd, extra_args)
             os.close(write_fd)
-            running[pid] = (index, read_fd, time.monotonic() + timeout, time.monotonic())
+            running[pid] = (
+                index, read_fd, time.monotonic() + timeout, time.monotonic(),
+            )
 
         for pid, (index, read_fd, deadline, forked_at) in list(running.items()):
             try:
@@ -532,10 +538,8 @@ def _grandchild(mutant, selected, apply_swap, write_fd, extra_args=()):
         if code != COULD_NOT_APPLY:
             code = CHILD_CRASHED
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.write(write_fd, _child_payload(code, micros))
-        except OSError:
-            pass
         os._exit(0)
 
 

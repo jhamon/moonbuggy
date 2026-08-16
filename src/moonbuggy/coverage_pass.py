@@ -240,5 +240,7 @@ def read_coverage_data(data_file, project_dir, known_tests=()):
     # contexts know which touched the source. Selection's stated bias is
     # toward the larger set, because a missing covering test is a false
     # SURVIVED and a spurious one only costs time.
-    tests.update(t for t in known_tests if "::" in t and not t.endswith("::<collection>"))
+    tests.update(
+        t for t in known_tests if "::" in t and not t.endswith("::<collection>")
+    )
     return LineMap(mapping, tests, project_dir)

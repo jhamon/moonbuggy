@@ -16,11 +16,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from moonbuggy import __version__  # noqa: E402
+from moonbuggy import __version__
 
 project = "moonbuggy"
 author = "Jennifer Hamon"
-copyright = "2026, Jennifer Hamon"  # noqa: A001 - Sphinx requires this name
+copyright = "2026, Jennifer Hamon"
 release = __version__
 version = __version__
 

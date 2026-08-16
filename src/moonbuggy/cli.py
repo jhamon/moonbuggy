@@ -13,11 +13,16 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __version__, profiling
 from .baseline import BaselineError
 from .cache import ResultCache
 from .coverage_pass import CoveragePassError, run_baseline_pass
-from .discover import LayoutError, find_source_dir, find_source_files, looks_like_pytest_project
+from .discover import (
+    LayoutError,
+    find_source_dir,
+    find_source_files,
+    looks_like_pytest_project,
+)
 from .generate import GenerationError, generate_mutants
 from .report import (
     StreamingJSONL,
@@ -28,7 +33,6 @@ from .report import (
     summarise,
     write_jsonl,
 )
-from . import profiling
 from .runner import run_mutants, run_session
 from .srcio import SourceError, read_source
 
@@ -64,7 +68,9 @@ def _build_parser():
         prog="moonbuggy",
         description="Fast, agent-first mutation testing for Python.",
     )
-    parser.add_argument("--version", action="version", version=f"moonbuggy {__version__}")
+    parser.add_argument(
+        "--version", action="version", version=f"moonbuggy {__version__}"
+    )
     parser.set_defaults(command="run")
 
     _add_run_arguments(parser)
@@ -79,7 +85,9 @@ def _build_parser():
 
 def _add_run_arguments(parser):
     parser.add_argument("--project", default=".", help="project root (default: cwd)")
-    parser.add_argument("--source", default=None, help="directory to mutate (default: discovered)")
+    parser.add_argument(
+        "--source", default=None, help="directory to mutate (default: discovered)"
+    )
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="seconds before a mutant is called TIMEOUT (default: 30)")
@@ -93,9 +101,15 @@ def _add_run_arguments(parser):
                         help="mutants to run concurrently (default: CPU count - 1)")
     parser.add_argument("-n", "--workers", type=int, default=0,
                         help="pytest-xdist workers per mutant run (default: 0, serial)")
-    parser.add_argument("--no-cache", action="store_true", help="ignore and do not update the cache")
-    parser.add_argument("--clear-cache", action="store_true", help="delete the cache, then run")
-    parser.add_argument("--quiet", action="store_true", help="only print the summary line")
+    parser.add_argument(
+        "--no-cache", action="store_true", help="ignore and do not update the cache"
+    )
+    parser.add_argument(
+        "--clear-cache", action="store_true", help="delete the cache, then run"
+    )
+    parser.add_argument(
+        "--quiet", action="store_true", help="only print the summary line"
+    )
     parser.add_argument("--pytest-arg", action="append", default=[], metavar="ARG",
                         help="extra argument passed to every pytest run, including "
                              "the baseline and each mutant (repeatable). Needed when "
@@ -158,7 +172,10 @@ def _run(args):
         return 2
 
     if not args.quiet:
-        print(f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files", file=sys.stderr)
+        print(
+            f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files",
+            file=sys.stderr,
+        )
         print("moonbuggy: running coverage pass...", file=sys.stderr)
 
     jsonl_path = output_dir / "results.jsonl"
@@ -247,7 +264,9 @@ def _collect_mutants(project_dir, source_files, wanted):
         try:
             source = read_source(project_dir / relative)
             found = generate_mutants(
-                source, module=relative, on_skip=lambda line, why: skipped.append(line)
+                source,
+                module=relative,
+                on_skip=lambda line, why, skipped=skipped: skipped.append(line),
             )
         except (SourceError, GenerationError) as error:
             print(f"moonbuggy: skipping {relative}: {error}", file=sys.stderr)

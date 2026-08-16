@@ -30,9 +30,13 @@ def make_mutant(module="sample/inventory.py", line=9):
 def project(tmp_path):
     (tmp_path / "sample").mkdir()
     (tmp_path / "tests").mkdir()
-    (tmp_path / "sample" / "inventory.py").write_text("def is_available(stock):\n    return stock > 0\n")
+    (tmp_path / "sample" / "inventory.py").write_text(
+        "def is_available(stock):\n    return stock > 0\n"
+    )
     (tmp_path / "sample" / "other.py").write_text("VALUE = 1\n")
-    (tmp_path / "tests" / "test_inventory.py").write_text("def test_x():\n    assert True\n")
+    (tmp_path / "tests" / "test_inventory.py").write_text(
+        "def test_x():\n    assert True\n"
+    )
     return tmp_path
 
 
@@ -79,7 +83,9 @@ def test_editing_the_mutated_module_invalidates_the_entry(project, tmp_path):
     cache = ResultCache(tmp_path / "cache.json")
     before = key(cache, project)
 
-    (project / "sample" / "inventory.py").write_text("def is_available(stock):\n    return stock >= 1\n")
+    (project / "sample" / "inventory.py").write_text(
+        "def is_available(stock):\n    return stock >= 1\n"
+    )
 
     assert key(cache, project) != before
 
@@ -135,6 +141,8 @@ def test_corrupt_cache_file_degrades_to_a_cold_run(tmp_path):
 
 def test_cache_file_from_a_future_version_is_ignored(tmp_path):
     path = tmp_path / "cache.json"
-    path.write_text(json.dumps({"version": 999, "entries": {"k": {"status": "KILLED"}}}))
+    path.write_text(
+        json.dumps({"version": 999, "entries": {"k": {"status": "KILLED"}}})
+    )
 
     assert ResultCache(path).get("k") is None

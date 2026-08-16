@@ -23,14 +23,13 @@ import tokenize
 import warnings
 from collections import Counter
 
+import pytest
 from hypothesis import HealthCheck, example, given, settings
 from hypothesis.errors import NonInteractiveExampleWarning
-
-import pytest
+from strategies import module_source
 
 from moonbuggy.generate import generate_mutants
 from moonbuggy.srcio import replace_line
-from strategies import module_source
 
 # 500 examples across seven properties runs about two minutes, which is too
 # long for the edit-run-edit loop and exactly right for a gate. Same reasoning
@@ -218,7 +217,7 @@ def test_every_mutant_reports_the_line_it_actually_changed(source):
         changed = [
             index
             for index, (before, after) in enumerate(
-                zip(lines, mutated.splitlines()), start=1
+                zip(lines, mutated.splitlines(), strict=True), start=1
             )
             if before != after
         ]

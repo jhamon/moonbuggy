@@ -62,7 +62,9 @@ def apply_in_place(module, path, line, mutated_text):
     qualname = _enclosing_function_path(tree, line)
 
     # Keep tracebacks honest even though nothing was re-imported (D4).
-    linecache.cache[str(path)] = (len(source), None, source.splitlines(keepends=True), str(path))
+    linecache.cache[str(path)] = (
+        len(source), None, source.splitlines(keepends=True), str(path),
+    )
 
     if qualname is None:
         _exec_module_level(module, source, line)
@@ -106,8 +108,12 @@ def _exec_module_level(module, source, line):
 
     try:
         exec(compile(statement, "<moonbuggy>", "exec"), module.__dict__)
-    except Exception as error:  # noqa: BLE001 - any failure means fall back
-        raise SwapFailed(f"could not exec module-level statement: {error}") from error
+    # Any failure here means fall back to rebinding aliases instead -- the
+    # exception is deliberately broad, not narrowed to a specific type.
+    except Exception as error:
+        raise SwapFailed(
+            f"could not exec module-level statement: {error}"
+        ) from error
 
     for name in names:
         previous = before[name]
@@ -130,9 +136,10 @@ def _bound_names(statement):
             names.update(
                 target.id for target in node.targets if isinstance(target, ast.Name)
             )
-        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-            if isinstance(node.target, ast.Name):
-                names.add(node.target.id)
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)) and isinstance(
+            node.target, ast.Name
+        ):
+            names.add(node.target.id)
     return names
 
 
@@ -174,7 +181,9 @@ def _rebind_aliases(name, previous, fresh):
         try:
             if getattr(other, name, None) is previous:
                 setattr(other, name, fresh)
-        except Exception:  # noqa: BLE001 - a module with an exotic __getattr__
+        # A module with an exotic __getattr__ can raise anything here; that
+        # module just does not get its alias rebound.
+        except Exception:
             continue
 
 

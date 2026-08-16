@@ -29,7 +29,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
-from moonbuggy.srcio import read_source, replace_line  # noqa: E402
+from moonbuggy.srcio import read_source, replace_line
 
 RUN_RECORD = REPO / "docs" / "oss-run.json"
 
@@ -84,7 +84,9 @@ def main(argv=None):
     parser.add_argument("--target", action="append", default=[])
     parser.add_argument("--limit", type=int, default=4,
                         help="survivors to verify per target")
-    parser.add_argument("--workdir", default=str(Path.home() / ".cache" / "moonbuggy-oss"))
+    parser.add_argument(
+        "--workdir", default=str(Path.home() / ".cache" / "moonbuggy-oss")
+    )
     parser.add_argument("--out", default=str(REPO / "docs" / "oss-verified.json"))
     args = parser.parse_args(argv)
 
@@ -115,7 +117,10 @@ def main(argv=None):
     counts = {}
     for item in verified:
         counts[item["verdict"]] = counts.get(item["verdict"], 0) + 1
-    print(f"\n{len(verified)} verified: " + "  ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    print(
+        f"\n{len(verified)} verified: "
+        + "  ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+    )
     print(f"-> {args.out}")
 
 

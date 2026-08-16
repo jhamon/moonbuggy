@@ -107,7 +107,9 @@ def expressions(depth=2):
         # permits nested quotes but still forbids `#` inside a field, and the
         # trap strings deliberately contain one -- so an unrestricted inner
         # here would generate unparseable modules rather than interesting ones.
-        st.builds('f"{{{}}}"'.format, st.sampled_from(NAMES + ["1 + 1", "x > 2", "a * 3"])),
+        st.builds(
+            'f"{{{}}}"'.format, st.sampled_from(NAMES + ["1 + 1", "x > 2", "a * 3"])
+        ),
         st.builds("(not {})".format, inner),
         st.builds("[{}, {}]".format, inner, inner),
     )
@@ -282,7 +284,8 @@ def _render_def(lines, node, level):
     for decorator in decorators:
         lines.append(f"{pad}@{decorator}")
     params = ", ".join(
-        f"{PARAMS[index]}={default}" for index, default in enumerate(defaults[: len(PARAMS)])
+        f"{PARAMS[index]}={default}"
+        for index, default in enumerate(defaults[: len(PARAMS)])
     )
     prefix = "async def" if is_async else "def"
     lines.append(f"{pad}{prefix} {name}({params}):")

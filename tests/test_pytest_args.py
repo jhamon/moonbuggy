@@ -18,8 +18,13 @@ doctest. Without the argument reaching every run, no mutant can be killed.
 """
 
 import pytest
-
-from support import assert_no_traceback, moonbuggy, records, status_of_mutation, write_project
+from support import (
+    assert_no_traceback,
+    moonbuggy,
+    records,
+    status_of_mutation,
+    write_project,
+)
 
 pytestmark = pytest.mark.slow
 
@@ -71,4 +76,7 @@ def test_without_the_flag_the_doctest_is_simply_not_part_of_the_suite(tmp_path):
 
     moonbuggy(cwd=project)
 
-    assert status_of_mutation(project, "return value * 2", "return value / 2") == "SURVIVED"
+    assert (
+        status_of_mutation(project, "return value * 2", "return value / 2")
+        == "SURVIVED"
+    )

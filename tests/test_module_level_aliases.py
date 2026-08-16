@@ -25,7 +25,6 @@ it came from.
 """
 
 import pytest
-
 from support import assert_no_traceback, moonbuggy, status_of_mutation, write_project
 
 pytestmark = pytest.mark.slow

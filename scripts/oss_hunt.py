@@ -28,7 +28,6 @@ What the harness guarantees, and why each guarantee is here:
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -206,7 +205,11 @@ def mutate(checkout, python, target, timeout):
             f"moonbuggy produced no results for {target.name}:\n"
             f"{proc.stdout[-3000:]}\n{proc.stderr[-3000:]}"
         )
-    records = [json.loads(line) for line in results.read_text().splitlines() if line.strip()]
+    records = [
+        json.loads(line)
+        for line in results.read_text().splitlines()
+        if line.strip()
+    ]
     return elapsed, records, proc.stderr[-3000:]
 
 
@@ -223,9 +226,10 @@ def hunt(target, root, timeout):
     """Everything for one target. Returns a record dict, never raises."""
     entry = {"name": target.name, "tag": target.tag, "repo": target.repo,
              "modules": target.modules or ["<all>"], "note": target.note}
+    # A blocked target is data, not a crash -- deliberately broad.
     try:
         checkout, python = prepare(target, root)
-    except Exception as error:  # noqa: BLE001 - a blocked target is data, not a crash
+    except Exception as error:
         entry["blocker"] = f"could not prepare: {error}"
         return entry
 
@@ -240,7 +244,7 @@ def hunt(target, root, timeout):
 
     try:
         elapsed, records, stderr = mutate(checkout, python, target, timeout)
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         entry["blocker"] = f"mutation run failed: {error}"
         return entry
 

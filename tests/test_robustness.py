@@ -21,12 +21,10 @@ import time
 from pathlib import Path
 
 import pytest
-
 from support import (
     assert_no_traceback,
     moonbuggy,
     records,
-    status_of,
     status_of_mutation,
     write_project,
 )
@@ -42,7 +40,10 @@ def test_syntax_error_names_the_file_and_the_rest_still_runs(tmp_path):
     project = write_project(tmp_path, {
         "good.py": "def double(x):\n    return x * 2\n",
         "broken.py": "def oops(:\n    return\n",
-        "test_good.py": "from good import double\n\ndef test_double():\n    assert double(2) == 4\n",
+        "test_good.py": (
+            "from good import double\n\ndef test_double():\n"
+            "    assert double(2) == 4\n"
+        ),
     })
 
     proc = moonbuggy(cwd=project)
@@ -144,7 +145,10 @@ def test_multiply_is_stable():
 
 def test_flaky_tests_make_their_mutants_suspicious_not_confident(tmp_path):
     project = write_project(tmp_path, {
-        "unstable.py": "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b\n",
+        "unstable.py": (
+            "def add(a, b):\n    return a + b\n\n\n"
+            "def multiply(a, b):\n    return a * b\n"
+        ),
         "test_unstable.py": FLAKY_TESTS,
     })
 
@@ -169,7 +173,10 @@ def test_disabling_the_probe_gives_up_the_guarantee_and_says_so(tmp_path):
     confident one that may be wrong.
     """
     project = write_project(tmp_path, {
-        "unstable.py": "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b\n",
+        "unstable.py": (
+            "def add(a, b):\n    return a + b\n\n\n"
+            "def multiply(a, b):\n    return a * b\n"
+        ),
         "test_unstable.py": FLAKY_TESTS,
     })
 
@@ -345,7 +352,10 @@ def test_a_declared_latin1_module_is_mutated_correctly(tmp_path):
 
     assert_no_traceback(proc)
     assert proc.returncode in (0, 1), proc.stderr
-    assert status_of_mutation(project, "return pence * 2", "return pence / 2") == "KILLED"
+    assert (
+        status_of_mutation(project, "return pence * 2", "return pence / 2")
+        == "KILLED"
+    )
     # And the file is left exactly as it was found.
     assert (project / "money.py").read_bytes() == LATIN1_SOURCE
 
@@ -355,7 +365,10 @@ def test_undeclared_non_utf8_bytes_are_refused_by_name(tmp_path):
         # No coding cookie, so PEP 263 says UTF-8, and these bytes are not.
         "mojibake.py": b"VALUE = '\xff\xfe'\n\n\ndef double(x):\n    return x * 2\n",
         "good.py": "def triple(x):\n    return x * 3\n",
-        "test_good.py": "from good import triple\n\ndef test_triple():\n    assert triple(2) == 6\n",
+        "test_good.py": (
+            "from good import triple\n\ndef test_triple():\n"
+            "    assert triple(2) == 6\n"
+        ),
     })
 
     proc = moonbuggy(cwd=project)
@@ -467,23 +480,24 @@ def _naive_statuses(project):
     pytest inside it; doing that from the test runner's own process would put
     two conflicting conftest files on the path.
     """
-    script = '''
+    src_dir = str(Path(__file__).resolve().parents[1] / "src")
+    script = f'''
 import json, sys
 from pathlib import Path
-sys.path.insert(0, %r)
+sys.path.insert(0, {src_dir!r})
 from moonbuggy.generate import generate_mutants
 from moonbuggy.naive import run_naive
 from moonbuggy.srcio import read_source
 
-project = Path(%r)
+project = Path({str(project)!r})
 mutants = []
 for path in sorted(project.glob("*.py")):
-    if path.name.startswith("test_") or path.name in {"conftest.py", "setup.py"}:
+    if path.name.startswith("test_") or path.name in {{"conftest.py", "setup.py"}}:
         continue
     mutants += generate_mutants(read_source(path), module=path.name)
 statuses = run_naive(project, mutants)
-print(json.dumps({m.id: s for m, s in statuses.items()}))
-''' % (str(Path(__file__).resolve().parents[1] / "src"), str(project))
+print(json.dumps({{m.id: s for m, s in statuses.items()}}))
+'''
 
     proc = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, timeout=600,
@@ -538,7 +552,9 @@ def _slow_project(root):
         f"    assert slowlib.step_{n}(1) == {n + 1}"
         for n in range(25)
     )
-    return write_project(root, {"slowlib.py": functions + "\n", "test_slow.py": tests + "\n"})
+    return write_project(
+        root, {"slowlib.py": functions + "\n", "test_slow.py": tests + "\n"}
+    )
 
 
 def _wait_for_a_line(path, proc, limit=60.0):

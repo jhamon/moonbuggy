@@ -63,7 +63,10 @@ TRIAGE = {
             "assert caught[0].filename == __file__"
         ),
     ),
-    ("tomli", "src/tomli/_parser.py", 128, 'colno = pos - doc.rindex("\\n", 1, pos)'): dict(
+    (
+        "tomli", "src/tomli/_parser.py", 128,
+        'colno = pos - doc.rindex("\\n", 1, pos)',
+    ): dict(
         classification=REAL_GAP,
         confidence="medium",
         explanation=(
@@ -495,7 +498,8 @@ def render(run, verified):
         "",
         "## Runs (M4.1, M4.2, M4.3)",
         "",
-        "| project | tag | modules | mutants | score | killed | survived | suspicious | timeout | wall |",
+        "| project | tag | modules | mutants | score | killed | survived | suspicious"
+        " | timeout | wall |",
         "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for entry in run["targets"]:
@@ -574,7 +578,8 @@ def render(run, verified):
     for item in sorted(verified, key=lambda i: (i["target"], i["file"], i["line"])):
         entry = TRIAGE[key_for(item)]
         lines += [
-            f"### {item['target']} `{item['file']}:{item['line']}` — {entry['classification']}",
+            f"### {item['target']} `{item['file']}:{item['line']}` — "
+            f"{entry['classification']}",
             "",
             f"- **Project:** {item['target']}, pinned at `{item['tag']}`",
             f"- **Operator:** `{item['operator']}`  ",
@@ -591,7 +596,10 @@ def render(run, verified):
             "",
         ]
         if entry["suggested_test"]:
-            lines += ["**Suggested test**", "", *_suggested_test(entry["suggested_test"]), ""]
+            lines += [
+                "**Suggested test**", "",
+                *_suggested_test(entry["suggested_test"]), "",
+            ]
 
     lines += [
         "## Aggregate observations (M4.10)",
@@ -628,7 +636,10 @@ def _observations(verified):
             noise_by_operator[item["operator"]] += 1
 
     real = ", ".join(f"`{k}` ({v})" for k, v in by_operator.most_common()) or "none"
-    noise = ", ".join(f"`{k}` ({v})" for k, v in noise_by_operator.most_common()) or "none"
+    noise = (
+        ", ".join(f"`{k}` ({v})" for k, v in noise_by_operator.most_common())
+        or "none"
+    )
 
     return "\n".join([
         f"**Operators that produced real gaps:** {real}.",

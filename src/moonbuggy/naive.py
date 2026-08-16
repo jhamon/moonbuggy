@@ -46,7 +46,10 @@ def run_naive(project_dir, mutants, timeout=30, python=None):
 def _run_one(project_dir, mutant, timeout, python):
     with tempfile.TemporaryDirectory() as tmp:
         tree = Path(tmp) / "project"
-        shutil.copytree(project_dir, tree, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
+        shutil.copytree(
+            project_dir, tree,
+            ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"),
+        )
         _apply(tree / mutant.module, mutant)
         try:
             proc = subprocess.run(

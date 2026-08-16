@@ -16,7 +16,7 @@ supported way to obey that without paying for a deep copy.
 """
 
 import ast
-import copy  # noqa: F401 - kept importable for operators that genuinely need it
+import copy
 import importlib
 import pkgutil
 
