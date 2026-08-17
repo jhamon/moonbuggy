@@ -233,6 +233,109 @@ def prebuild_mutant_config(extra_args: Iterable[str] = ()) -> object | None:
         return None
 
 
+def precollect(config: object, node_ids: Iterable[str]) -> object | None:
+    """Collect every test any mutant can select, once, in the warm host.
+
+    With H14 and H15 landed, `cProfile` put `perform_collect` at **4ms of a
+    6.3ms warm grandchild** -- the largest thing left in the process that
+    repeats. And its input is the same for every mutant: the union of the node
+    ids selection can ask for is known before the first fork, and collecting
+    that union once is collecting a superset of every mutant's own selection.
+
+    So the host builds the `Session`, runs `pytest_sessionstart` and collects.
+    Each grandchild inherits it, keeps the items its own node ids name, and
+    runs those -- 6.3ms to 2.3ms in the micro-benchmark, for 5-12ms paid once.
+
+    **Why this is not H1, on H14's argument.** The collection happens before
+    any mutation exists. Each grandchild gets its own copy-on-write copy of
+    it, filters it, runs it once and exits; no two mutants share a process, so
+    neither can see the other's items any more than it can see the other's
+    `sys.modules`. What makes that safe *here specifically* is that codeswap
+    replaces a function's `__code__` in place rather than rebinding the name,
+    so an item collected before the swap still reaches the mutated code --
+    the same property that already makes the host's own imports safe to
+    inherit.
+
+    Args:
+        config: the config from :func:`prebuild_mutant_config`.
+        node_ids: every test node id any mutant selects.
+
+    Returns:
+        the collected `Session`, or None to fall back to collecting inside
+            each grandchild. None on any failure, including a collection error:
+            a session that could not collect cleanly must not be the one every
+            mutant is judged against.
+    """
+    ids = sorted(set(node_ids))
+    if not ids:
+        return None
+    try:
+        from _pytest.main import Session
+
+        config.args = ids  # type: ignore[attr-defined]  # a pytest Config
+        config.option.file_or_dir = ids  # type: ignore[attr-defined]
+        session = Session.from_config(config)  # type: ignore[arg-type]
+        session.exitstatus = 0
+        # Both of these ran once per grandchild before and now run once here.
+        # The mirror-image `pytest_sessionfinish` stays in the grandchild, so
+        # a plugin still sees exactly one finish per process that runs tests.
+        config._do_configure()  # type: ignore[attr-defined]
+        config.hook.pytest_sessionstart(session=session)  # type: ignore[attr-defined]
+        session.perform_collect()
+    except BaseException:
+        return None
+    if session.testsfailed or session.shouldstop or not session.items:
+        # A collection error here would otherwise be inherited by every
+        # grandchild at once, turning one broken import into a whole run of
+        # confident wrong statuses.
+        return None
+    return session
+
+
+def _run_precollected(config: object, session: object, selected: Iterable[str]) -> int:
+    """Run the pre-collected items this mutant's node ids name, and no others.
+
+    Replaces `pytest_cmdline_main` rather than calling it, because the whole
+    point is to skip the collection `_main` would do. The exit codes are
+    computed the way `_main` computes them, so a caller reading the code
+    cannot tell which path produced it.
+    """
+    from _pytest.config import ExitCode
+
+    # `session.Failed`, not `_pytest.outcomes.Failed`: `-x` stopping the loop
+    # raises `_pytest.main.Failed`, and the two are unrelated classes with the
+    # same name. Catching the wrong one turned every mutant its tests actually
+    # killed into a crashed grandchild -- reported SUSPICIOUS, on exactly the
+    # shape whose tests can fail. Taken off the session rather than imported,
+    # so it cannot drift from the class the loop raises.
+    failed = type(session).Failed  # type: ignore[attr-defined]
+
+    wanted = set(selected)
+    session.items = [i for i in session.items if i.nodeid in wanted]  # type: ignore[attr-defined]
+    session.testscollected = len(session.items)  # type: ignore[attr-defined]
+    try:
+        try:
+            config.hook.pytest_runtestloop(session=session)  # type: ignore[attr-defined]
+        except failed:
+            # `-x` stopping the loop. A kill, not a crash.
+            session.exitstatus = ExitCode.TESTS_FAILED  # type: ignore[attr-defined]
+        else:
+            if session.testsfailed:  # type: ignore[attr-defined]
+                session.exitstatus = ExitCode.TESTS_FAILED  # type: ignore[attr-defined]
+            elif session.testscollected == 0:  # type: ignore[attr-defined]
+                session.exitstatus = ExitCode.NO_TESTS_COLLECTED  # type: ignore[attr-defined]
+            else:
+                session.exitstatus = ExitCode.OK  # type: ignore[attr-defined]
+        config.hook.pytest_sessionfinish(  # type: ignore[attr-defined]
+            session=session, exitstatus=session.exitstatus  # type: ignore[attr-defined]
+        )
+        return int(session.exitstatus)  # type: ignore[attr-defined]
+    finally:
+        # Still the unraisable-exception plugin's chance to speak. See
+        # `_run_prebuilt` for why that is not optional.
+        config._ensure_unconfigure()  # type: ignore[attr-defined]
+
+
 class _SelectedOnly:
     """Stop collection descending into files no selected node id names.
 
@@ -633,6 +736,15 @@ def _warm_session_host(
         # And again for the pytest config each grandchild would otherwise
         # build for itself: see prebuild_mutant_config.
         mutant_config = prebuild_mutant_config(extra_args)
+        # And once more for the collection itself: see precollect. None means
+        # each grandchild collects for itself, exactly as before.
+        mutant_session = (
+            None
+            if mutant_config is None
+            else precollect(
+                mutant_config, (node for _, selected in jobs for node in selected)
+            )
+        )
         # Last, so the frozen generation includes everything above.
         _freeze_heap()
 
@@ -648,7 +760,14 @@ def _warm_session_host(
             )
 
         _fork_grandchildren(
-            jobs, timeout, concurrency, apply_swap, emit, extra_args, mutant_config
+            jobs,
+            timeout,
+            concurrency,
+            apply_swap,
+            emit,
+            extra_args,
+            mutant_config,
+            mutant_session,
         )
     except BaseException:
         pass
@@ -907,6 +1026,7 @@ def _fork_grandchildren(
     emit: Callable[[int, Status, float, float], None] | None = None,
     extra_args: Iterable[str] = (),
     config: object | None = None,
+    session: object | None = None,
 ) -> list[Status]:
     """Fork one grandchild per job, at most `concurrency` at a time.
 
@@ -923,6 +1043,9 @@ def _fork_grandchildren(
         config: a pytest `Config` built once in the caller, for each grandchild
             to run its own copy of. None means build one per grandchild, the
             way `pytest.main` does. See :func:`prebuild_mutant_config`.
+        session: a `Session` whose collection was performed once in the caller,
+            for each grandchild to filter to its own node ids. None means
+            collect per grandchild. See :func:`precollect`.
 
     Returns:
         the statuses, in job order.
@@ -938,7 +1061,9 @@ def _fork_grandchildren(
             pid = os.fork()
             if pid == 0:
                 os.close(read_fd)
-                _grandchild(mutant, selected, apply_swap, write_fd, extra_args, config)
+                _grandchild(
+                    mutant, selected, apply_swap, write_fd, extra_args, config, session
+                )
             os.close(write_fd)
             running[pid] = (
                 index,
@@ -992,6 +1117,7 @@ def _grandchild(
     write_fd: int,
     extra_args: Iterable[str] = (),
     config: object | None = None,
+    session: object | None = None,
 ) -> None:
     code = CHILD_CRASHED
     micros = 0
@@ -1009,8 +1135,10 @@ def _grandchild(
         began = time.perf_counter()
         if config is None:
             code = int(pytest.main(_mutant_args(selected, extra_args, False)))
-        else:
+        elif session is None:
             code = int(_run_prebuilt(config, selected))
+        else:
+            code = int(_run_precollected(config, session, selected))
         # Measured inside the child so the parent can separate the cost of
         # running the tests from the cost of getting a process ready to run
         # them (criterion M2.1.1). Without this split, "per-mutant fork" and
