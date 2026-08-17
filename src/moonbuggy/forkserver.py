@@ -327,7 +327,8 @@ def _run_precollected(config: object, session: object, selected: Iterable[str]) 
             else:
                 session.exitstatus = ExitCode.OK  # type: ignore[attr-defined]
         config.hook.pytest_sessionfinish(  # type: ignore[attr-defined]
-            session=session, exitstatus=session.exitstatus  # type: ignore[attr-defined]
+            session=session,
+            exitstatus=session.exitstatus,  # type: ignore[attr-defined]
         )
         return int(session.exitstatus)  # type: ignore[attr-defined]
     finally:
@@ -708,7 +709,9 @@ def _warm_session_host(
         # path, which is what this interval measures. It is the probe's cost
         # to the run, not the probe's duration.
         probe_began = time.perf_counter()
-        runs += _collect_probe_runs(probe_pid, probe_read, probe_args or cov_args, probes)
+        runs += _collect_probe_runs(
+            probe_pid, probe_read, probe_args or cov_args, probes
+        )
         probe_seconds = time.perf_counter() - probe_began
 
         evidence: WarmSessionEvidence = {

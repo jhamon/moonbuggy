@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages
+  group: docs
   cancel-in-progress: false
 
 jobs:
@@ -25,24 +25,10 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           python-version: "3.12"
-      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       # -W is on inside the Makefile target, so a broken cross-reference fails
-      # the deploy rather than publishing a page with a dangling link.
+      # the build rather than passing with a dangling link.
       - run: make docs PYTHON=$(command -v python)
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
-        with:
-          path: docs/_build/html
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+      # Publishing to GitHub Pages is intentionally disabled: Pages on a private
+      # repo needs a paid org plan. This job still builds the docs so broken
+      # references fail CI. To re-enable, restore the configure-pages and
+      # upload-pages-artifact steps plus the deploy job (see git history).
