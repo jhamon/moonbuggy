@@ -192,3 +192,28 @@ jobs:
         run: ./scripts/check_fresh_install.sh --wheel "$(ls dist/*.whl)"
         env:
           PYENV_PY: python
+
+  publish:
+    needs: [reproducible, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/p/moonbuggy
+    permissions:
+      # M7.5.1: OIDC, so no long-lived API token exists in repository secrets.
+      id-token: write
+      # M7.5.3: build provenance attestations are signed with the same identity.
+      attestations: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      # dist.sha256 rides along in the artifact and is not a distribution file;
+      # twine rejects the upload if it is left in the directory.
+      - run: rm -f dist/dist.sha256 dist.sha256
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          attestations: true
