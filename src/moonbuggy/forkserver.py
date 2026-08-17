@@ -727,12 +727,19 @@ def _warm_session_host(
         # Read every module under mutation once, here, so the grandchildren
         # inherit the text instead of each opening the file for itself. The
         # host is the only place this can pay off -- see srcio._SOURCE_CACHE.
+        from pathlib import Path
+
         from .codeswap import index_modules
         from .srcio import prewarm
 
-        prewarm({mutant.module for mutant, _ in jobs})
+        modules = {mutant.module for mutant, _ in jobs}
+        prewarm(modules)
         # Same argument, for finding the module to swap: see index_modules.
-        index_modules()
+        # The paths are spelled exactly as `runner._apply_in_place` will ask
+        # for them -- resolved, relative to the project root this host has
+        # already chdir'd to -- because a spelling mismatch here is an index
+        # miss, and an index miss is a `sys.modules` rescan per grandchild.
+        index_modules({str(Path(module).resolve()) for module in modules})
         # And again for the pytest config each grandchild would otherwise
         # build for itself: see prebuild_mutant_config.
         mutant_config = prebuild_mutant_config(extra_args)
