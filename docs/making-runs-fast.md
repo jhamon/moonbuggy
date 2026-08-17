@@ -26,8 +26,8 @@ Two useful conclusions:
 
 - **Most of a run is the tests themselves plus process handling.** Generation,
   reporting and cache I/O are together under 2%. Optimising them is wasted
-  effort, and the register of attempts in
-  [perf-hypotheses.md](perf-hypotheses.md) has the measurements to prove it.
+  effort, and the [register of attempts][perf-hypotheses] has the measurements
+  to prove it.
 - **The bottleneck moves.** On a suite of fast tests, the single instrumented
   coverage pass is the largest phase. On a suite of slow tests, it is the tests.
   Advice that ignores which of these you have is not advice.
@@ -132,6 +132,8 @@ Honestly: roughly a fifth of every run is process setup that could be removed by
 running several mutants in one process. moonbuggy does not do that, because
 restoring a mutated module between mutants is a step that can *partly* succeed,
 and a partly-restored module means the next mutant is evaluated against the
-wrong source and reported confidently. That trade is written up in
-[perf-hypotheses.md](perf-hypotheses.md) as H1, along with everything else that
-was tried and what it actually saved.
+wrong source and reported confidently. That trade is written up as H1 in the
+[performance-hypothesis register][perf-hypotheses], along with everything else
+that was tried and what it actually saved.
+
+[perf-hypotheses]: https://github.com/jhamon/moonbuggy/blob/main/docs/development/perf-hypotheses.md

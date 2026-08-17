@@ -1,7 +1,7 @@
 """Criterion D1: the line -> covering-tests map.
 
-Built by pytest-cov's per-test contexts (see docs/spike-b-findings.md for why
-that mechanism won). The tests here lean on the cases where a wrong map causes
+Built by pytest-cov's per-test contexts (see docs/development/spike-b-findings.md
+for why that mechanism won). The tests here lean on cases where a wrong map causes
 a false SURVIVED rather than merely a slow run, because those are the ones with
 no external symptom.
 """

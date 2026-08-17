@@ -38,7 +38,7 @@ lets that pass. Stated in the test's own docstring.
 
 ## M1.3 — Differential against mutmut at scale
 
-`make check-differential` · [differential.md](differential.md)
+`make check-differential` · [differential.md](../differential.md)
 
 | # | criterion | status |
 |---|---|---|
@@ -148,7 +148,7 @@ self-certified.
 
 ## M4 — Open-source defect hunt
 
-`make oss-hunt` · [oss-findings.md](oss-findings.md)
+`make oss-hunt` · [oss-findings.md](../oss-findings.md)
 
 | # | criterion | status |
 |---|---|---|

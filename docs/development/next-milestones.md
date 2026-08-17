@@ -131,7 +131,7 @@ that profile the mandatory first step.
 
 ### M2.2 Ranked hypothesis register
 
-- **M2.2.1** `docs/perf-hypotheses.md` lists candidate optimisations, each with:
+- **M2.2.1** `docs/development/perf-hypotheses.md` lists candidate optimisations, each with:
   the phase it targets, the measured cost of that phase, a **predicted** saving
   stated *before* implementation, and an estimated risk to correctness.
 - **M2.2.2** Hypotheses are ranked by predicted saving, and work proceeds in

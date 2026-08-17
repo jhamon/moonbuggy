@@ -69,7 +69,21 @@ templates_path = []
 # quieting the warning, this keeps them out of `docs/_build/html`, which
 # Task 12 publishes to GitHub Pages: internal planning documents should not
 # ship to users.
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "superpowers"]
+#
+# `docs/development` is the same kind of material and is excluded for the same
+# reason: milestone lists, criterion-by-criterion status, spike write-ups and
+# the performance-hypothesis ledger. They are addressed to whoever was building
+# moonbuggy, not to whoever is using it. They stay in the tree -- source
+# comments cite them by path -- but nine sidebar entries of build history is
+# not what a newcomer to mutation testing should have to read past.
+exclude_patterns = [
+    "_build",
+    "Thumbs.db",
+    ".DS_Store",
+    "README.md",
+    "superpowers",
+    "development",
+]
 
 html_theme = "furo"
 html_title = f"moonbuggy {release}"

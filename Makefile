@@ -1,4 +1,4 @@
-# Evaluator-facing commands. See docs/acceptance-criteria.md -- the Verification
+# Evaluator-facing commands. See docs/development/acceptance-criteria.md -- the Verification
 # section names the commands an evaluator runs to check the criteria.
 #
 # Targets for criteria not yet implemented are deliberately absent rather than
@@ -80,7 +80,7 @@ check-differential:
 ## Milestone M2.1: where the wall clock actually goes.
 ## Three workload shapes, five runs each, phases that must cover 95% of the
 ## total. Take this BEFORE attempting any optimisation -- see
-## docs/perf-hypotheses.md for why that rule exists.
+## docs/development/perf-hypotheses.md for why that rule exists.
 profile:
 	$(PYTHON) scripts/profile_run.py
 
@@ -118,6 +118,6 @@ check-mutmut:
 check-all: lint format-check typecheck test check-oracle check-spike check-properties check-robustness check-mutmut check-fresh-install
 
 ## Criterion B3: coverage mechanism benchmark.
-## Prints wall-clock and map content for each candidate. See docs/spike-b-findings.md.
+## Prints wall-clock and map content for each candidate. See docs/development/spike-b-findings.md.
 bench-coverage:
 	$(PYTHON) scripts/bench_coverage.py

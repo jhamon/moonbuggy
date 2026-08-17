@@ -4,7 +4,7 @@ This is the input to coverage-guided test selection, the largest single speed
 lever in the design (4.3). Spike B settled the mechanism: pytest-cov's per-test
 contexts, which are both the fastest of the candidates measured and the only one
 recording real pytest node ids -- and node ids are what selection has to hand
-back to pytest. See docs/spike-b-findings.md.
+back to pytest. See docs/development/spike-b-findings.md.
 
 Correctness here is asymmetric. A map missing a covering test makes moonbuggy
 run too few tests and report a false SURVIVED, which looks exactly like a real

@@ -6,7 +6,7 @@ that were abandoned. Wrong predictions stay in this document. The record of
 what did *not* work is the part that compounds; deleting it leaves a document
 that says every idea was good, which is both useless and false.
 
-**Why the rule exists.** [benchmark-results.md](benchmark-results.md) records
+**Why the rule exists.** [benchmark-results.md](../benchmark-results.md) records
 two Phase 1 changes implemented on a hunch and measured as noise, with a note
 that the profile which would have prevented it was cheap. So: profile first
 (`make profile`), predict in writing, then measure with `make ab`, which

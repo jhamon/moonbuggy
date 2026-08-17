@@ -59,17 +59,11 @@ releasing
 
 ```{toctree}
 :maxdepth: 1
-:caption: Project record
+:caption: Results
 
-acceptance-criteria
-next-milestones
-phase-2-status
 benchmark-results
-perf-hypotheses
 differential
 oss-findings
-spike-a-findings
-spike-b-findings
 ```
 
 ## What makes this one different

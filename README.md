@@ -132,10 +132,10 @@ mutated, which is why the outer suite excludes it.
 
 ## Status
 
-Phase 0 and Phase 1 of [the acceptance criteria](docs/acceptance-criteria.md)
+Phase 0 and Phase 1 of [the acceptance criteria](docs/development/acceptance-criteria.md)
 are implemented and all criteria are met. Speed numbers and the four measured
 iterations behind them are in
 [docs/benchmark-results.md](docs/benchmark-results.md).
 
-Design notes: [spike A](docs/spike-a-findings.md) (in-memory mutation, xdist),
-[spike B](docs/spike-b-findings.md) (coverage mechanism).
+Design notes: [spike A](docs/development/spike-a-findings.md) (in-memory mutation, xdist),
+[spike B](docs/development/spike-b-findings.md) (coverage mechanism).

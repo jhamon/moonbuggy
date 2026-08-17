@@ -48,7 +48,7 @@ def replace_operator[NodeT: ast.AST](node: NodeT, **changes: object) -> NodeT:
     expression cost a copy of its entire subtree. An expression with *n* nested
     operators then costs O(n^2) node copies, and a 6000-term expression took
     over a minute to generate (found while writing the M1.4.8 tests; hypothesis
-    H6 in docs/perf-hypotheses.md).
+    H6 in docs/development/perf-hypotheses.md).
 
     A shallow copy is enough because nothing downstream writes to the tree.
     Generation unparses the replacement node and throws it away; the children

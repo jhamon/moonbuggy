@@ -64,7 +64,7 @@ class _MutatingLoader(SourceFileLoader):
     the source files are byte-identical, and nothing points at us.
 
     D3's obvious reading -- hash the .py files -- does not catch this, because
-    the .py files really are untouched. See docs/spike-a-findings.md.
+    the .py files really are untouched. See docs/development/spike-a-findings.md.
     """
 
     def __init__(

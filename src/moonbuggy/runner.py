@@ -7,7 +7,7 @@ applied (4.2). Neither writes a mutated file to disk.
 One process per mutant. That is not merely convenient -- it is what makes the
 xdist story work without any cross-process state, since the mutant's identity
 travels in the environment and every worker installs it independently. See
-docs/spike-a-findings.md.
+docs/development/spike-a-findings.md.
 """
 
 import json
@@ -438,7 +438,7 @@ def run_session(
     # Deliberately NOT calling forkserver.warm_up() here. It imports pytest in
     # the parent so forked children inherit it, which is what the cold path
     # needs -- but the warm host imports pytest itself, and the parent on this
-    # path never runs a test. See H3 in docs/perf-hypotheses.md.
+    # path never runs a test. See H3 in docs/development/perf-hypotheses.md.
 
     with tempfile.TemporaryDirectory() as tmp:
         data_file = Path(tmp) / "coverage-data"

@@ -18,7 +18,7 @@
 G2 was the last to land and took four measured iterations, from 12x slower than
 mutmut to 1.07x faster. The full history, including two changes that measured as
 noise because I guessed at the bottleneck instead of profiling it, is in
-[benchmark-results.md](benchmark-results.md).
+[benchmark-results.md](../benchmark-results.md).
 
 G3 is worth reading carefully: the check that moonbuggy is not fast merely by
 generating fewer mutants is made against the **naive baseline** (identical
