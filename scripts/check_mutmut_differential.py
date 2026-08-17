@@ -27,7 +27,37 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 FIXTURE = REPO / "tests" / "fixtures" / "sample_project"
 ORACLE = REPO / "tests" / "fixtures" / "oracle.toml"
-MUTMUT = str(REPO / ".venv" / "bin" / "mutmut")
+
+
+def _console_script(name):
+    """Locate a console script in the environment running this script.
+
+    The interpreter that runs this file defines the environment its tools have
+    to come from: `.venv/bin/python` locally, but the hosted interpreter on a
+    CI runner, where no `.venv` exists at all. Deriving the sibling executable
+    from `sys.executable` gets both right without an environment variable, and
+    PATH is the fallback for a layout that puts scripts somewhere else.
+
+    Args:
+        name: The console script to find, without any extension.
+
+    Returns:
+        The path to the executable.
+    """
+    sibling = Path(sys.executable).parent / name
+    if sibling.exists():
+        return str(sibling)
+    found = shutil.which(name)
+    if found is None:
+        sys.exit(
+            f"FAIL: {name} is not installed in this environment "
+            f"({sys.executable}). It comes from the `bench` extra: "
+            f"pip install -e '.[bench]'"
+        )
+    return found
+
+
+MUTMUT = _console_script("mutmut")
 
 # mutmut's status glyphs, from its progress line.
 GLYPHS = {

@@ -45,8 +45,12 @@ from collections import Counter
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PYTHON = str(REPO / ".venv" / "bin" / "python")
-MUTMUT = str(REPO / ".venv" / "bin" / "mutmut")
+# The interpreter running this script defines the environment its tools come
+# from: `.venv/bin/python` locally, the hosted interpreter on a CI runner where
+# no `.venv` exists. `sys.executable` gets both right without an env var.
+PYTHON = sys.executable
+_MUTMUT_SIBLING = Path(sys.executable).parent / "mutmut"
+MUTMUT = str(_MUTMUT_SIBLING) if _MUTMUT_SIBLING.exists() else "mutmut"
 FIXTURE = REPO / "tests" / "fixtures" / "sample_project"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
