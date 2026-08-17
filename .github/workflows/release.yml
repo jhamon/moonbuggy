@@ -217,3 +217,81 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           attestations: true
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # the only job in this repository that writes to it
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      - run: rm -f dist/dist.sha256
+      # M7.6.2: the notes are extracted verbatim. The workflow moves what a
+      # person wrote; it does not generate anything. Same regex as
+      # scripts/check_version_consistency.py, which already proved (in
+      # preflight) that this section exists and is non-empty.
+      - name: Extract the changelog section for this tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python - "$VERSION" > notes.md <<'PY'
+          import re, sys
+          version = sys.argv[1]
+          text = open("CHANGELOG.md").read()
+          pattern = rf"^## \[{re.escape(version)}\].*?$(.*?)(?=^## \[|\Z)"
+          match = re.search(pattern, text, re.MULTILINE | re.DOTALL)
+          if match is None:
+              sys.exit(f"no CHANGELOG.md section for {version}")
+          sys.stdout.write(match.group(1).strip() + "\n")
+          PY
+          cat notes.md
+      - run: gh release create "${GITHUB_REF_NAME}" dist/* --title "${GITHUB_REF_NAME}" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  verify:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      # PyPI's CDN takes a moment to serve a new version. Retry rather than
+      # failing a release that actually succeeded.
+      - name: Install from real PyPI
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python -m venv /tmp/verify
+          for attempt in 1 2 3 4 5; do
+            if /tmp/verify/bin/pip install --quiet "moonbuggy==${VERSION}"; then
+              echo "installed on attempt ${attempt}"
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              echo "FAIL (M7.7.1): could not install moonbuggy==${VERSION}" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          /tmp/verify/bin/moonbuggy --version
+      # M7.7.1: --pypi installs the just-published version from the real
+      # index (not the repository, not a local wheel) into the script's own
+      # venv, then runs H1/H2 against it end to end. This is what makes verify
+      # more than an import check: a stranger's `pip install moonbuggy` is
+      # exercised the same way the wheel was before publish.
+      - name: Run the smoke test against the published package
+        run: ./scripts/check_fresh_install.sh --pypi "${GITHUB_REF_NAME#v}"
+        env:
+          PYENV_PY: python

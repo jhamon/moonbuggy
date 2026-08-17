@@ -11,21 +11,35 @@ set -euo pipefail
 
 # M7.4.1: with no argument this installs the repository, which is criteria
 # H1/H2 exactly as they have always run. With --wheel it installs a built
-# artifact instead, which is what the release workflow needs: the wheel that
-# is about to be published, not the source tree it came from.
+# artifact instead, which is what the release workflow needs before publish:
+# the wheel that is about to be published, not the source tree it came from.
+# M7.7.1: with --pypi it installs a released version from the real index,
+# which is what the post-publish verify job needs: proof that what a stranger
+# gets from `pip install moonbuggy` actually runs end to end, not just that it
+# imports.
 WHEEL=""
+PYPI_VERSION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --wheel)
       WHEEL="${2:?--wheel needs a path}"
       shift 2
       ;;
+    --pypi)
+      PYPI_VERSION="${2:?--pypi needs a version}"
+      shift 2
+      ;;
     *)
-      echo "usage: check_fresh_install.sh [--wheel PATH]" >&2
+      echo "usage: check_fresh_install.sh [--wheel PATH | --pypi VERSION]" >&2
       exit 2
       ;;
   esac
 done
+
+if [ -n "$WHEEL" ] && [ -n "$PYPI_VERSION" ]; then
+  echo "usage: --wheel and --pypi are mutually exclusive" >&2
+  exit 2
+fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
@@ -39,6 +53,9 @@ if [ -n "$WHEEL" ]; then
   test -f "$WHEEL" || { echo "FAIL: no such wheel: $WHEEL" >&2; exit 2; }
   echo "==> installing moonbuggy from the built wheel $WHEEL"
   "$WORK/venv/bin/pip" install --quiet "$WHEEL"
+elif [ -n "$PYPI_VERSION" ]; then
+  echo "==> installing moonbuggy==${PYPI_VERSION} from PyPI"
+  "$WORK/venv/bin/pip" install --quiet "moonbuggy==${PYPI_VERSION}"
 else
   echo "==> installing moonbuggy from $REPO"
   "$WORK/venv/bin/pip" install --quiet "$REPO"
