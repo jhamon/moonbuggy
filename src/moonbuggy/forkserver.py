@@ -721,6 +721,30 @@ def _warm_session_host(
         os.write(status_write, len(payload).to_bytes(8, "big"))
         os.write(status_write, payload)
 
+        # H23. From here until the jobs arrive, the parent is reading the
+        # coverage data and planning -- 3.5ms to 21ms in which this process
+        # used to do nothing at all. Neither of the next two things needs the
+        # jobs, so they happen in that window instead of after it.
+        #
+        # The node ids come from the recorder rather than from the parent's
+        # line map, and the two cannot disagree in the direction that matters:
+        # the map's tests are the coverage contexts unioned with exactly these
+        # outcomes, so this is a superset of anything selection can ask for,
+        # and collecting a superset is what H28 needs.
+        mutant_config = prebuild_mutant_config(extra_args)
+        mutant_session = (
+            None
+            if mutant_config is None
+            else precollect(
+                mutant_config,
+                (
+                    node
+                    for node in runs[0]
+                    if "::" in node and not node.endswith("::<collection>")
+                ),
+            )
+        )
+
         size = int.from_bytes(_read_exactly(jobs_read, 8), "big")
         jobs: list[Job] = pickle.loads(_read_exactly(jobs_read, size))
 
@@ -740,18 +764,9 @@ def _warm_session_host(
         # already chdir'd to -- because a spelling mismatch here is an index
         # miss, and an index miss is a `sys.modules` rescan per grandchild.
         index_modules({str(Path(module).resolve()) for module in modules})
-        # And again for the pytest config each grandchild would otherwise
-        # build for itself: see prebuild_mutant_config.
-        mutant_config = prebuild_mutant_config(extra_args)
-        # And once more for the collection itself: see precollect. None means
-        # each grandchild collects for itself, exactly as before.
-        mutant_session = (
-            None
-            if mutant_config is None
-            else precollect(
-                mutant_config, (node for _, selected in jobs for node in selected)
-            )
-        )
+        # The config and the collection were built above, while the parent was
+        # still planning -- see H23. Only these two needed the jobs.
+        #
         # Last, so the frozen generation includes everything above.
         _freeze_heap()
 
