@@ -4,6 +4,14 @@ on:
   push:
     tags: ["v*"]
 
+# Two tags pushed close together should not run two full multi-hour `gate`
+# jobs (or two `publish` jobs) concurrently. Unlike ci.yml, a release must
+# not be cancelled mid-flight, so this only serialises per-ref rather than
+# cancelling the older run (same reasoning as docs.yml's Pages deploy).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -51,6 +59,13 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: read
+    # check-fresh-install (pulled in by check-all below) defaults PYENV_PY to
+    # a pyenv path that does not exist on the runner; ci.yml's `install` job
+    # and this workflow's own `smoke`/`verify` jobs all set it to the plain
+    # "python" already on PATH. Set once at job level since every step here
+    # goes through check-all.
+    env:
+      PYENV_PY: python
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -92,6 +107,12 @@ jobs:
           python -m pip install --upgrade build
           python -m build --sdist --wheel --outdir dist .
       - run: sha256sum dist/* | tee dist.sha256
+      # upload-artifact roots the artifact at the least common ancestor of
+      # these paths, i.e. the workspace: the artifact contains dist/<files>
+      # and dist.sha256 side by side, not nested one level deeper. Consumers
+      # must therefore download with `path: .`, not `path: dist` (which would
+      # produce dist/dist/<files>). reproducible/ is the exception: it
+      # downloads to a/ and b/ on purpose and already accounts for this.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dist
@@ -123,6 +144,10 @@ jobs:
           python -m pip install --upgrade build
           python -m build --sdist --wheel --outdir dist .
       - run: sha256sum dist/* | tee dist-again.sha256
+      # Same artifact-root note as the `build` job above: this artifact
+      # contains dist/<files> and dist-again.sha256 side by side. Only
+      # `reproducible` consumes it, and it already downloads to b/ expecting
+      # exactly this layout.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dist-again
@@ -170,10 +195,13 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      # path: . (not "dist") because the artifact already contains
+      # dist/<files> at its own root; see the comment on the upload step in
+      # the `build` job.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
-          path: dist
+          path: .
       # Deliberately NOT ./.github/actions/setup: that installs the project
       # from source, which would put the repo's own copy on the path and make
       # this test say nothing about the wheel.
@@ -207,13 +235,18 @@ jobs:
       attestations: write
       contents: read
     steps:
+      # path: . (not "dist") because the artifact already contains
+      # dist/<files> at its own root; see the comment on the upload step in
+      # the `build` job. This also lands dist.sha256 next to dist/, not
+      # inside it, so gh-action-pypi-publish's default packages-dir: dist/
+      # never sees it — the rm below is just a belt-and-braces cleanup.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
-          path: dist
+          path: .
       # dist.sha256 rides along in the artifact and is not a distribution file;
       # twine rejects the upload if it is left in the directory.
-      - run: rm -f dist/dist.sha256 dist.sha256
+      - run: rm -f dist.sha256
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           attestations: true
@@ -228,11 +261,16 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      # path: . (not "dist") because the artifact already contains
+      # dist/<files> at its own root; see the comment on the upload step in
+      # the `build` job. dist.sha256 lands next to dist/, not inside it,
+      # so `dist/*` below only globs the actual distribution files anyway —
+      # the rm is just a belt-and-braces cleanup of the workspace.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
-          path: dist
-      - run: rm -f dist/dist.sha256
+          path: .
+      - run: rm -f dist.sha256
       # M7.6.2: the notes are extracted verbatim. The workflow moves what a
       # person wrote; it does not generate anything. Same regex as
       # scripts/check_version_consistency.py, which already proved (in
