@@ -301,7 +301,14 @@ def _run_precollected(config: object, session: object, selected: Iterable[str]) 
     cannot tell which path produced it.
     """
     from _pytest.config import ExitCode
-    from _pytest.outcomes import Failed
+
+    # `session.Failed`, not `_pytest.outcomes.Failed`: `-x` stopping the loop
+    # raises `_pytest.main.Failed`, and the two are unrelated classes with the
+    # same name. Catching the wrong one turned every mutant its tests actually
+    # killed into a crashed grandchild -- reported SUSPICIOUS, on exactly the
+    # shape whose tests can fail. Taken off the session rather than imported,
+    # so it cannot drift from the class the loop raises.
+    failed = type(session).Failed  # type: ignore[attr-defined]
 
     wanted = set(selected)
     session.items = [i for i in session.items if i.nodeid in wanted]  # type: ignore[attr-defined]
@@ -309,7 +316,7 @@ def _run_precollected(config: object, session: object, selected: Iterable[str]) 
     try:
         try:
             config.hook.pytest_runtestloop(session=session)  # type: ignore[attr-defined]
-        except Failed:
+        except failed:
             # `-x` stopping the loop. A kill, not a crash.
             session.exitstatus = ExitCode.TESTS_FAILED  # type: ignore[attr-defined]
         else:
