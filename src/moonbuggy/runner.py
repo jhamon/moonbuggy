@@ -412,7 +412,7 @@ def run_session(
             to the separate cold path when the warm host cannot complete, so a
             host failure costs time rather than correctness.
     """
-    from .coverage_pass import read_coverage_data, run_baseline_pass
+    from .coverage_pass import prewarm_reader, read_coverage_data, run_baseline_pass
 
     project_dir = Path(project_dir)
     if jobs is None:
@@ -435,6 +435,9 @@ def run_session(
         )
 
     profiler = profiling.active()
+    # Paid once here instead of once in the host and once again in this
+    # process after it finishes. See prewarm_reader.
+    prewarm_reader()
     # Deliberately NOT calling forkserver.warm_up() here. It imports pytest in
     # the parent so forked children inherit it, which is what the cold path
     # needs -- but the warm host imports pytest itself, and the parent on this

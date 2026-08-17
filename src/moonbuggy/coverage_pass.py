@@ -256,6 +256,31 @@ def _env_with_data_file(data_file: str | os.PathLike[str]) -> dict[str, str]:
     return env
 
 
+def prewarm_reader() -> None:
+    """Import `coverage` in the parent, before the warm host is forked.
+
+    The warm-session path imports coverage twice, one after the other, and
+    both are on the critical path. The host imports it when pytest-cov starts
+    the instrumented run; the parent imports it again in
+    :func:`read_coverage_data`, once the host has finished and handed back its
+    evidence. That is ~36ms of identical work, done serially, twice.
+
+    Doing it here collapses the two into one. The host inherits the import
+    across the fork, and the parent's own read then needs nothing. Note the
+    direction is the opposite of H3, which *removed* a parent import: that one
+    was work the host was going to do anyway, and this one is work the parent
+    was going to do anyway.
+
+    Importing coverage starts no measurement and creates no `Coverage`
+    object, so the host still builds its own from scratch. And coverage is not
+    the project under mutation, so the rule the parent actually has to obey --
+    never import the code being mutated -- is untouched.
+    """
+    import coverage
+
+    _ = coverage
+
+
 def read_coverage_data(
     data_file: str | os.PathLike[str],
     project_dir: str | os.PathLike[str],
