@@ -188,6 +188,13 @@ ever hitting a cliff.
   needs; a clean venv can build the docs from a fresh checkout.
 - **M3.1.5** Nothing is published anywhere. Local build only.
 
+  > **Superseded by M6.4** (see the Phase 3 design at
+  > `docs/superpowers/specs/2026-08-16-ci-and-release-design.md` in the repo;
+  > that directory is excluded from this published build, see M5.3).
+  > Documentation is published to GitHub Pages on every merge to `main`. M3.1.5
+  > was a scope fence for Phase 2 rather than a principle, but leaving it
+  > unannotated would leave these documents disagreeing.
+
 ### M3.2 Docstring coverage
 
 - **M3.2.1** Every public module, class, and function in `src/moonbuggy/` has a

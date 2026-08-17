@@ -2,6 +2,10 @@
 
 Fast, agent-first mutation testing for Python.
 
+This site is published at
+[jhamon.github.io/moonbuggy](https://jhamon.github.io/moonbuggy/) on every
+merge to `main`.
+
 Your test suite tells you which lines ran. It does not tell you whether anything
 would have noticed if those lines were wrong. Mutation testing answers the
 second question by breaking your code on purpose and seeing whether your tests
