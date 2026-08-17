@@ -53,7 +53,7 @@ lint = [
 ]
 
 [project.scripts]
-moonbuggy = "moonbuggy.cli:main"
+moonbuggy = "moonbuggy.cli:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/moonbuggy"]
