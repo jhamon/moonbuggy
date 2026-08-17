@@ -97,9 +97,13 @@ def profile_shape(shape, root):
     return {
         "shape": shape,
         "phases": phases,
-        # Everything before moonbuggy's own clock starts: the interpreter, and
-        # importing moonbuggy and its dependencies. Real time the user waits.
-        "interpreter startup": external - in_process,
+        # Everything outside moonbuggy's own clock, at both ends: the
+        # interpreter starting and reaching the first moonbuggy import, and
+        # then tearing itself down after the last line of `main`. Named for
+        # both halves because it is measured as one number and it is not only
+        # startup -- moonbuggy's own import chain is a separate phase the CLI
+        # reports from the inside.
+        "interpreter start/teardown": external - in_process,
         "other": statistics.median(p["other"] for p in profiles),
         "external_wall": external,
         "unprofiled_wall": statistics.median(plain),
@@ -114,7 +118,7 @@ def report(summary):
     print(f"  {summary['mutants']} mutants, {wall:.3f}s median of {REPEATS} runs\n")
 
     rows = list(summary["phases"].items())
-    rows.append(("interpreter startup", summary["interpreter startup"]))
+    rows.append(("interpreter start/teardown", summary["interpreter start/teardown"]))
     rows.sort(key=lambda row: -row[1])
 
     print(f"  {'phase':<26} {'seconds':>9} {'share':>7}")

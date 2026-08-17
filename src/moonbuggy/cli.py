@@ -11,6 +11,7 @@ drift apart.
 
 import argparse
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -40,6 +41,14 @@ from .srcio import SourceError, read_source
 
 DEFAULT_OUTPUT_DIR = ".moonbuggy"
 
+# The end of moonbuggy's import chain, as a timestamp rather than a span: by
+# the time anything here can run, the chain has already happened. `profiling`
+# is deliberately the first module imported above, so its clock started at the
+# top of the chain and the difference is the whole of it. Recorded because
+# three rounds of profiles reported a 51-70ms remainder as unattributed, which
+# is a tenth of a fast run and was the largest thing nobody had named.
+_IMPORTS_DONE = time.perf_counter()
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run moonbuggy.
@@ -51,6 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         The process exit code: 0 for a clean run, 1 when there are survivors,
         2 when the run could not happen at all.
     """
+    profiling.active().add("import chain", _IMPORTS_DONE - profiling.active().started)
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:

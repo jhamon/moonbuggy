@@ -49,7 +49,15 @@ ENV_VAR = "MOONBUGGY_PROFILE"
 # The phases M2.1.1 names. Declared here rather than created on first use so a
 # phase that never ran shows as 0.0 instead of vanishing -- "the coverage pass
 # took no time" and "the coverage pass did not happen" are different findings.
+#
+# "import chain" is the one phase that cannot be measured with a span, because
+# it is over before any code that could open one has been imported. This
+# module is imported first by `cli`, so this profiler's clock starts at the top
+# of the chain, and `cli` records where the chain ends. Added in the fourth
+# round: three rounds of profiles carried a 51-70ms unattributed remainder that
+# never moved in absolute terms, and this is what it was.
 PHASES = (
+    "import chain",
     "discovery",
     "generation",
     "parent warm-up",
