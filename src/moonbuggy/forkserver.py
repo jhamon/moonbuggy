@@ -447,6 +447,11 @@ def _warm_session_host(
         # be large and most often is not.
         startup = time.perf_counter() - began
 
+        # The probes are unmutated runs whose only job is to disagree with the
+        # coverage run, so nothing about them depends on it. Started here, in
+        # a sibling process, they run alongside it instead of after it.
+        probe_pid, probe_read = _start_probe_child(probe_args or cov_args, probes)
+
         runs: list[dict[str, str]] = []
         recorder = OutcomeRecorder()
         coverage_began = time.perf_counter()
@@ -454,19 +459,18 @@ def _warm_session_host(
         coverage_seconds = time.perf_counter() - coverage_began
         runs.append(dict(recorder.outcomes))
 
-        # Extra unmutated runs, from the same warm process. Their only purpose
-        # is to disagree with the first one: a test whose outcome varies here
-        # cannot be trusted to report on a mutation either (M1.4.3).
-        for _ in range(probes):
-            probe = OutcomeRecorder()
-            pytest.main(probe_args or cov_args, plugins=[probe])
-            runs.append(dict(probe.outcomes))
+        # Only whatever the probe has not already finished is on the critical
+        # path, which is what this interval measures. It is the probe's cost
+        # to the run, not the probe's duration.
+        probe_began = time.perf_counter()
+        runs += _collect_probe_runs(probe_pid, probe_read, probe_args or cov_args, probes)
+        probe_seconds = time.perf_counter() - probe_began
 
         evidence: WarmSessionEvidence = {
             "runs": runs,
             "startup": startup,
             "coverage_seconds": coverage_seconds,
-            "probe_seconds": time.perf_counter() - coverage_began - coverage_seconds,
+            "probe_seconds": probe_seconds,
         }
         payload = pickle.dumps(evidence)
         os.write(status_write, len(payload).to_bytes(8, "big"))
@@ -502,6 +506,97 @@ def _warm_session_host(
         pass
     finally:
         os._exit(0)
+
+
+def _run_probes(args: list[str], probes: int) -> list[dict[str, str]]:
+    """`probes` unmutated runs of the suite, each recording its own outcomes."""
+    import pytest
+
+    from .baseline import OutcomeRecorder
+
+    runs = []
+    for _ in range(probes):
+        recorder = OutcomeRecorder()
+        pytest.main(args, plugins=[recorder])
+        runs.append(dict(recorder.outcomes))
+    return runs
+
+
+def _start_probe_child(args: list[str], probes: int) -> tuple[int, int]:
+    """Fork a sibling of the coverage run to do the flakiness probes.
+
+    The probe exists to catch a test whose outcome varies between two
+    unmutated runs (M1.4.3). Nothing about it depends on the coverage run:
+    it needs no instrumentation, reads none of the coverage run's output, and
+    its own output is one ``{node_id: outcome}`` mapping per run. Running it
+    after the coverage run therefore put a full extra suite execution on the
+    critical path for no reason other than that both wanted the same process
+    -- 6.8-8.6% of wall clock in the profile, on every shape.
+
+    Here it gets its own process and runs alongside. It pays for that with a
+    cold-ish start: forked before the coverage run, it imports and collects
+    the test modules itself rather than inheriting them. That is more total
+    work and less wall clock, which is the trade worth making on a machine
+    with cores to spare.
+
+    Correctness is unchanged and arguably strengthened. The probe compares
+    outcomes across separate runs, and separate *processes* is a strictly
+    weaker assumption about shared state than the same process was.
+
+    Args:
+        args: pytest arguments for one probe run.
+        probes: how many probe runs to make; 0 forks nothing.
+
+    Returns:
+        ``(pid, read_fd)``, or ``(0, -1)`` when there is nothing to probe or
+        the fork failed -- in which case the caller runs the probes inline.
+    """
+    if probes < 1:
+        return 0, -1
+    try:
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+    except OSError:
+        return 0, -1
+
+    if pid == 0:
+        os.close(read_fd)
+        try:
+            payload = pickle.dumps(_run_probes(args, probes))
+            os.write(write_fd, len(payload).to_bytes(8, "big"))
+            os.write(write_fd, payload)
+        except BaseException:
+            pass
+        finally:
+            os._exit(0)
+
+    os.close(write_fd)
+    return pid, read_fd
+
+
+def _collect_probe_runs(
+    pid: int, read_fd: int, args: list[str], probes: int
+) -> list[dict[str, str]]:
+    """Read what the probe child observed, or run the probes here if it failed.
+
+    The fallback is not decoration. A probe that silently produced nothing
+    would mean no test was ever compared against itself, and the M1.4.3
+    guarantee would be quietly gone -- a flaky test would then be reported as
+    a mutant's SURVIVED or KILLED depending on the day. Losing the child costs
+    the wall clock this optimisation was saving, and nothing else.
+    """
+    if pid == 0:
+        return _run_probes(args, probes)
+    try:
+        size = int.from_bytes(_read_exactly(read_fd, 8), "big")
+        runs: list[dict[str, str]] = pickle.loads(_read_exactly(read_fd, size))
+    except (EOFError, OSError, pickle.UnpicklingError):
+        runs = _run_probes(args, probes)
+    finally:
+        os.close(read_fd)
+        with contextlib.suppress(ChildProcessError):
+            os.waitpid(pid, 0)
+    return runs
 
 
 def _freeze_heap() -> None:
