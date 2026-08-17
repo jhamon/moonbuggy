@@ -51,6 +51,11 @@ class LineMap:
         self._mapping = mapping
         self._tests = set(tests)
         self._project_dir = Path(project_dir)
+        # `_normalise` resolves a module path per `select_for`, and `_plan`
+        # calls it once per mutant: 560 mutants over 40 distinct modules is
+        # 560 resolves where 40 would do, at ~18us each. The project root is
+        # fixed for this map's whole life, so the answer cannot change.
+        self._resolved: dict[str, str] = {}
 
     def tests_covering(self, module: str, line: int) -> set[str]:
         """The node ids of tests that executed `line` of `module`."""
@@ -74,10 +79,15 @@ class LineMap:
         return self.tests_covering(mutant.module, mutant.line)
 
     def _normalise(self, module: str) -> str:
+        cached = self._resolved.get(module)
+        if cached is not None:
+            return cached
         path = Path(module)
         if not path.is_absolute():
             path = self._project_dir / path
-        return str(path.resolve())
+        resolved = str(path.resolve())
+        self._resolved[module] = resolved
+        return resolved
 
     def to_dict(self) -> LineMapDict:
         """The whole map as plain data, for serialising or inspecting."""
