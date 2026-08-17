@@ -189,6 +189,71 @@ def _child(
         os._exit(0)
 
 
+def prebuild_mutant_config(extra_args: Iterable[str] = ()) -> object | None:
+    """Build the pytest `Config` every mutant run needs, once, in the warm host.
+
+    `pytest.main` is two things: `_prepareconfig`, which parses the arguments,
+    registers plugins, walks the entry points and loads the initial conftests;
+    and then the session that actually collects and runs. Profiling one warm
+    grandchild put the first at **4.4ms of an 11ms run** -- and its answer is
+    identical for every mutant, because the only thing that differs between
+    mutants is which node ids to run.
+
+    So it is built here, before the first fork, and each grandchild inherits a
+    copy and points it at its own node ids. Same move as H5, H7 and H10:
+    hoist a per-mutant constant into the host.
+
+    **Why this is not H1.** Sharing a `Config` between mutants *in one process*
+    would be the deferred hypothesis, and its failure mode -- state from one
+    mutant surviving into the next -- is the thing the whole design exists to
+    prevent. Nothing is shared between mutants here. Each grandchild is a
+    separate process that gets its own copy-on-write copy of a config built
+    before any mutation existed, uses it exactly once, and exits. Two mutants
+    can no more see each other's config than they can see each other's
+    `sys.modules`.
+
+    Built with no node ids: the ids are per-mutant, and everything expensive
+    about the config is not.
+
+    Args:
+        extra_args: pytest arguments every mutant run shares.
+
+    Returns:
+        the `Config`, or None if it could not be built -- in which case each
+        grandchild falls back to a plain `pytest.main`, which is slower and
+        identical in every other respect.
+    """
+    try:
+        from _pytest.config import _prepareconfig
+
+        return _prepareconfig(_mutant_args((), extra_args, False), None)
+    except BaseException:
+        # Private pytest API. If a future version moves it, the fallback is a
+        # slower run rather than a wrong one, so this must not be fatal.
+        return None
+
+
+def _run_prebuilt(config: object, selected: Iterable[str]) -> int:
+    """Run one mutant's tests using a config built before the fork.
+
+    `config.args` is what `Session.perform_collect` collects from, and it is
+    the only part of the config that differs between mutants. `file_or_dir` is
+    the parsed option it was derived from, kept in step so anything reading
+    the option rather than the attribute sees the same answer.
+    """
+    ids = list(selected)
+    config.args = ids  # type: ignore[attr-defined]  # a pytest Config, not typed here
+    config.option.file_or_dir = ids  # type: ignore[attr-defined]
+    try:
+        return int(config.hook.pytest_cmdline_main(config=config))  # type: ignore[attr-defined]
+    finally:
+        # Still run the unconfigure hooks, so the unraisable-exception plugin
+        # gets its say. A mutant that manifests only as an unraisable
+        # exception would otherwise be reported SURVIVED -- the failure mode
+        # H2 was rejected for.
+        config._ensure_unconfigure()  # type: ignore[attr-defined]
+
+
 def _mutant_args(
     selected: Iterable[str],
     extra_args: Iterable[str] = (),
@@ -488,6 +553,10 @@ def _warm_session_host(
         prewarm({mutant.module for mutant, _ in jobs})
         # Same argument, for finding the module to swap: see index_modules.
         index_modules()
+        # And again for the pytest config each grandchild would otherwise
+        # build for itself: see prebuild_mutant_config.
+        mutant_config = prebuild_mutant_config(extra_args)
+        # Last, so the frozen generation includes everything above.
         _freeze_heap()
 
         def emit(
@@ -501,7 +570,9 @@ def _warm_session_host(
                 + _micros(child_wall),
             )
 
-        _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit, extra_args)
+        _fork_grandchildren(
+            jobs, timeout, concurrency, apply_swap, emit, extra_args, mutant_config
+        )
     except BaseException:
         pass
     finally:
@@ -758,6 +829,7 @@ def _fork_grandchildren(
     apply_swap: Callable[[Mutant], None],
     emit: Callable[[int, Status, float, float], None] | None = None,
     extra_args: Iterable[str] = (),
+    config: object | None = None,
 ) -> list[Status]:
     """Fork one grandchild per job, at most `concurrency` at a time.
 
@@ -771,6 +843,9 @@ def _fork_grandchildren(
             batched at the end. `child_wall` is measured here rather than in
             the child, because it has to include the fork itself.
         extra_args: pytest arguments every grandchild's run shares.
+        config: a pytest `Config` built once in the caller, for each grandchild
+            to run its own copy of. None means build one per grandchild, the
+            way `pytest.main` does. See :func:`prebuild_mutant_config`.
 
     Returns:
         the statuses, in job order.
@@ -786,7 +861,7 @@ def _fork_grandchildren(
             pid = os.fork()
             if pid == 0:
                 os.close(read_fd)
-                _grandchild(mutant, selected, apply_swap, write_fd, extra_args)
+                _grandchild(mutant, selected, apply_swap, write_fd, extra_args, config)
             os.close(write_fd)
             running[pid] = (
                 index,
@@ -839,6 +914,7 @@ def _grandchild(
     apply_swap: Callable[[Mutant], None],
     write_fd: int,
     extra_args: Iterable[str] = (),
+    config: object | None = None,
 ) -> None:
     code = CHILD_CRASHED
     micros = 0
@@ -854,7 +930,10 @@ def _grandchild(
         import pytest
 
         began = time.perf_counter()
-        code = int(pytest.main(_mutant_args(selected, extra_args, False)))
+        if config is None:
+            code = int(pytest.main(_mutant_args(selected, extra_args, False)))
+        else:
+            code = int(_run_prebuilt(config, selected))
         # Measured inside the child so the parent can separate the cost of
         # running the tests from the cost of getting a process ready to run
         # them (criterion M2.1.1). Without this split, "per-mutant fork" and
