@@ -31,6 +31,7 @@ import ast
 import linecache
 import os
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from types import CodeType, FunctionType, ModuleType
 from typing import cast
@@ -46,8 +47,8 @@ class SwapFailed(Exception):
 _MODULE_BY_PATH: dict[str, ModuleType] = {}
 
 
-def index_modules() -> None:
-    """Record resolved ``__file__`` to module for everything imported so far.
+def index_modules(targets: Iterable[str] | None = None) -> None:
+    """Record resolved ``__file__`` to module for the modules that can be swapped.
 
     Called in the warm host once, before any grandchild is forked, for the same
     reason as :func:`~moonbuggy.srcio.prewarm`: the work is identical for every
@@ -56,18 +57,43 @@ def index_modules() -> None:
     calling `Path.resolve()` on each entry -- 4.7ms in a process with 250
     modules loaded, which is more than a fast mutant's tests take.
 
+    Indexing *everything* then became the expensive part: 11.8ms in a warm host
+    holding ~700 modules, resolving all of them so that at most a few dozen can
+    ever be looked up. `targets` is the set of paths that will actually be
+    asked for, and everything outside it is skipped after a basename
+    comparison, which costs nothing. `Path(x).resolve()` over 341 modules is
+    6.28ms and `os.path.realpath` is 4.11ms, so the few survivors use the
+    cheaper one; `os.path.abspath` would be 60x faster again and is wrong,
+    because a project under a symlink (`/tmp` on macOS) is the case H15 had to
+    handle.
+
+    Narrowing cannot produce a wrong answer, only a slower one:
+    :func:`module_at` already rescans `sys.modules` on a miss.
+
     First entry wins, matching the scan this replaces: `sys.modules` keeps
     insertion order, so the module an aliased path resolves to does not change.
+
+    Args:
+        targets: resolved paths that may be looked up, or None to index every
+            imported module -- which is what callers that do not know the
+            mutant set (the `run_warm_batch` host) still need.
     """
     _MODULE_BY_PATH.clear()
+    wanted = None if targets is None else set(targets)
+    basenames = None if wanted is None else {os.path.basename(t) for t in wanted}
     for module in list(sys.modules.values()):
         origin = getattr(module, "__file__", None)
-        if origin:
-            try:
-                resolved = str(Path(origin).resolve())
-            except OSError:
-                continue
-            _MODULE_BY_PATH.setdefault(resolved, module)
+        if not origin:
+            continue
+        if basenames is not None and os.path.basename(origin) not in basenames:
+            continue
+        try:
+            resolved = os.path.realpath(origin)
+        except OSError:
+            continue
+        if wanted is not None and resolved not in wanted:
+            continue
+        _MODULE_BY_PATH.setdefault(resolved, module)
 
 
 def module_at(target: str) -> ModuleType | None:
