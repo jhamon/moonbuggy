@@ -2,7 +2,7 @@
 
 Reproduce with `make bench`. Python 3.12.13, Darwin 24.1.0, 14 CPUs, 8s timeout.
 
-## G2 verdict: **MET** — 1.49x faster than mutmut
+## G2 verdict: **MET** — 1.85x faster than mutmut
 
 ### Speed workload (generated; test execution dominates startup)
 
@@ -10,36 +10,42 @@ Median of three consecutive runs.
 
 | tool | wall | mutants | mut/sec |
 |---|---|---|---|
-| **moonbuggy** | **0.66s** | 84 | 128 |
-| mutmut | 0.99s | 108 | 109 |
-| naive baseline | 19.9s | 84 | 4.2 |
+| **moonbuggy** | **0.50s** | 84 | 168 |
+| mutmut | 0.92s | 108 | 117 |
+| naive baseline | 18.9s | 84 | 4.4 |
 
-- **vs mutmut: 1.49x — PASS.** Three consecutive runs gave 1.51x, 1.50x,
-  1.46x.
-- **vs naive: 30.1x — PASS.** Three consecutive runs gave 29.9x, 30.4x,
-  30.0x. This is the design's own bar (§1.2).
+- **vs mutmut: 1.85x — PASS.** Three consecutive runs gave 1.89x, 1.85x,
+  1.85x.
+- **vs naive: 38.0x — PASS.** Three consecutive runs gave 38.2x, 38.0x,
+  37.9x. This is the design's own bar (§1.2).
 
-mutmut remains ahead on raw throughput (109 vs 128 mut/sec) because it generates
-24 more mutants from operators the MVP set does not implement. The wall-clock
-comparison is the criterion, and it is not like-for-like in mutmut's favour.
+moonbuggy is now ahead on raw throughput as well (168 vs 117 mut/sec), which it
+was not at the previous recording. That is worth stating plainly rather than
+celebrating: mutmut generates 24 more mutants from operators the MVP set does
+not implement, so the comparison is still not like-for-like, and a tool doing
+less work per run should be expected to finish sooner. The wall-clock figure is
+the criterion; the throughput figure is the honest caveat on it, and it has
+stopped pointing the other way.
 
 ### Do not subtract these ratios from the previous ones
 
-This table previously read 1.07x against mutmut and 17.5x against naive. The
-H7–H12 round (recorded in `docs/development/perf-hypotheses.md`) is part of why
-the numbers moved, but **it is not the whole of why, and the difference between
-the two recordings overstates it.** Every tool in the comparison moved:
+This table previously read 1.49x against mutmut and 30.1x against naive, and
+1.07x / 17.5x before that. The H13–H20 round (recorded in
+`docs/development/perf-hypotheses.md`) is part of why the numbers moved, but
+**it is not the whole of why.** Every tool in the comparison moved:
 
-| tool | previous recording | now |
-|---|---:|---:|
-| moonbuggy | 0.73s | 0.66s |
-| mutmut | 0.80s | 0.99s |
-| naive baseline | 13.0s | 19.9s |
+| tool | two recordings ago | previous recording | now |
+|---|---:|---:|---:|
+| moonbuggy | 0.73s | 0.66s | 0.50s |
+| mutmut | 0.80s | 0.99s | 0.92s |
+| naive baseline | 13.0s | 19.9s | 18.9s |
 
-moonbuggy got ~10% faster on this particular workload while mutmut got 24%
-slower and the naive baseline 53% slower — on a machine that is simply in a
-different state than it was for the earlier recording. Neither mutmut nor
-`naive.py` shares a single line with anything H7–H12 touched: `naive.py` is a
+Between the last two recordings moonbuggy got 24% faster on this workload while
+mutmut got 7% faster and the naive baseline 5% faster, on a machine in a
+different state again. The controlled figure for what this round actually
+changed is the interleaved A/B in the register — **1.12x, 1.20x and 1.30x on
+the three shapes** — not the movement in this table. Neither mutmut nor
+`naive.py` shares a single line with anything H13–H20 touched: `naive.py` is a
 `subprocess.run` per mutant and reaches none of the forkserver, codeswap or
 coverage-pass code that changed.
 

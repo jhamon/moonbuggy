@@ -595,3 +595,369 @@ phase table accounts for a cost that is now a tenth of a fast run. Recorded as
 the next piece of work rather than done, because it is a change to the
 measuring instrument and this round's changes should be re-measured with the
 instrument they were taken with.
+
+---
+
+# Third round: H13–H20
+
+The second round's lesson was "profile the process that repeats, not only the
+process that runs." This round applies it twice more and then runs out of
+places to apply it. Two of the four wins are the same move as H5/H7/H10 —
+hoist a per-mutant constant into the warm host — and the other two are the
+same move applied to *time* rather than work: something that was serial was
+made concurrent with something already happening.
+
+The profile this round is ranked against is the one at the end of the second
+round (`d3270f6`), re-taken on this machine at `c40862f`:
+
+| phase | fast-tests | slow-tests | many-files |
+|---|---:|---:|---:|
+| coverage pass | 44.5% | 36.2% | 30.0% |
+| in-child test execution | 15.6% | 30.4% | 35.6% |
+| flaky probe | 9.4% | 8.6% | 7.0% |
+| per-mutant fork | 4.1% | 6.8% | 9.3% |
+| interpreter startup | 8.0% | 5.4% | 4.0% |
+| **unattributed** | **16.2%** | **11.3%** | **9.1%** |
+
+Absolute medians: fast-tests 0.403s / 84 mutants, slow-tests 0.617s / 84
+mutants, many-files 0.866s / 560 mutants.
+
+## Register
+
+### H13 — Run the flaky probe alongside the coverage pass, not after it
+
+- **Phase:** flaky probe (7.0–9.4%)
+- **Premise:** the probe is an unmutated suite run whose only purpose is to
+  disagree with the coverage run (M1.4.3). It reads nothing the coverage run
+  produces and needs no instrumentation. It ran afterwards, in the same warm
+  host, purely because both wanted the same process — putting a whole extra
+  suite execution on the critical path.
+- **Predicted saving:** 5–8% on all three shapes
+- **Correctness risk:** low, and arguably negative. The probe compares
+  outcomes across separate *runs*; separate *processes* is a strictly weaker
+  assumption about shared state. The failure that would matter is the probe
+  silently producing nothing, which would drop the M1.4.3 guarantee without
+  saying so, so a lost or unforkable child falls back to running the probes
+  inline.
+- **Attempted:** yes, adopted (commit `3cb5221`).
+- **Actual saving:** **faster on all three shapes**, at the top of the
+  prediction.
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.409s [0.407, 0.412] | 0.380s [0.375, 0.383] | **faster 1.08x** |
+  | slow-tests | 0.608s [0.607, 0.612] | 0.569s [0.565, 0.578] | **faster 1.07x** |
+  | many-files | 0.813s [0.807, 0.816] | 0.774s [0.772, 0.780] | **faster 1.05x** |
+
+  The flaky-probe row of the profile is now **0.0%** on every shape: not
+  removed, hidden. It is the first entry in this register whose saving came
+  from moving work in time rather than deleting it.
+
+### H14 — Build the mutant pytest config once in the host, not per mutant
+
+- **Phase:** in-child test execution (15.6–35.6%)
+- **Premise, measured first:** `pytest.main` is `_prepareconfig` — argument
+  parsing, plugin registration, entry-point scanning, initial conftest
+  loading — followed by a session. `_prepareconfig` measured **4.4ms of an
+  11ms warm grandchild**, and its answer is identical for every mutant,
+  because the only thing that differs between mutants is which node ids to
+  run.
+- **Predicted saving:** 8–12%, largest where mutant count is largest
+- **Correctness risk:** medium, and specifically **not H1's risk.** Sharing a
+  config between mutants *in one process* is the deferred hypothesis, whose
+  failure mode is state from one mutant surviving into the next. Nothing is
+  shared here: each grandchild gets its own copy-on-write copy of a config
+  built before any mutation existed, uses it once, and exits. Two mutants can
+  no more see each other's config than they can see each other's
+  `sys.modules`. `_prepareconfig` is private pytest API, so a failure to
+  build it falls back to a plain `pytest.main`.
+- **Checked by** running all three shapes on both refs and diffing every
+  mutant's status and tests-run count — **728 mutants, no disagreement** —
+  plus `make check-oracle`, `make check-robustness` and
+  `make check-properties`.
+- **Attempted:** yes, adopted (commit `48d4e42`).
+- **Actual saving:** **faster on all three shapes.**
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.385s [0.383, 0.388] | 0.376s [0.372, 0.377] | **faster 1.02x** |
+  | slow-tests | 0.571s [0.566, 0.573] | 0.519s [0.517, 0.521] | **faster 1.10x** |
+  | many-files | 0.767s [0.767, 0.774] | 0.668s [0.659, 0.671] | **faster 1.15x** |
+
+  In isolation one warm run went 10.75ms to 7.78ms. The gradient across the
+  shapes is the mutant count, as predicted: fast-tests spends the smallest
+  share of its wall clock inside grandchildren and gains the least.
+
+### H15 — Collect only the files the selected node ids name
+
+- **Phase:** in-child test execution
+- **Premise, measured first:** with H14 landed, `cProfile` put collection at
+  **55% of what was left** of a warm grandchild. `Dir.collect` scans its whole
+  directory and asks `pytest_collect_file` about every entry, so a mutant
+  selecting two tests in one file still built a `Module` node for all forty
+  files in the suite — and `Session.collect` then discarded the thirty-nine it
+  had not been asked for.
+- **Predicted saving:** 8–12% on many-files, near zero on the other two, which
+  have three test files and nothing to prune
+- **Correctness risk:** low. `pytest_ignore_collect` is the supported hook,
+  and the set it skips is exactly the set `Session.collect` was going to throw
+  away. A path is skipped only when it positively cannot hold a selected test;
+  every directory on the way to a selected file, and anything unresolvable,
+  collects as before. Real paths on both sides of the comparison, so a project
+  under a symlink (`/tmp` on macOS) compares equal rather than skipping
+  everything.
+- **Checked by** the same 728-mutant status-and-tests-run diff as H14, plus
+  `make check-oracle` and `make check-robustness`.
+- **Attempted:** yes, adopted (commit `0d20b65`).
+- **Actual saving:** **faster on many-files, indistinguishable elsewhere.**
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.366s [0.362, 0.368] | 0.368s [0.367, 0.372] | indistinguishable |
+  | slow-tests | 0.512s [0.508, 0.519] | 0.513s [0.511, 0.526] | indistinguishable |
+  | many-files | 0.660s [0.651, 0.666] | 0.631s [0.628, 0.634] | **faster 1.05x** |
+
+  The prediction was right about which shape and roughly right about the size.
+  Adopted on the same rule as H3: a real win on one shape and a regression on
+  none.
+
+### H16 — Freeze the inherited heap at host start, not only before forking
+
+- **Phase:** coverage pass
+- **Premise:** H10 froze the heap just before the grandchildren are forked. The
+  same argument applies one step earlier — everything the host holds at
+  startup came from the parent, none of it is garbage the coverage run can
+  produce, and it was still being walked by every collection the coverage pass
+  triggered.
+- **Predicted saving:** 1–3%
+- **Correctness risk:** low, and the same bounded consequence H10 documented:
+  a reference cycle created before the freeze is never collected in this
+  process, and those are the parent's own infrastructure objects.
+- **Attempted:** yes, adopted (commit `8535999`).
+- **Actual saving:** **1.02x on two shapes, indistinguishable on the third.**
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.370s [0.367, 0.373] | 0.363s [0.360, 0.365] | **faster 1.02x** |
+  | slow-tests | 0.519s [0.513, 0.520] | 0.514s [0.507, 0.517] | indistinguishable |
+  | many-files | 0.631s [0.629, 0.635] | 0.619s [0.619, 0.620] | **faster 1.02x** |
+
+  Kept on H5's grounds rather than H8's: it is one line, it is strictly less
+  work, and no shape is worse for it.
+
+### H17 — Fork the host before the parent generates mutants
+
+- **Phase:** generation (0.4–2.0%) and everything else the parent does before
+  it forks
+- **Premise:** the parent generates every mutant, then forks the host, then
+  sleeps on a pipe for the whole coverage pass. Nothing the host does before
+  it hands back evidence depends on the mutants existing — `build_jobs` is the
+  first thing that needs them, and it runs after the host is done. So the
+  generation could happen in the host's shadow.
+- **Predicted saving, by arithmetic before implementing:** exactly the cost of
+  generation and no more. Everything else the parent does before forking is
+  either needed by the host (the `import pytest` the host inherits) or simply
+  moves into the host if deferred (`import coverage`, which is H11 read
+  backwards). That put the ceiling at 2.3ms on fast- and slow-tests and 12.2ms
+  on many-files — **0.6% to 2.0%**, with 2% the only figure the A/B could hope
+  to resolve.
+- **Correctness risk:** low for the result, moderate for the code: it turns
+  `run_session`'s `mutants` argument into a callable, adds an `after_fork`
+  hook to the warm session, and moves the CLI's "nothing to mutate" exit into
+  an exception path that now runs with the results file already open.
+- **Attempted:** yes, implemented in full and measured. **Discarded.**
+- **Actual saving:** **indistinguishable on all three shapes.**
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.364s [0.361, 0.364] | 0.359s [0.358, 0.363] | indistinguishable |
+  | slow-tests | 0.510s [0.507, 0.516] | 0.508s [0.502, 0.508] | indistinguishable |
+  | many-files | 0.619s [0.617, 0.622] | 0.607s [0.603, 0.617] | indistinguishable |
+
+  The arithmetic was right and the change was not worth making. Discarded on
+  H8's rule: this is not strictly less work but *differently shaped* work,
+  with a new callback, a new exception and a new failure mode in the CLI, and
+  a restructure that buys nothing measurable is not worth the surface area.
+  The 728-mutant diff was clean, which is why the reason for discarding it is
+  wall clock and not correctness.
+
+### H18 — One grandchild per core, not one fewer
+
+- **Phase:** in-child test execution / per-mutant fork
+- **Premise, measured first:** concurrency defaulted to `cpu_count - 1`, the
+  core held back being for the process doing the holding back. On the warm
+  path there is no such process: while grandchildren run, the parent is
+  blocked reading a pipe and the host is blocked in `waitpid`. A sweep from 8
+  to 28 concurrent grandchildren on all three shapes showed the curve falling
+  to one-per-core and flat past it — 20 and 28 bought nothing over 14.
+- **Predicted saving:** 1–2% on many-files, nothing elsewhere
+- **Correctness risk:** none; it is a scheduling parameter the `--jobs` flag
+  already exposes.
+- **Attempted:** yes, adopted (commit `b4d7008`).
+- **Actual saving:** **1.02x on many-files, indistinguishable elsewhere** —
+  which is what the sweep said before the A/B ran.
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.362s [0.359, 0.363] | 0.362s [0.361, 0.365] | indistinguishable |
+  | slow-tests | 0.519s [0.513, 0.522] | 0.516s [0.512, 0.517] | indistinguishable |
+  | many-files | 0.624s [0.617, 0.628] | 0.614s [0.609, 0.616] | **faster 1.02x** |
+
+### H19 — Shard the coverage pass across cores
+
+- **Phase:** coverage pass (30.0–44.5%, and the largest phase on every shape)
+- **Premise:** the coverage pass is one process running the whole suite under
+  instrumentation. Splitting the suite across forked children, each measuring
+  its own slice into its own data file, would divide the test execution by the
+  number of shards.
+- **Predicted saving:** 15–25%
+- **Correctness risk:** the one that mattered was thought to be **the map**. A
+  line executed at import time is credited to whichever test first imported
+  the module, and in a shard that is a different test. A covering test that
+  went missing that way is a false SURVIVED — H2's failure mode.
+- **Attempted:** no. **Refuted by measurement before implementing**, and not
+  for the expected reason. Four parallel shards against one instrumented run,
+  median of five, in a process warmed the way the host is:
+
+  | shape | one instrumented run | 4 parallel shards |
+  |---|---:|---:|
+  | fast-tests | 87.6ms | 108.1ms |
+  | slow-tests | 126.1ms | 146.8ms |
+  | many-files | 130.5ms | 147.4ms |
+
+  **Sharding is slower on every shape**, because coverage's cost is not mostly
+  the tests. Measured on a warm process, the suite alone is 38ms and the same
+  suite under coverage is 91ms; almost all of that 53ms is per-process
+  start-up, tracer installation and save, and it does not divide. Four shards
+  pay it four times, and the part that does divide is the part that was
+  already small.
+
+  The map worry, measured at the same time, turned out to be unfounded on
+  these workloads: **the combined map was identical, line for line and test
+  for test, on all three shapes.** Recorded because it is worth knowing that
+  the correctness objection was not the one that killed this.
+
+### H20 — Make the coverage pass's contexts cheaper
+
+- **Phase:** coverage pass
+- **Premise:** the coverage pass costs 53ms more than the same suite run
+  without instrumentation, on a shape whose tests take 38ms. Three ways to
+  attack that, and one to attack what happens after it. All four were
+  measured, and all four were refuted before anything was implemented.
+
+  1. **`COVERAGE_CORE=sysmon`, re-checked.** H2 rejected this on the
+     backend's own warning about dynamic contexts. Re-checked on coverage
+     7.15.4, because H12's lesson is that a rejected change deserves a
+     re-check when something has changed. Nothing has: the warning is
+     verbatim the same, per-test contexts are still unsupported, and the
+     rejection stands for the same reason. It is worth 0.21s → 0.09s on the
+     slow-tests suite, and it would buy that by making a covering test able to
+     go missing.
+  2. **Drive `coverage` directly instead of pytest-cov**, on the theory that
+     the plugin's per-phase hooks were the cost. A `Coverage` object started
+     by hand, with our own plugin switching context once per test: **92.7ms
+     against pytest-cov's 85.9ms.** Slower. pytest-cov is not the overhead.
+  3. **Switch context once per test rather than once per phase.** Contained in
+     the measurement above — pytest-cov switches at setup, call and teardown,
+     and moonbuggy unions the phases anyway, so one switch is the same map.
+     One switch per test was not faster. The 18ms that per-test contexts add
+     over no contexts at all is the data they record, not the switching.
+  4. **Skip the data-file round trip**, having the host serialise the map out
+     of its own in-memory data instead of writing SQLite for the parent to
+     read back. Measured: `cov.save()` is 1.7ms (fast-tests) to 3.0ms
+     (many-files) and `read_coverage_data` is 0.6ms to 4.2ms. A perfect fix
+     is worth 7ms on the shape where it is largest — under the A/B's
+     resolution, for a change that reaches into pytest-cov's internals.
+
+- **Actual saving:** none available; nothing implemented. **The coverage
+  pass's cost is coverage's trace core, and the only thing that removes it is
+  the one thing that would break the map.**
+
+## Results
+
+| # | hypothesis | predicted | actual | outcome |
+|---|---|---|---|---|
+| H13 | probe alongside the coverage pass | 5–8% | 1.05–1.08x | adopted |
+| H14 | build the mutant config once | 8–12% | 1.02–1.15x | adopted |
+| H15 | collect only the selected files | 8–12% (many-files) | 1.05x | adopted |
+| H16 | freeze the heap at host start | 1–3% | 1.02x on two shapes | adopted |
+| H17 | fork before generating mutants | 0.6–2% | indistinguishable | **discarded** |
+| H18 | one grandchild per core | 1–2% (many-files) | 1.02x | adopted |
+| H19 | shard the coverage pass | 15–25% | slower | refuted by measurement |
+| H20 | cheaper coverage contexts (4 ways) | — | none available | refuted by measurement |
+
+**Scoreboard for the predictions: three right (H15, H17, H18), one right about
+the direction and low about the size (H13 and H14 both landed at or past the
+top of their range on the shapes that mattered), one right and unhelpfully so
+(H16), and one badly wrong (H19).**
+
+H19 is the instructive failure, and it is the same mistake as H8 in a new
+costume. H8 multiplied a per-mutant latency by the mutant count without
+checking whether the mutants were serial. H19 divided a phase by the shard
+count without checking what fraction of the phase actually scaled with the
+work being divided. Both were caught for the price of one measurement, before
+any code existed — which is the only reason this round has one discarded
+branch instead of three.
+
+H17 is the other kind of entry worth keeping: the arithmetic said the ceiling
+was 2% before a line was written, it was implemented anyway, and the A/B
+agreed with the arithmetic. Recording it stops the next round rediscovering
+that the parent's pre-fork work is not where the time is.
+
+## Outcome
+
+**Cumulative effect of everything adopted, `c40862f` → `274c1af`**, one
+interleaved `make ab` rather than the four individual results multiplied
+together:
+
+| shape | before | after | verdict |
+|---|---|---|---|
+| fast-tests | 0.409s [0.408, 0.415] | 0.365s [0.361, 0.369] | **faster 1.12x** |
+| slow-tests | 0.609s [0.607, 0.612] | 0.508s [0.504, 0.512] | **faster 1.20x** |
+| many-files | 0.801s [0.794, 0.815] | 0.616s [0.609, 0.625] | **faster 1.30x** |
+
+No adopted change regressed any shape, which is why all three ran on every
+A/B (M2.4.2). `make test`, `make check-oracle`, `make check-robustness` and
+`make check-properties` pass on `274c1af`.
+
+### What the re-taken profile says now
+
+`make profile` on `274c1af`, five runs per shape, median:
+
+| phase | fast-tests | slow-tests | many-files |
+|---|---:|---:|---:|
+| coverage pass | 50.2% | 43.9% | 38.5% |
+| in-child test execution | 14.6% | 25.5% | 25.8% |
+| per-mutant fork | 5.7% | 9.1% | 12.4% |
+| interpreter startup | 8.9% | 6.6% | 5.5% |
+| planning | 1.2% | 0.9% | 3.6% |
+| generation, reporting, discovery, cache I/O | ~1% | ~0.7% | ~3% |
+| flaky probe | 0.0% | 0.0% | 0.0% |
+| **unattributed** | **18.3%** | **13.3%** | **11.2%** |
+
+Absolute medians: fast-tests 0.366s / 84 mutants, slow-tests 0.508s / 84
+mutants, many-files 0.615s / 560 mutants.
+
+**The coverage pass is now half of a fast run, and H19 and H20 between them
+say it is not going anywhere.** What is left of it is coverage's trace core
+measuring the user's suite, and every route around that either loses the
+per-test contexts the map is made of or costs more than it saves. The next
+honest sentence about this phase is that it is one instrumented run of the
+user's tests, and moonbuggy already runs it once.
+
+Two things that are now worth more than anything in this round's register:
+
+- **The unattributed bucket has become the second-largest number on the
+  fast-tests column at 18.3%, and it is still 67–69ms in absolute terms** —
+  unchanged in absolute size across three rounds while the denominator halved.
+  The second round already named the fix: a span covering moonbuggy's import
+  chain and interpreter teardown. It is now large enough relative to a run
+  that continuing to profile without it is measuring three quarters of the
+  problem. **This should be the first piece of work in the next round**, and
+  it is a change to the instrument, not to the tool.
+- **H1 stays deferred, and the case for it keeps weakening.** Per-mutant fork
+  is 5.7–12.4%, and in-child test execution — which H14 and H15 have already
+  taken a third out of — is 14.6–25.8%. Batching mutants into one process
+  would trade the guarantee that every mutant is evaluated in a process that
+  has seen no other mutation, for a share of a bucket that two safe changes
+  just shrank.

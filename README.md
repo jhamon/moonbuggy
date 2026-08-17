@@ -13,8 +13,8 @@ Two things make moonbuggy different:
   applies mutations in memory rather than writing files, runs mutants in
   parallel forked processes, does the work every mutant shares once in a warm
   host rather than once per mutant, and caches results across runs. On a suite
-  where test execution dominates, that is **30x faster than the naive
-  approach** of rerunning everything per mutant, and **about 1.5x faster than
+  where test execution dominates, that is **38x faster than the naive
+  approach** of rerunning everything per mutant, and **about 1.9x faster than
   mutmut**. Both figures come from `make bench`, which measures all three tools
   in one session on one machine; see
   [benchmark results](https://jhamon.github.io/moonbuggy/benchmark-results.html)

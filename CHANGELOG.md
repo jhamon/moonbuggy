@@ -8,6 +8,22 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Runs are a further 1.12x to 1.30x faster, on top of the round below, with no
+  change to any result — checked by diffing every mutant's status and
+  tests-run count across all three benchmark shapes, 728 mutants, on every
+  change that touched the mutant path. Four changes, each measured on its own:
+  the flakiness probe now runs in its own process alongside the coverage pass
+  instead of after it, so it costs cores rather than wall clock; the warm host
+  builds the pytest configuration every mutant needs once, before forking,
+  rather than each mutant rebuilding an identical one; each mutant's run
+  collects only the test files its selected node ids name, instead of building
+  a collector for every file in the suite and discarding all but two; and the
+  host freezes its inherited heap at startup as well as before forking.
+  Mutants also now run one per core rather than one fewer. Against mutmut on
+  the speed workload this is 1.85x, and against the naive baseline 38x. See
+  [docs/development/perf-hypotheses.md](docs/development/perf-hypotheses.md)
+  for the register, including the four hypotheses that were measured and
+  rejected and the one that was implemented, measured and discarded.
 - Runs are 1.29x to 1.89x faster, depending on workload shape, with no change
   to any result. Four changes, each measured on its own against all three
   benchmark shapes: the warm host now builds its module-to-swap index once

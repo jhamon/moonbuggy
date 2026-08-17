@@ -16,21 +16,24 @@ below are its median over five runs on three workload shapes:
 
 | phase | fast tests | slow tests | many files |
 |---|---:|---:|---:|
-| running the selected tests | 35% | 38% | 44% |
-| getting a process ready per mutant | — | 22% | 25% |
-| the coverage pass | 44% | 25% | 17% |
-| flakiness probe | — | 5% | 4% |
-| everything else | 21% | 10% | 10% |
+| the coverage pass | 50% | 44% | 39% |
+| running the selected tests | 15% | 26% | 26% |
+| getting a process ready per mutant | 6% | 9% | 12% |
+| flakiness probe | 0% | 0% | 0% |
+| everything else | 29% | 21% | 23% |
 
-Two useful conclusions:
+Three useful conclusions:
 
-- **Most of a run is the tests themselves plus process handling.** Generation,
-  reporting and cache I/O are together under 2%. Optimising them is wasted
-  effort, and the [register of attempts][perf-hypotheses] has the measurements
-  to prove it.
-- **The bottleneck moves.** On a suite of fast tests, the single instrumented
-  coverage pass is the largest phase. On a suite of slow tests, it is the tests.
-  Advice that ignores which of these you have is not advice.
+- **The coverage pass is the largest phase on every shape.** It is one
+  instrumented run of your suite, and it is what makes selection possible.
+  Roughly half of it is coverage's own tracing rather than your tests, and
+  every attempt to get that back has either cost more than it saved or made
+  the line→test map unsafe — see [the register][perf-hypotheses].
+- **Generation, reporting and cache I/O are together under 3%.** Optimising
+  them is wasted effort, and the register has the measurements to prove it.
+- **The bottleneck moves.** On a suite of fast tests almost nothing is your
+  tests; on a suite of slow tests a quarter of the run is. Advice that ignores
+  which of these you have is not advice.
 
 ## The two levers
 
@@ -65,7 +68,12 @@ milliseconds — per mutant.
 So moonbuggy runs the suite once in a *host* process, and then forks one child
 per mutant from that host, where every test module is already imported and every
 assertion already rewritten. The child mutates the already-imported module in
-place and runs its tests. Measured at roughly 12ms against 90ms.
+place and runs its tests. Measured at roughly 8ms against 90ms.
+
+The host does more than import. Anything every mutant would otherwise compute
+identically is computed there once and inherited across the fork: the pytest
+configuration, the module index the mutation is swapped into, the source text,
+and a frozen heap the garbage collector will not re-walk.
 
 The coverage pass and the host's warm-up are the same run, which is why the
 table above has one "coverage pass" row and not two.
@@ -78,10 +86,12 @@ table above has one "coverage pass" row and not two.
   count, which in a container is often not the count you are allowed.
 
 `--flaky-probe 0`
-: Turns off the extra unmutated suite run used to detect flaky tests. Saves
-  4–5% of wall clock, and gives up the guarantee that a flaky test produces
-  `SUSPICIOUS` rather than a confident wrong answer. Reasonable on a suite you
-  know is deterministic. See [What `SUSPICIOUS` means](reading-the-output.md).
+: Turns off the extra unmutated suite run used to detect flaky tests. It now
+  saves close to nothing — the probe runs in its own process alongside the
+  coverage pass, so it costs cores rather than wall clock — and it gives up
+  the guarantee that a flaky test produces `SUSPICIOUS` rather than a
+  confident wrong answer. Worth turning off only on a machine short of cores.
+  See [What `SUSPICIOUS` means](reading-the-output.md).
 
 `--include` / `--exclude`
 : Restrict which files are mutated, by path fragment. Repeatable. The fastest
