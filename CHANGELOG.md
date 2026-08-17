@@ -8,6 +8,27 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Runs are a further 1.20x to 1.28x faster, on top of the two rounds below,
+  with no change to any result — checked by diffing every mutant's status and
+  tests-run count across all three benchmark shapes, 728 mutants, on every
+  change that touched the mutant path. Five changes, each measured on its own:
+  the warm host performs the test collection once, before forking, so each
+  mutant filters an inherited collection instead of repeating it (a warm
+  mutant run is 6.3ms to 2.3ms); the coverage pass and the flakiness probe skip
+  assertion rewriting, whose only product is a failure message moonbuggy never
+  reads; the host indexes only the modules that can actually be mutated rather
+  than every module it has loaded; it does its job-independent preparation
+  while the parent is still planning, instead of afterwards; and the process
+  exits without running interpreter finalisation, after flushing.
+
+  The profiler now reports moonbuggy's own import chain as a phase. It had
+  been 51–70ms of unattributed time in every profile for two rounds, and
+  naming it is what made the last of those changes findable.
+
+  See [docs/development/perf-hypotheses.md](docs/development/perf-hypotheses.md)
+  for the register, including the three hypotheses refuted or rejected before
+  any code was written, the one implemented and discarded, and the one adopted
+  that measures exactly zero and says so.
 - Runs are a further 1.12x to 1.30x faster, on top of the round below, with no
   change to any result — checked by diffing every mutant's status and
   tests-run count across all three benchmark shapes, 728 mutants, on every
