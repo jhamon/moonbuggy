@@ -416,7 +416,11 @@ def run_session(
 
     project_dir = Path(project_dir)
     if jobs is None:
-        jobs = max(1, (os.cpu_count() or 2) - 1)
+        # One per core, not one fewer. The core held back was for the process
+        # doing the holding back -- but on this path the parent is blocked on
+        # a pipe and the host is blocked in waitpid for the whole interval the
+        # grandchildren are running, so the spare core was spare.
+        jobs = os.cpu_count() or 2
 
     if not forkserver.available():
         linemap, flaky = run_baseline_pass(

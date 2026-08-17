@@ -118,7 +118,7 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "--jobs",
         type=int,
         default=0,
-        help="mutants to run concurrently (default: CPU count - 1)",
+        help="mutants to run concurrently (default: CPU count)",
     )
     parser.add_argument(
         "-n",

@@ -73,7 +73,7 @@ table above has one "coverage pass" row and not two.
 ## Flags that matter
 
 `--jobs N`
-: How many mutants run at once. Defaults to CPU count minus one. On a shared or
+: How many mutants run at once. Defaults to the CPU count. On a shared or
   containerised machine, set it explicitly — the default reads the host's CPU
   count, which in a container is often not the count you are allowed.
 
