@@ -1,0 +1,34 @@
+name: Weekly
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"   # 08:00 UTC Mondays
+  workflow_dispatch:      # M6.3.1
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    # oss-hunt clones five repositories and builds a venv for each;
+    # check-differential runs both moonbuggy and mutmut across ten projects.
+    # Six hours is a ceiling that should never be reached, not an estimate.
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      - run: make check-differential PYTHON=$(command -v python)
+      - run: make oss-hunt PYTHON=$(command -v python)
+      - if: failure()
+        run: ./scripts/report_ci_failure.sh weekly-failure "Weekly CI tier failing"
+        env:
+          GH_TOKEN: ${{ github.token }}
