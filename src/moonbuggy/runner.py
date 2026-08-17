@@ -41,6 +41,20 @@ if TYPE_CHECKING:
 PYTEST_OK = 0
 PYTEST_TESTS_FAILED = 1
 
+# H12 established that a warm grandchild does not need assertion rewriting.
+# The host was never asked the same question, and the answer is the same for a
+# different reason: rewriting exists to build an introspected failure message,
+# and moonbuggy reads exit codes and per-test outcomes and never shows a user
+# an assertion message. A plain `assert` still raises `AssertionError` and
+# still fails the test; the rewritten bytecode's entire product is discarded.
+#
+# Coverage is measured over the source directory, never the tests, so nothing
+# about how the test files compile can reach the line->test map.
+#
+# Placed ahead of the caller's own `--pytest-arg` values, so a project that
+# sets its own `--assert` still wins -- same ordering rule as H12.
+_PLAIN_ASSERT = ("--assert=plain",)
+
 # Almost always a forkserver.Status. SKIPPED is added to the union because
 # `run_one` and `_plan` settle suppressed mutants to it directly -- a status
 # forkserver itself never produces. UNAPPLIED stays in the union too, and
@@ -455,9 +469,16 @@ def run_session(
             f"--cov={source_dir}",
             "--cov-context=test",
             "--cov-report=",
+            *_PLAIN_ASSERT,
             *extra_args,
         ]
-        probe_args = [*_base_args(project_dir), "-p", "no:cov", *extra_args]
+        probe_args = [
+            *_base_args(project_dir),
+            "-p",
+            "no:cov",
+            *_PLAIN_ASSERT,
+            *extra_args,
+        ]
 
         state: RunSessionState = {}
 
