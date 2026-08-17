@@ -67,3 +67,128 @@ jobs:
       - run: make docs-linkcheck PYTHON=$(command -v python)
       - run: make check-differential PYTHON=$(command -v python)
       - run: make oss-hunt PYTHON=$(command -v python)
+
+  build:
+    needs: [preflight, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      # M7.3: without a pinned epoch the archives embed build time and two
+      # builds of the same commit differ, which is what M7.3.1 checks for.
+      - name: Build sdist and wheel
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export SOURCE_DATE_EPOCH
+          echo "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
+          python -m pip install --upgrade build
+          python -m build --sdist --wheel --outdir dist .
+      - run: sha256sum dist/* | tee dist.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: |
+            dist/
+            dist.sha256
+
+  build-again:
+    needs: [preflight, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      # M7.3: without a pinned epoch the archives embed build time and two
+      # builds of the same commit differ, which is what M7.3.1 checks for.
+      - name: Build sdist and wheel
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export SOURCE_DATE_EPOCH
+          echo "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
+          python -m pip install --upgrade build
+          python -m build --sdist --wheel --outdir dist .
+      - run: sha256sum dist/* | tee dist-again.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist-again
+          path: |
+            dist/
+            dist-again.sha256
+
+  reproducible:
+    needs: [build, build-again]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: a
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist-again
+          path: b
+      - name: M7.3.1 — the two builds are byte-identical
+        run: |
+          sed 's|  dist/|  |' a/dist.sha256 | sort > a.sums
+          sed 's|  dist/|  |' b/dist-again.sha256 | sort > b.sums
+          if ! diff -u a.sums b.sums; then
+            echo "FAIL (M7.3.1): two builds of the same tag differ." >&2
+            echo "Usually SOURCE_DATE_EPOCH is not reaching the build." >&2
+            exit 1
+          fi
+          echo "OK: builds are byte-identical"
+          cat a.sums
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      # Deliberately NOT ./.github/actions/setup: that installs the project
+      # from source, which would put the repo's own copy on the path and make
+      # this test say nothing about the wheel.
+      - name: M7.4.2 — the wheel reports the tag's version
+        run: |
+          python -m venv /tmp/vercheck
+          /tmp/vercheck/bin/pip install --quiet dist/*.whl
+          REPORTED="$(/tmp/vercheck/bin/moonbuggy --version | awk '{print $2}')"
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          if [ "$REPORTED" != "$EXPECTED" ]; then
+            echo "FAIL (M7.4.2): wheel reports ${REPORTED}, tag says ${EXPECTED}" >&2
+            exit 1
+          fi
+          echo "OK: wheel reports ${REPORTED}"
+      - name: M7.4.3 — the wheel runs end to end on an unseen project
+        run: ./scripts/check_fresh_install.sh --wheel "$(ls dist/*.whl)"
+        env:
+          PYENV_PY: python
