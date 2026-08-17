@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0          # M7.1.2 needs main's history, not just the tag
+          persist-credentials: false
+
+      # Each check is its own step so the log names which one tripped, rather
+      # than a single script whose failure means "something about the version".
+      - name: M7.1.1/M7.1.3 — tag, package version, and changelog agree
+        run: python scripts/check_version_consistency.py "${GITHUB_REF_NAME}"
+
+      - name: M7.1.2 — the tagged commit is an ancestor of main
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "FAIL (M7.1.2): ${GITHUB_SHA} is not an ancestor of main" >&2
+            exit 1
+          fi
+          echo "OK: tagged commit is on main"
+
+      - name: M7.1.4 — the version is not already on PyPI
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/moonbuggy/${VERSION}/json")"
+          if [ "$CODE" = "200" ]; then
+            echo "FAIL (M7.1.4): moonbuggy ${VERSION} already exists on PyPI." >&2
+            echo "PyPI versions cannot be replaced. Ship the fix as the next patch." >&2
+            exit 1
+          fi
+          echo "OK: version ${VERSION} is unused (HTTP ${CODE})"
+
+  gate:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      # check-all covers lint, format-check, typecheck, test, check-oracle,
+      # check-spike, check-properties, check-robustness, check-mutmut and
+      # check-fresh-install. These five are the gates it does not include.
+      - run: make check-all PYTHON=$(command -v python)
+      - run: make docs PYTHON=$(command -v python)
+      - run: make docs-test PYTHON=$(command -v python)
+      - run: make docs-linkcheck PYTHON=$(command -v python)
+      - run: make check-differential PYTHON=$(command -v python)
+      - run: make oss-hunt PYTHON=$(command -v python)
