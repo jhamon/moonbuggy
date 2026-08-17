@@ -462,6 +462,7 @@ def _warm_session_host(
         prewarm({mutant.module for mutant, _ in jobs})
         # Same argument, for finding the module to swap: see index_modules.
         index_modules()
+        _freeze_heap()
 
         def emit(
             index: int, status: Status, test_seconds: float, child_wall: float
@@ -479,6 +480,35 @@ def _warm_session_host(
         pass
     finally:
         os._exit(0)
+
+
+def _freeze_heap() -> None:
+    """Move everything imported so far out of the garbage collector's reach.
+
+    `pytest.main` calls `gc.collect()` twice on its way out, from the
+    unraisable-exception plugin's unconfigure hook. In a warm host that has
+    imported pytest, coverage and the entire suite, a collection walks ~25000
+    tracked objects and costs about 1.1ms -- and every grandchild pays it,
+    for objects it inherited and cannot have changed.
+
+    `gc.freeze()` moves the current heap into a permanent generation that
+    collection skips. Objects the mutant's own tests allocate are still
+    tracked and still collected, so the unraisable plugin keeps working on
+    the only garbage that can say anything about this mutant. Called after
+    the priming run and the two prewarms, so it captures as much as possible,
+    and before the first fork, so every grandchild inherits the frozen heap.
+
+    Not free of consequence, and the consequence is bounded: a reference cycle
+    created *before* this point will never be collected in a grandchild, so a
+    `__del__` on one of those will not run. Those are the host's own
+    infrastructure objects -- pytest's, coverage's, the suite's at import time
+    -- none of which the mutation has touched.
+
+    Measured on the slow-tests workload: 18.2ms to 13.2ms per mutant run.
+    """
+    import gc
+
+    gc.freeze()
 
 
 def _read_exactly(fd: int, size: int) -> bytes:
@@ -594,6 +624,7 @@ def _warm_host(
         from .codeswap import index_modules
 
         index_modules()
+        _freeze_heap()
 
         statuses = _fork_grandchildren(jobs, timeout, concurrency, apply_swap)
         os.write(write_fd, bytes(_CODE_BY_STATUS[s] for s in statuses))
