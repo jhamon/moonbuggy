@@ -226,11 +226,81 @@ def prebuild_mutant_config(extra_args: Iterable[str] = ()) -> object | None:
     try:
         from _pytest.config import _prepareconfig
 
-        return _prepareconfig(_mutant_args((), extra_args, False), None)
+        return _prepareconfig(_mutant_args((), extra_args, False), [_SELECTED_ONLY])
     except BaseException:
         # Private pytest API. If a future version moves it, the fallback is a
         # slower run rather than a wrong one, so this must not be fatal.
         return None
+
+
+class _SelectedOnly:
+    """Stop collection descending into files no selected node id names.
+
+    `Dir.collect` scans its whole directory and asks
+    :func:`pytest_collect_file` about every entry, so a mutant selecting two
+    tests in one file still built a `Module` node for all forty files in the
+    suite. `Session.collect` then discards the thirty-nine it was not asked
+    for. Profiling the warm grandchild after H14 put collection at **55% of
+    what was left**, almost all of it that discarding.
+
+    `pytest_ignore_collect` is the supported way to say so up front. The set
+    it skips is exactly the set `Session.collect` was going to throw away, so
+    what is collected -- and therefore what runs -- does not change.
+
+    Deliberately conservative in both directions. A path is skipped only when
+    it is positively known to hold no selected test: anything not resolvable,
+    and every directory on the way to a selected file, collects as before. And
+    `None` rather than `False` is returned for those, so this only ever adds
+    an opinion where it has one and never overrules another plugin's.
+
+    One instance is registered in the prebuilt config, before the fork; each
+    grandchild sets it to its own ids in its own copy. Nothing crosses
+    between mutants, for the same reason the config itself does not.
+    """
+
+    def __init__(self) -> None:
+        self._files: frozenset[str] = frozenset()
+        self._dirs: frozenset[str] = frozenset()
+
+    def select(self, node_ids: Iterable[str]) -> None:
+        """Restrict collection to the files naming these node ids."""
+        from pathlib import Path
+
+        files: set[str] = set()
+        dirs: set[str] = set()
+        for node_id in node_ids:
+            relative = node_id.split("::")[0]
+            if not relative:
+                # A bare "::test_x" names no file, so there is nothing to
+                # restrict to and everything must stay collectable.
+                self._files = self._dirs = frozenset()
+                return
+            path = Path(relative)
+            if not path.is_absolute():
+                path = Path(os.getcwd()) / path
+            # Real paths on both sides of the comparison: pytest's come from
+            # scanning the directory, a node id's is built from the cwd, and
+            # on a machine where the project sits under a symlink (/tmp on
+            # macOS) those two spellings differ.
+            resolved = os.path.realpath(path)
+            files.add(resolved)
+            dirs.update(str(parent) for parent in Path(resolved).parents)
+        self._files = frozenset(files)
+        self._dirs = frozenset(dirs)
+
+    def pytest_ignore_collect(self, collection_path: object) -> bool | None:
+        """True for a path that cannot hold a selected test, else None."""
+        if not self._files:
+            return None
+        path = os.path.realpath(str(collection_path))
+        if path in self._files or path in self._dirs:
+            return None
+        return True
+
+
+# Registered in the prebuilt config; pointed at each grandchild's own ids by
+# `_run_prebuilt`, in that grandchild's own copy of the process.
+_SELECTED_ONLY = _SelectedOnly()
 
 
 def _run_prebuilt(config: object, selected: Iterable[str]) -> int:
@@ -242,6 +312,7 @@ def _run_prebuilt(config: object, selected: Iterable[str]) -> int:
     the option rather than the attribute sees the same answer.
     """
     ids = list(selected)
+    _SELECTED_ONLY.select(ids)
     config.args = ids  # type: ignore[attr-defined]  # a pytest Config, not typed here
     config.option.file_or_dir = ids  # type: ignore[attr-defined]
     try:
