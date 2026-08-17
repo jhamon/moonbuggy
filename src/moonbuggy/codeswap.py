@@ -30,6 +30,8 @@ back to the import-hook path. A silently-unapplied mutation is a false SURVIVED.
 import ast
 import linecache
 import os
+import sys
+from pathlib import Path
 from types import CodeType, FunctionType, ModuleType
 from typing import cast
 
@@ -39,6 +41,52 @@ from .srcio import strip_coding_cookie
 
 class SwapFailed(Exception):
     """The mutation could not be applied in place. Caller should fall back."""
+
+
+_MODULE_BY_PATH: dict[str, ModuleType] = {}
+
+
+def index_modules() -> None:
+    """Record resolved ``__file__`` to module for everything imported so far.
+
+    Called in the warm host once, before any grandchild is forked, for the same
+    reason as :func:`~moonbuggy.srcio.prewarm`: the work is identical for every
+    mutant, and a process that does it before forking does it once instead of
+    once per mutant. Finding the module to swap was a scan of `sys.modules`
+    calling `Path.resolve()` on each entry -- 4.7ms in a process with 250
+    modules loaded, which is more than a fast mutant's tests take.
+
+    First entry wins, matching the scan this replaces: `sys.modules` keeps
+    insertion order, so the module an aliased path resolves to does not change.
+    """
+    _MODULE_BY_PATH.clear()
+    for module in list(sys.modules.values()):
+        origin = getattr(module, "__file__", None)
+        if origin:
+            try:
+                resolved = str(Path(origin).resolve())
+            except OSError:
+                continue
+            _MODULE_BY_PATH.setdefault(resolved, module)
+
+
+def module_at(target: str) -> ModuleType | None:
+    """The imported module whose file is `target`, or None.
+
+    Answers from the index built by :func:`index_modules` when it can, and
+    falls back to scanning `sys.modules` when it cannot -- a module imported
+    after the index was built is a miss in the index and a hit in the scan, and
+    the wrong answer here is a mutation that silently does not apply.
+    """
+    module = _MODULE_BY_PATH.get(target)
+    if module is not None:
+        return module
+
+    for candidate in list(sys.modules.values()):
+        origin = getattr(candidate, "__file__", None)
+        if origin and str(Path(origin).resolve()) == target:
+            return candidate
+    return None
 
 
 def apply_in_place(

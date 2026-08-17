@@ -820,18 +820,15 @@ def _apply_in_place(mutant: Mutant) -> None:
     path. Loud failure is the point: a mutation that quietly does not apply is
     reported SURVIVED and looks exactly like a real finding.
     """
-    import sys
     from pathlib import Path
 
-    from .codeswap import SwapFailed, apply_in_place
+    from .codeswap import SwapFailed, apply_in_place, module_at
 
     target = str(Path(mutant.module).resolve())
-    for module in list(sys.modules.values()):
-        origin = getattr(module, "__file__", None)
-        if origin and str(Path(origin).resolve()) == target:
-            apply_in_place(module, target, mutant.line, mutant.mutated)
-            return
-    raise SwapFailed(f"{mutant.module} was not imported by the warm host")
+    module = module_at(target)
+    if module is None:
+        raise SwapFailed(f"{mutant.module} was not imported by the warm host")
+    apply_in_place(module, target, mutant.line, mutant.mutated)
 
 
 def _apply_in_child(mutant: Mutant) -> None:
