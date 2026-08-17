@@ -961,3 +961,252 @@ Two things that are now worth more than anything in this round's register:
   would trade the guarantee that every mutant is evaluated in a process that
   has seen no other mutation, for a share of a bucket that two safe changes
   just shrank.
+
+---
+
+# Fourth round: H21–H30
+
+The third round closed by naming its own next piece of work: *"the
+unattributed bucket has become the second-largest number on the fast-tests
+column at 18.3%… this should be the first piece of work in the next round, and
+it is a change to the instrument, not to the tool."* That is where this round
+starts, and the instrument fix answers a question three rounds of profiles had
+left open.
+
+## The instrument, first
+
+`make profile` has failed M2.1.2 on every shape since the second round. The
+missing 51–70ms was **moonbuggy's own import chain**, and it could not be
+measured with a `profiler.span()` because it is over before any code that
+could open one has been imported. `profiling` is the first module `cli`
+imports, so the profiler's clock already started at the top of the chain;
+`cli` now records where the chain ends and reports the difference as a phase
+(commit `a731cdf`).
+
+Two facts fell out of it immediately, both of which this round's register uses:
+
+| | |
+|---|---:|
+| `import moonbuggy.cli`, total | 63ms |
+| — of which `import pytest`, pulled in transitively through `baseline` | **49ms** |
+| — of which every other moonbuggy module | 6ms |
+
+**The parent imports pytest on the warm path, and H3 did not stop it.** H3
+removed the explicit `forkserver.warm_up()` call and measured 1.5% on one
+shape, concluding that the import had merely moved into the host. It had not
+moved anywhere: `cli`'s own import chain still pulls pytest into the parent
+before `main()` is entered, and always did. That is the real reason H3's
+predicted 5–6% "never had anywhere to come from" — a better reason than the
+one H3 recorded, and it took the instrument to see it.
+
+M2.1.2 now passes on all three shapes for the first time since the second
+round.
+
+## The profile this round is ranked against
+
+`make profile` at `acf9038`, five runs per shape, median:
+
+| phase | fast-tests | slow-tests | many-files |
+|---|---:|---:|---:|
+| coverage pass | 50.0% | 43.0% | 38.4% |
+| in-child test execution | 14.4% | 26.4% | 25.8% |
+| import chain | 13.1% | 9.6% | 8.2% |
+| interpreter start/teardown | 9.3% | 6.5% | 5.5% |
+| per-mutant fork | 6.0% | 9.0% | 12.7% |
+| planning | 1.3% | 0.8% | 3.6% |
+| generation | 0.6% | 0.4% | 2.0% |
+| reporting, discovery, cache I/O, flaky probe | <1% | <1% | ~1% |
+| **unattributed** | **4.8%** | **3.8%** | **2.9%** |
+
+Absolute medians: fast-tests 0.362s / 84 mutants, slow-tests 0.501s / 84
+mutants, many-files 0.604s / 560 mutants.
+
+### What the repeating processes say
+
+The second round's lesson — profile the process that repeats, not only the
+process that runs — is applied here to the two processes nobody had profiled
+since: the **warm host's coverage run**, which is now half of a fast run, and
+the **warm grandchild** as H14 and H15 left it.
+
+One warm host coverage run, fast-tests, forked from a parent holding pytest
+and coverage (median of five, unprofiled):
+
+| | fast-tests | slow-tests | many-files |
+|---|---:|---:|---:|
+| suite alone, no instrumentation | 106ms | 117ms | 125ms |
+| + coverage, no contexts | 167ms | 204ms | 208ms |
+| + per-test contexts (what runs today) | 185ms | 221ms | 237ms |
+| collect-only, under coverage | 122ms | — | 150ms |
+
+The last row is the finding. **On fast-tests, collection and session setup are
+122ms of a 185ms coverage pass, and the 90 tests themselves are the
+remainder.** `cProfile` splits that 122ms three ways: `_prepareconfig` ~46ms,
+third-party plugins importing themselves lazily at terminal-summary time
+~60ms, and actual collection ~16ms.
+
+One warm grandchild is **6.1–6.6ms** for a two-test mutant, against 11ms
+before H14 and 18.2ms before H10. `cProfile` puts collection at ~4ms of the
+6.3ms and everything else in pytest's session machinery, with nothing
+dominant left in it. The per-mutant path is close to its floor; **the host is
+not.**
+
+## Register, ranked by predicted saving
+
+### H21 — `--assert=plain` for the coverage pass and the probe
+
+- **Phase:** coverage pass (38.4–50.0%)
+- **Premise, measured first:** H12 established that the *grandchild* does not
+  need assertion rewriting, because the host has already rewritten every test
+  module. The host itself was never questioned. moonbuggy reads exit codes and
+  per-test outcomes; it never shows a user an assertion message, so the
+  rewritten bytecode's entire product is discarded. Measured on the coverage
+  run: 170→146.5ms (fast-tests), 208→183.5ms (slow-tests), 220→191ms
+  (many-files).
+- **Predicted saving:** 4–6% on all three shapes
+- **Correctness risk:** low, and it needs saying precisely, because
+  `--assert=plain` sounds like it weakens assertions and does not. A plain
+  `assert` still raises `AssertionError` and still fails the test; what is
+  lost is only the introspected message, which nothing in moonbuggy reads.
+  Coverage is measured over the source directory, not the tests, so a
+  difference in the test files' own line numbering could not reach the map.
+  The residual risk is H12's in reverse: with the host no longer installing a
+  rewrite hook, a test module imported late in a grandchild is not rewritten
+  either — same consequence, no message.
+
+### H22 — Index only the modules that can actually be mutated
+
+- **Phase:** per-mutant fork / the host's serial prewarm
+- **Premise, measured first:** `index_modules()` (H7) resolves `__file__` for
+  every entry in `sys.modules` — **11.8–12.4ms in the warm host**, over ~700
+  loaded modules — when at most the 3 to 40 modules under mutation can ever be
+  asked for. `Path(x).resolve()` is 6.28ms over 341 modules; `os.path.realpath`
+  is 4.11ms; `os.path.abspath` is 0.10ms and is wrong, because a project under
+  a symlink (`/tmp` on macOS) is exactly the case H15 had to handle.
+- **Predicted saving:** 2–3% on all three shapes
+- **Correctness risk:** low, and bounded by an existing fallback. `module_at()`
+  already rescans `sys.modules` on an index miss, so a narrower index can cost
+  a scan but cannot produce a wrong answer.
+
+### H23 — Prewarm the host while the parent is still planning
+
+- **Phase:** per-mutant fork / planning (0.8–3.6%)
+- **Premise, measured first:** the host sends its evidence and then blocks on
+  the jobs pipe while the parent reads the coverage data and plans — 4.1ms
+  (slow-tests) to 21.6ms (many-files) in which the host does nothing. Only one
+  of the three things it does when the jobs arrive actually needs them:
+  `prewarm()` needs the module set (0.9ms), while `index_modules()` (11.8ms)
+  and `prebuild_mutant_config()` (4.9ms) do not.
+- **Predicted saving:** 1–3%, largest on many-files, and **conditional on
+  H22**: if H22 lands first there is only ~5ms left to hide, and the honest
+  prediction becomes under 1% on two of the three shapes.
+- **Correctness risk:** low. Nothing moves between processes; two independent
+  pieces of host-local work swap places with a blocking read.
+
+### H24 — Cache the line map's per-module path resolution
+
+- **Phase:** planning (3.6% on many-files)
+- **Premise, measured first:** `LineMap._normalise` builds a `Path` and calls
+  `.resolve()` on every `select_for`, and `_plan` calls it once per mutant.
+  560 mutants over 40 distinct modules is 560 resolves where 40 would do; at
+  ~18µs each that is ~10ms of the 21.6ms planning phase.
+- **Predicted saving:** 1–2% on many-files, under 0.5% elsewhere
+- **Correctness risk:** low; a dict keyed on the module string, within one
+  `LineMap` whose project root is fixed at construction.
+
+### H25 — Take pytest out of the parent, and fork the host first
+
+- **Phase:** import chain (8.2–13.1%)
+- **Premise, measured first:** 49ms of the parent's 47.5–49.3ms import chain is
+  `import pytest`, reached through `baseline`, and on the warm path the parent
+  never runs a test. Deferring it **alone is a wash** — the host pays the same
+  49ms the instant the parent stops, which is precisely what H3 half-discovered
+  — so this only pays if the fork happens *first* and the parent's remaining
+  work runs in the shadow of the host's import.
+- **Predicted saving, by arithmetic before implementing:** the ceiling is the
+  parent's own post-fork work — discovery, generation, and `import coverage` —
+  at ~17ms (fast, slow) to ~27ms (many-files), or **2–3%**, and it cannot
+  exceed the 49ms shadow it hides in.
+- **Correctness risk:** low for the result, moderate for the code. This is H17
+  (discarded, "the parent's pre-fork work is not where the time is") with a new
+  ingredient: H17 had nothing to hide the parent's work behind, and a deferred
+  pytest import creates a 49ms shadow. The parent must still never import the
+  code under mutation, which this does not touch.
+
+### H26 — Stop loading third-party pytest plugins
+
+- **Phase:** coverage pass
+- **Premise, measured first:** `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` with
+  pytest-cov loaded explicitly takes the coverage pass from 167→100ms
+  (fast-tests) and 215→149ms (many-files) — **40% of the largest phase, the
+  single biggest number in this round's measurements.** In this venv most of it
+  is one plugin importing 60ms of itself from `pytest_terminal_summary`.
+- **Predicted saving:** 15–20%
+- **Expected outcome: rejected on correctness, on H2's grounds.** Recorded
+  anyway, and measured first, because the size of the number is the point: the
+  plugins are the *user's*, their tests may require them, and a suite run
+  without them is not the suite. See the entry for what the measurement is
+  actually good for.
+
+### H27 — Splice the changed token instead of unparsing the node
+
+- **Phase:** generation (0.4–2.0%)
+- **Premise:** H6 removed the quadratic deep-copy and recorded the next lever
+  in the same breath: `ast.unparse` of a deeply nested node is O(subtree) and
+  now dominates generation, with 6000 terms still taking 37s.
+- **Predicted saving:** under 1% on fast- and slow-tests, 1–2% on many-files
+- **Correctness risk:** medium — it changes the operator seam's contract, which
+  is the thing H6 deliberately made hard to get wrong.
+
+### H28 — Collect once in the host; give each grandchild the collected items
+
+- **Phase:** in-child test execution (14.4–25.8%)
+- **Premise, measured first:** with H14 and H15 landed, `cProfile` puts
+  `perform_collect` at **~4ms of a 6.3ms warm grandchild** — the largest thing
+  left in the process that repeats, and its input is the same suite for every
+  mutant.
+- **Predicted saving:** 8–15%, largest where mutant count is largest
+- **Correctness risk:** medium, and **specifically not H1's**, on H14's
+  argument. The collection is performed once in the host, before any mutation
+  exists; each grandchild inherits a copy-on-write copy, filters it to its own
+  node ids, uses it once and exits. No two mutants share a process, and neither
+  can see the other's items any more than it can see the other's `sys.modules`.
+  Collected items hold references to modules the mutation will later swap
+  functions inside, which is the specific thing to prove is safe rather than
+  assume.
+- **To be checked by** the 728-mutant status-and-tests-run diff H14 and H15
+  used, plus `make check-oracle`, `check-robustness` and `check-properties`.
+
+### H29 — Exit without running interpreter finalisation
+
+- **Phase:** interpreter start/teardown (5.5–9.3%)
+- **Premise, measured first:** the profiler's clock stops at the last line of
+  `main()`, and CPython then tears down a process holding pytest, coverage and
+  moonbuggy. A process that imports exactly what the parent imports takes 85ms
+  wall to exit normally and **72ms to `os._exit(0)` after flushing — 13ms**,
+  which is the second half of the "interpreter start/teardown" row.
+- **Predicted saving:** 2–3% on all three shapes
+- **Correctness risk:** medium, and entirely about buffers. `os._exit` skips
+  `atexit`, skips module teardown, and skips flushing — so every stream
+  moonbuggy writes must be flushed explicitly first, and the results files
+  must already be closed. A missed flush loses the report, which is worse than
+  a slow run; it is the one change in this round whose failure mode is silent
+  and user-visible.
+
+### H30 — Build the map in the host, so the parent never imports coverage
+
+- **Phase:** import chain / planning
+- **Premise:** H11 made the parent import coverage *once* rather than twice,
+  worth 14ms. The host has coverage imported already and has just written the
+  data file; if it reads it back and sends the map, the parent needs coverage
+  for nothing at all. `read_coverage_data` is 0.6ms (fast-tests) to 4.2ms
+  (many-files) — measured by H20 — so this moves a few ms onto the host's
+  critical path to take 14ms off the parent's.
+- **Predicted saving:** 2–4%, largest on fast-tests where the import chain is
+  the biggest share
+- **Correctness risk:** low. The same function reads the same file; only the
+  process it runs in changes. The map is already crossing a pipe in the other
+  direction as jobs, so nothing new is being trusted to a pickle.
+- **Note:** this is H11 read forwards rather than backwards, and it is the
+  third time the register has had to ask "how many times does this import
+  happen on the critical path" rather than "should this process import less".
+
