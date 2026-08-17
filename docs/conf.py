@@ -65,7 +65,8 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
 
 html_theme = "furo"
 html_title = f"moonbuggy {release}"
-html_static_path = []
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),

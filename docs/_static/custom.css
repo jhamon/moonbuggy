@@ -1,0 +1,254 @@
+/* moonbuggy — direction 2a
+   aubergine + mint/rose · Space Grotesk / Source Sans 3 / JetBrains Mono
+
+   Install:
+     docs/_static/custom.css        <- this file
+     conf.py:  html_static_path = ["_static"]
+               html_css_files   = ["custom.css"]
+
+   Nothing here forks Furo — it only sets Furo's own CSS variables,
+   so theme upgrades keep working. */
+
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400..800&display=swap");
+
+/* ---------- shared ---------- */
+
+body {
+  --font-stack: "Source Sans 3", system-ui, -apple-system, sans-serif;
+  --font-stack--monospace: "JetBrains Mono", ui-monospace, monospace;
+  --font-stack--headings: "Space Grotesk", var(--font-stack);
+
+  --moon-mint: oklch(0.68 0.11 168);
+  --moon-mint-ink: oklch(0.45 0.11 168);
+  --moon-mint-wash: oklch(0.97 0.02 168);
+  --moon-rose: oklch(0.68 0.11 20);
+  --moon-rose-ink: oklch(0.48 0.11 20);
+  --moon-rose-wash: oklch(0.97 0.02 20);
+
+  --admonition-font-size: 1rem;
+  --admonition-title-font-size: 0.72rem;
+}
+
+/* ---------- light ---------- */
+
+body,
+body[data-theme="light"] {
+  --color-background-primary: #FBF8F3;
+  --color-background-secondary: #F6F1F4;
+  --color-background-hover: #F0E9EE;
+  --color-background-border: #E4DCE2;
+  --color-background-item: #EFE8ED;
+
+  --color-foreground-primary: #2A1F2E;
+  --color-foreground-secondary: #3B3140;
+  --color-foreground-muted: #6B5C6E;   /* AA on the paper — do not lighten */
+  --color-foreground-border: #C9BDCB;
+
+  --color-brand-primary: var(--moon-mint-ink);
+  --color-brand-content: var(--moon-mint-ink);
+  --color-brand-visited: oklch(0.45 0.09 300);
+
+  --color-highlight-on-target: oklch(0.95 0.035 168);
+  --color-api-name: #2A1F2E;
+  --color-api-pre-name: #6B5C6E;
+  --color-inline-code-background: #F3EDF1;
+  --color-code-background: #241C27;
+  --color-code-foreground: #F4EFF2;
+  --color-table-header-background: #F6F1F4;
+}
+
+/* ---------- dark ---------- */
+
+@media not print {
+  body[data-theme="dark"] {
+    --color-background-primary: #241C27;
+    --color-background-secondary: #1C1520;
+    --color-background-hover: #2E2433;
+    --color-background-border: #3C3140;
+    --color-background-item: #2E2433;
+
+    --color-foreground-primary: #F4EFF2;
+    --color-foreground-secondary: #D5CBD7;
+    --color-foreground-muted: #A493A7;
+    --color-foreground-border: #4A3E4D;
+
+    --color-brand-primary: oklch(0.78 0.09 168);
+    --color-brand-content: oklch(0.78 0.09 168);
+    --color-brand-visited: oklch(0.78 0.07 300);
+
+    --color-highlight-on-target: #3A2C3F;
+    --color-api-name: #F4EFF2;
+    --color-api-pre-name: #A493A7;
+    --color-inline-code-background: #322739;
+    --color-code-background: #1C1520;
+    --color-code-foreground: #EBE4EA;
+    --color-table-header-background: #2E2433;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body:not([data-theme="light"]) {
+      --color-background-primary: #241C27;
+      --color-background-secondary: #1C1520;
+      --color-background-hover: #2E2433;
+      --color-background-border: #3C3140;
+      --color-background-item: #2E2433;
+
+      --color-foreground-primary: #F4EFF2;
+      --color-foreground-secondary: #D5CBD7;
+      --color-foreground-muted: #A493A7;
+      --color-foreground-border: #4A3E4D;
+
+      --color-brand-primary: oklch(0.78 0.09 168);
+      --color-brand-content: oklch(0.78 0.09 168);
+      --color-brand-visited: oklch(0.78 0.07 300);
+
+      --color-highlight-on-target: #3A2C3F;
+      --color-api-name: #F4EFF2;
+      --color-api-pre-name: #A493A7;
+      --color-inline-code-background: #322739;
+      --color-code-background: #1C1520;
+      --color-code-foreground: #EBE4EA;
+      --color-table-header-background: #2E2433;
+    }
+  }
+}
+
+/* ---------- type ---------- */
+
+h1, h2, h3, h4, h5, h6,
+.sidebar-brand-text {
+  font-family: var(--font-stack--headings);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+h1 { font-size: 3rem; line-height: 1.06; letter-spacing: -0.03em; }
+h2 { font-size: 1.875rem; line-height: 1.15; margin-top: 2.25rem; }
+h3 { font-size: 1.375rem; line-height: 1.25; }
+
+article,
+.content {
+  font-size: 1.0625rem;
+  line-height: 1.72;
+  text-wrap: pretty;
+}
+
+/* section labels, breadcrumbs, captions, TOC heading: plate-number voice */
+.sidebar-tree .caption,
+.toc-title,
+.caption-text,
+.highlight-title {
+  font-family: var(--font-stack--monospace);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-foreground-muted);
+}
+
+.sidebar-brand-text { font-weight: 700; letter-spacing: -0.01em; }
+
+a { text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-style: wavy; }
+
+/* ---------- code ---------- */
+
+.highlight pre,
+div[class^="highlight"] {
+  border-radius: 8px;
+}
+.highlight pre { font-size: 0.875rem; line-height: 1.85; }
+
+code.literal {
+  border: none;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.875em;
+}
+
+/* API signatures: mint marker instead of Furo's default rule */
+dl.py > dt {
+  border-left: 3px solid var(--moon-mint);
+  border-radius: 0 4px 4px 0;
+  padding-left: 0.85rem;
+}
+
+/* ---------- admonitions: mint for advice, rose for hazards ---------- */
+
+.admonition,
+div.admonition {
+  border-radius: 0 8px 8px 0;
+  box-shadow: none;
+  border-left: 3px solid var(--color-foreground-border);
+}
+
+.admonition > .admonition-title {
+  font-family: var(--font-stack--monospace);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: transparent;
+}
+.admonition > .admonition-title::before,
+.admonition > .admonition-title::after { display: none; }
+
+.admonition.tip,
+.admonition.hint,
+.admonition.note {
+  border-left-color: var(--moon-mint);
+  background: var(--moon-mint-wash);
+}
+.admonition.tip > .admonition-title,
+.admonition.hint > .admonition-title,
+.admonition.note > .admonition-title { color: var(--moon-mint-ink); }
+
+.admonition.warning,
+.admonition.caution,
+.admonition.attention,
+.admonition.danger,
+.admonition.error {
+  border-left-color: var(--moon-rose);
+  background: var(--moon-rose-wash);
+}
+.admonition.warning > .admonition-title,
+.admonition.caution > .admonition-title,
+.admonition.attention > .admonition-title,
+.admonition.danger > .admonition-title,
+.admonition.error > .admonition-title { color: var(--moon-rose-ink); }
+
+body[data-theme="dark"] .admonition.tip,
+body[data-theme="dark"] .admonition.hint,
+body[data-theme="dark"] .admonition.note { background: #23302F; }
+body[data-theme="dark"] .admonition.warning,
+body[data-theme="dark"] .admonition.caution,
+body[data-theme="dark"] .admonition.danger { background: #33232A; }
+
+/* rover voice: :::{admonition} Mind the crater
+                :class: warning                  */
+
+/* ---------- tables ---------- */
+
+table.docutils { border-collapse: collapse; }
+table.docutils th {
+  font-family: var(--font-stack--monospace);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-foreground-muted);
+  border-bottom: 1px solid var(--color-foreground-primary);
+  text-align: left;
+}
+table.docutils td { border-bottom: 1px solid var(--color-background-border); }
+table.docutils tr:last-child td { border-bottom: none; }
+
+/* ---------- small motion ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar-tree .reference,
+  .related-pages a,
+  a.headerlink {
+    transition: color 140ms ease, transform 140ms ease;
+  }
+  .related-pages a:hover { transform: translateY(-2px); }
+}
