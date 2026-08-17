@@ -11,9 +11,14 @@ Two things make moonbuggy different:
 
 - **Speed.** It runs only the tests that actually cover each mutated line,
   applies mutations in memory rather than writing files, runs mutants in
-  parallel forked processes, and caches results across runs. On a suite where
-  test execution dominates, that is **17x faster than the naive approach** of
-  rerunning everything per mutant, and modestly faster than mutmut.
+  parallel forked processes, does the work every mutant shares once in a warm
+  host rather than once per mutant, and caches results across runs. On a suite
+  where test execution dominates, that is **30x faster than the naive
+  approach** of rerunning everything per mutant, and **about 1.5x faster than
+  mutmut**. Both figures come from `make bench`, which measures all three tools
+  in one session on one machine; see
+  [benchmark results](https://jhamon.github.io/moonbuggy/benchmark-results.html)
+  for what they do and do not establish.
 - **Output built for agents.** Results are JSON Lines, with a derived plaintext
   view whose every line starts with a fixed keyword, so `grep SURVIVED` works
   with no knowledge of the schema.

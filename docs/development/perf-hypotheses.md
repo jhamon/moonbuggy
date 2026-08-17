@@ -453,6 +453,27 @@ process that runs.**
   assertion rewriting, pytest walks the file list of every installed
   distribution. `cProfile` put `_consider_importhook` at **26% of one warm
   `pytest.main`**. The answer is identical for every mutant in the run.
+- **Tried once before, and reverted.**
+  [benchmark-results.md](../benchmark-results.md) records `--assert=plain` as
+  one of two Phase 1 changes that "measured as noise" — the same flag, giving
+  the opposite verdict. Both readings are correct, for two reasons that
+  compound:
+
+  - **It was measured against a different architecture.** Phase 1 had no warm
+    session; each mutant was a cold fork that imported the test modules
+    itself, so the flag's saving was buried under ~139ms per mutant of import
+    work that the warm session has since removed. What was noise beside 139ms
+    is 26% of a 18.2ms warm `pytest.main`.
+  - **It was measured with an instrument that could not resolve it.** Phase 1
+    predates `make ab`, and `ab_compare.py`'s own docstring names those single
+    runs as the reason it exists. "Measured as noise" then meant "one run did
+    not obviously move", not "seven interleaved runs put the intervals on top
+    of each other".
+
+  Worth stating rather than quietly re-adopting: a change rejected once is not
+  rejected forever, but the entry that rejected it should say what changed.
+  What changed here is the architecture it sits in and the instrument it is
+  measured with — not the argument for it.
 - **Predicted saving:** 8–15%
 - **Correctness risk:** low, on two independent grounds, and only the warm
   grandchild passes `--assert=plain`. The host imported and rewrote every test
