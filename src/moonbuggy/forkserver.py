@@ -189,7 +189,11 @@ def _child(
         os._exit(0)
 
 
-def _mutant_args(selected: Iterable[str], extra_args: Iterable[str] = ()) -> list[str]:
+def _mutant_args(
+    selected: Iterable[str],
+    extra_args: Iterable[str] = (),
+    rewrite_asserts: bool = True,
+) -> list[str]:
     """pytest arguments for one mutant's run, inside an already-chdir'd child.
 
     `--rootdir` is pinned to the cwd, which the child has already set to the
@@ -206,6 +210,23 @@ def _mutant_args(selected: Iterable[str], extra_args: Iterable[str] = ()) -> lis
     node ids in its coverage map, and pytest cannot select one without the flag
     that creates it. Omitting it here made every such mutant exit with a usage
     error and be reported SUSPICIOUS -- 315 of 434 on boltons.
+
+    `rewrite_asserts=False` adds `--assert=plain`, and only the warm
+    grandchild passes it. Deciding which installed plugins to mark for
+    assertion rewriting means walking the file list of every installed
+    distribution, which profiling put at 26% of a warm `pytest.main` -- work
+    whose answer is the same for every mutant in the run.
+
+    Skipping it costs the warm grandchild nothing, for two independent
+    reasons: the host imported and rewrote every test module during the
+    coverage pass, so the mutant run imports none of them again; and the
+    host's rewrite hook is still in the grandchild's `sys.meta_path`, so
+    anything that *did* import late would be rewritten by it anyway. What the
+    flag turns off is this session installing a second hook and recomputing
+    the same answer.
+
+    It goes ahead of `extra_args` so a project that sets its own
+    `--assert` still wins.
     """
     import os as _os
 
@@ -218,6 +239,7 @@ def _mutant_args(selected: Iterable[str], extra_args: Iterable[str] = ()) -> lis
         "-p",
         "no:cov",
         "-x",
+        *([] if rewrite_asserts else ["--assert=plain"]),
         *extra_args,
         *selected,
     ]
@@ -737,7 +759,7 @@ def _grandchild(
         import pytest
 
         began = time.perf_counter()
-        code = int(pytest.main(_mutant_args(selected, extra_args)))
+        code = int(pytest.main(_mutant_args(selected, extra_args, False)))
         # Measured inside the child so the parent can separate the cost of
         # running the tests from the cost of getting a process ready to run
         # them (criterion M2.1.1). Without this split, "per-mutant fork" and
