@@ -21,7 +21,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -49,7 +48,7 @@ def generate_project(root):
             body += [
                 f"def compute_{f}(n):",
                 "    total = 0",
-                f"    for i in range(n):",
+                "    for i in range(n):",
                 f"        if i % {f + 2} == 0:",
                 "            total += i",
                 "        else:",
@@ -86,7 +85,9 @@ def time_run(cmd, cwd, env=None, repeats=REPEATS):
         proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True)
         elapsed = time.perf_counter() - start
         if proc.returncode != 0:
-            raise SystemExit(f"command failed: {' '.join(cmd)}\n{proc.stdout}\n{proc.stderr}")
+            raise SystemExit(
+                f"command failed: {' '.join(cmd)}\n{proc.stdout}\n{proc.stderr}"
+            )
         best = elapsed if best is None else min(best, elapsed)
     return best
 
@@ -97,11 +98,23 @@ def bench_baseline(root):
 
 def bench_monitoring(root, src, out):
     env = dict(os.environ)
-    env["MOONBUGGY_COVERAGE_TARGETS"] = json.dumps([str(p) for p in src.glob("mod_*.py")])
+    env["MOONBUGGY_COVERAGE_TARGETS"] = json.dumps(
+        [str(p) for p in src.glob("mod_*.py")]
+    )
     env["MOONBUGGY_COVERAGE_OUTPUT"] = str(out)
     elapsed = time_run(
-        [PYTHON, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "moonbuggy.covplugin"],
-        root, env=env,
+        [
+            PYTHON,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-p",
+            "moonbuggy.covplugin",
+        ],
+        root,
+        env=env,
     )
     entries = json.loads(out.read_text())
     return elapsed, len(entries), sum(len(e["tests"]) for e in entries)
@@ -112,7 +125,17 @@ def bench_coverage_py(root):
         "[run]\ndynamic_context = test_function\nsource = workload\n"
     )
     elapsed = time_run(
-        [PYTHON, "-m", "coverage", "run", "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+        [
+            PYTHON,
+            "-m",
+            "coverage",
+            "run",
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+        ],
         root,
     )
     import coverage
@@ -122,7 +145,7 @@ def bench_coverage_py(root):
     pairs = 0
     attributions = 0
     for filename in data.measured_files():
-        for line, contexts in data.contexts_by_lineno(filename).items():
+        for _line, contexts in data.contexts_by_lineno(filename).items():
             real = [c for c in contexts if c]
             if real:
                 pairs += 1
@@ -138,8 +161,17 @@ def bench_pytest_cov(root):
     to pytest as a selection argument.
     """
     elapsed = time_run(
-        [PYTHON, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-         "--cov=workload", "--cov-context=test", "--cov-report="],
+        [
+            PYTHON,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "--cov=workload",
+            "--cov-context=test",
+            "--cov-report=",
+        ],
         root,
     )
     import coverage
@@ -149,7 +181,7 @@ def bench_pytest_cov(root):
     pairs = 0
     attributions = 0
     for filename in data.measured_files():
-        for line, contexts in data.contexts_by_lineno(filename).items():
+        for _line, contexts in data.contexts_by_lineno(filename).items():
             real = {c.split("|")[0] for c in contexts if c}
             if real:
                 pairs += 1
@@ -175,7 +207,10 @@ def main():
             (root / stale).unlink(missing_ok=True)
         pc_time, pc_pairs, pc_attr = bench_pytest_cov(root)
 
-        print(f"{'mechanism':<20} {'wall':>8} {'overhead':>10} {'lines':>8} {'attribs':>9}")
+        print(
+            f"{'mechanism':<20} {'wall':>8} {'overhead':>10} "
+            f"{'lines':>8} {'attribs':>9}"
+        )
         print("-" * 60)
         print(f"{'baseline':<20} {baseline:>7.2f}s {'--':>10} {'--':>8} {'--':>9}")
         for label, t, pairs, attr in (

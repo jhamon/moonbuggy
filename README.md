@@ -20,6 +20,9 @@ Two things make moonbuggy different:
 
 ## Install
 
+Full documentation is published at
+[jhamon.github.io/moonbuggy](https://jhamon.github.io/moonbuggy/).
+
 Requires Python 3.12+ and pytest.
 
 ```bash

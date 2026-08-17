@@ -12,31 +12,55 @@ finding. A map with a spurious extra test only costs time. Every judgement call
 below therefore favours the larger set.
 """
 
+import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
+from typing import TypedDict
 
 from . import baseline, forkserver
+from .mutant import Mutant
+
+
+class LineEntry(TypedDict):
+    """One source line's coverage, as :meth:`LineMap.to_dict` serialises it."""
+
+    file: str
+    line: int
+    tests: list[str]
+
+
+class LineMapDict(TypedDict):
+    """The whole map as plain data. See :meth:`LineMap.to_dict`."""
+
+    tests: list[str]
+    lines: list[LineEntry]
 
 
 class LineMap:
     """Which tests execute which lines."""
 
-    def __init__(self, mapping, tests, project_dir):
+    def __init__(
+        self,
+        mapping: dict[tuple[str, int], set[str]],
+        tests: Iterable[str],
+        project_dir: str | os.PathLike[str],
+    ) -> None:
         self._mapping = mapping
         self._tests = set(tests)
         self._project_dir = Path(project_dir)
 
-    def tests_covering(self, module, line):
+    def tests_covering(self, module: str, line: int) -> set[str]:
         """The node ids of tests that executed `line` of `module`."""
         return self._mapping.get((self._normalise(module), line), set())
 
-    def all_tests(self):
+    def all_tests(self) -> set[str]:
         """Every test node id the instrumented run observed."""
         return set(self._tests)
 
-    def select_for(self, mutant):
+    def select_for(self, mutant: Mutant) -> set[str]:
         """The tests to run for one mutant.
 
         Module-level mutants get the whole suite. Their line runs at import
@@ -49,13 +73,13 @@ class LineMap:
             return self.all_tests()
         return self.tests_covering(mutant.module, mutant.line)
 
-    def _normalise(self, module):
+    def _normalise(self, module: str) -> str:
         path = Path(module)
         if not path.is_absolute():
             path = self._project_dir / path
         return str(path.resolve())
 
-    def to_dict(self):
+    def to_dict(self) -> LineMapDict:
         """The whole map as plain data, for serialising or inspecting."""
         return {
             "tests": sorted(self._tests),
@@ -66,15 +90,27 @@ class LineMap:
         }
 
 
-def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
-                      use_fork=None, timeout=600):
+def run_coverage_pass(
+    project_dir: str | os.PathLike[str],
+    source_dir: str | os.PathLike[str],
+    python: str | None = None,
+    extra_args: Iterable[str] = (),
+    use_fork: bool | None = None,
+    timeout: int = 600,
+) -> LineMap:
     """Run the suite once under coverage, returning a LineMap."""
     project_dir = Path(project_dir)
     python = python or sys.executable
 
     args = [
-        "-q", "-p", "no:cacheprovider", "--rootdir", str(project_dir),
-        f"--cov={source_dir}", "--cov-context=test", "--cov-report=",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--rootdir",
+        str(project_dir),
+        f"--cov={source_dir}",
+        "--cov-context=test",
+        "--cov-report=",
         *extra_args,
     ]
 
@@ -96,7 +132,9 @@ def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
         else:
             proc = subprocess.run(
                 [python, "-m", "pytest", *args],
-                cwd=project_dir, capture_output=True, text=True,
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
                 env=_env_with_data_file(data_file),
             )
             code, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
@@ -109,8 +147,14 @@ def run_coverage_pass(project_dir, source_dir, python=None, extra_args=(),
         return read_coverage_data(data_file, project_dir)
 
 
-def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=600,
-                      extra_args=()):
+def run_baseline_pass(
+    project_dir: str | os.PathLike[str],
+    source_dir: str | os.PathLike[str],
+    probes: int = 1,
+    python: str | None = None,
+    timeout: int = 600,
+    extra_args: Iterable[str] = (),
+) -> tuple[LineMap, set[str]]:
     """Coverage pass plus flakiness probe, for the paths that cannot fork.
 
     Same evidence as the warm session gathers (see
@@ -137,14 +181,21 @@ def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=60
     python = python or sys.executable
 
     with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        data_file = tmp / "coverage-data"
-        runs = []
+        tmp_dir = Path(tmp)
+        data_file = tmp_dir / "coverage-data"
+        runs: list[dict[str, str]] = []
 
         for index in range(1 + probes):
-            outcomes_file = tmp / f"outcomes-{index}.json"
-            args = ["-q", "-p", "no:cacheprovider", "--rootdir", str(project_dir),
-                    "-p", "moonbuggy.baseline"]
+            outcomes_file = tmp_dir / f"outcomes-{index}.json"
+            args = [
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "--rootdir",
+                str(project_dir),
+                "-p",
+                "moonbuggy.baseline",
+            ]
             if index == 0:
                 args += [f"--cov={source_dir}", "--cov-context=test", "--cov-report="]
             else:
@@ -164,20 +215,27 @@ def run_baseline_pass(project_dir, source_dir, probes=1, python=None, timeout=60
         return linemap, flaky
 
 
-def _run_pytest(project_dir, args, env, python, timeout):
+def _run_pytest(
+    project_dir: str | os.PathLike[str],
+    args: list[str],
+    env: dict[str, str],
+    python: str,
+    timeout: int,
+) -> int:
     if forkserver.available():
         code = forkserver.run_pytest_in_fork(project_dir, args, env, timeout)
         if code is None:
             raise CoveragePassError(-1, "coverage pass timed out", "")
         return code
 
-    import os
-
     full_env = dict(os.environ)
     full_env.update(env)
     proc = subprocess.run(
         [python, "-m", "pytest", *args],
-        cwd=project_dir, capture_output=True, text=True, env=full_env,
+        cwd=project_dir,
+        capture_output=True,
+        text=True,
+        env=full_env,
     )
     return proc.returncode
 
@@ -185,22 +243,24 @@ def _run_pytest(project_dir, args, env, python, timeout):
 class CoveragePassError(RuntimeError):
     """pytest could not complete the instrumented run at all."""
 
-    def __init__(self, returncode, stdout, stderr):
+    def __init__(self, returncode: int, stdout: str, stderr: str) -> None:
         super().__init__(
             f"coverage pass failed (pytest exit {returncode}).\n{stdout}\n{stderr}"
         )
         self.returncode = returncode
 
 
-def _env_with_data_file(data_file):
-    import os
-
+def _env_with_data_file(data_file: str | os.PathLike[str]) -> dict[str, str]:
     env = dict(os.environ)
     env["COVERAGE_FILE"] = str(data_file)
     return env
 
 
-def read_coverage_data(data_file, project_dir, known_tests=()):
+def read_coverage_data(
+    data_file: str | os.PathLike[str],
+    project_dir: str | os.PathLike[str],
+    known_tests: Iterable[str] = (),
+) -> LineMap:
     """Build a LineMap from a coverage data file.
 
     Args:
@@ -222,8 +282,8 @@ def read_coverage_data(data_file, project_dir, known_tests=()):
     data = coverage.CoverageData(basename=str(data_file))
     data.read()
 
-    mapping = {}
-    tests = set()
+    mapping: dict[tuple[str, int], set[str]] = {}
+    tests: set[str] = set()
     for filename in data.measured_files():
         resolved = str(Path(filename).resolve())
         for line, contexts in data.contexts_by_lineno(filename).items():
@@ -240,5 +300,7 @@ def read_coverage_data(data_file, project_dir, known_tests=()):
     # contexts know which touched the source. Selection's stated bias is
     # toward the larger set, because a missing covering test is a false
     # SURVIVED and a spurious one only costs time.
-    tests.update(t for t in known_tests if "::" in t and not t.endswith("::<collection>"))
+    tests.update(
+        t for t in known_tests if "::" in t and not t.endswith("::<collection>")
+    )
     return LineMap(mapping, tests, project_dir)

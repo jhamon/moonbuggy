@@ -11,13 +11,31 @@ When the layout cannot be identified, this raises with the flag to pass rather
 than picking something plausible.
 """
 
+import os
+from collections.abc import Sequence
 from pathlib import Path
 
 # Directories never treated as source under test, regardless of layout.
 EXCLUDED = {
-    "tests", "test", "testing", "docs", "doc", "examples", "example",
-    "build", "dist", "site-packages", "node_modules", "__pycache__",
-    ".venv", "venv", ".git", ".tox", ".nox", "migrations", "scripts",
+    "tests",
+    "test",
+    "testing",
+    "docs",
+    "doc",
+    "examples",
+    "example",
+    "build",
+    "dist",
+    "site-packages",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".git",
+    ".tox",
+    ".nox",
+    "migrations",
+    "scripts",
 }
 
 
@@ -25,7 +43,7 @@ class LayoutError(RuntimeError):
     """Raised when the project layout cannot be identified with confidence."""
 
 
-def find_source_dir(project_dir):
+def find_source_dir(project_dir: str | os.PathLike[str]) -> Path:
     """The directory whose Python files should be mutated.
 
     Order matters: an explicit src/ layout is unambiguous, so it wins before any
@@ -64,7 +82,12 @@ def find_source_dir(project_dir):
     )
 
 
-def find_source_files(source_dir, project_dir, include=(), exclude=()):
+def find_source_files(
+    source_dir: str | os.PathLike[str],
+    project_dir: str | os.PathLike[str],
+    include: Sequence[str] = (),
+    exclude: Sequence[str] = (),
+) -> list[str]:
     """Every mutable file under source_dir, as paths relative to project_dir."""
     source_dir = Path(source_dir).resolve()
     project_dir = Path(project_dir).resolve()
@@ -89,7 +112,7 @@ def find_source_files(source_dir, project_dir, include=(), exclude=()):
     return files
 
 
-def looks_like_pytest_project(project_dir):
+def looks_like_pytest_project(project_dir: str | os.PathLike[str]) -> bool:
     """Whether this directory plausibly hosts a pytest suite.
 
     Used to fail fast with a clear message rather than after a coverage pass
@@ -102,7 +125,7 @@ def looks_like_pytest_project(project_dir):
     return any(project_dir.rglob("test_*.py"))
 
 
-def _packages_in(directory):
+def _packages_in(directory: Path) -> list[Path]:
     return [
         child
         for child in sorted(directory.iterdir())
@@ -113,7 +136,7 @@ def _packages_in(directory):
     ]
 
 
-def _loose_modules(directory):
+def _loose_modules(directory: Path) -> list[Path]:
     return [
         path
         for path in directory.glob("*.py")

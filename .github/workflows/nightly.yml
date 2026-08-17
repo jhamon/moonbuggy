@@ -1,0 +1,36 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # 07:00 UTC daily
+  workflow_dispatch:      # M6.3.1
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      - run: make check-oracle PYTHON=$(command -v python)
+      - run: make check-properties PYTHON=$(command -v python)
+      - run: make check-robustness PYTHON=$(command -v python)
+      - run: make check-mutmut PYTHON=$(command -v python)
+      # docs-linkcheck is here rather than in the PR tier: it hits the network,
+      # and an upstream site being down must not block a pull request.
+      - run: make docs-linkcheck PYTHON=$(command -v python)
+      - if: failure()
+        run: ./scripts/report_ci_failure.sh nightly-failure "Nightly CI tier failing"
+        env:
+          GH_TOKEN: ${{ github.token }}

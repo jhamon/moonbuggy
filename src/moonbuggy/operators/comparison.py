@@ -6,6 +6,7 @@ of tests/fixtures/oracle.toml.
 """
 
 import ast
+from collections.abc import Iterator
 
 from . import register, replace_operator
 
@@ -30,7 +31,7 @@ class ComparisonSwap:
 
     name = "comparison_swap"
 
-    def mutations(self, node):
+    def mutations(self, node: ast.AST) -> Iterator[ast.AST]:
         """Yield one replacement per comparison operator in the node.
 
         A chained comparison is a single node carrying several operators, and

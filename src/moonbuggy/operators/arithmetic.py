@@ -5,6 +5,7 @@ its own right, not merely a `+`. See operators.arithmetic_swap in oracle.toml.
 """
 
 import ast
+from collections.abc import Iterator
 
 from . import register, replace_operator
 
@@ -30,7 +31,7 @@ class ArithmeticSwap:
 
     name = "arithmetic_swap"
 
-    def mutations(self, node):
+    def mutations(self, node: ast.AST) -> Iterator[ast.AST]:
         """Yield the node with its arithmetic operator swapped.
 
         Args:

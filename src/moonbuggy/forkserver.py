@@ -22,11 +22,15 @@ POSIX only. Windows has no fork, so runner.py keeps the subprocess path as a
 fallback rather than this being the only way to run.
 """
 
+import contextlib
 import os
 import pickle
 import signal
-import sys
 import time
+from collections.abc import Callable, Iterable
+from typing import Literal, NamedTuple, TypedDict, cast
+
+from .mutant import Mutant
 
 FORK_AVAILABLE = hasattr(os, "fork")
 
@@ -36,23 +40,103 @@ PYTEST_TESTS_FAILED = 1
 # Exit code the child uses when pytest itself raised before returning a code.
 CHILD_CRASHED = 70
 
+# The statuses a mutant run can settle to. Every one of these is decided in a
+# child and reported back to a parent -- the whole reason this module exists
+# is that the decision is made in a process this one did not create by import,
+# so it has to travel back as data rather than being read off a return value
+# in the same frame.
+#
+# UNAPPLIED is meant to stay internal: it means the warm host's grandchild
+# could not swap the mutation into an already-imported module, and the
+# caller is supposed to retry that job coldly rather than report it.
+# `run_warm_session`'s caller does exactly that (runner._rerun_unapplied
+# scrubs every UNAPPLIED before building a Result). `run_warm_batch`'s
+# caller (runner._run_forked_batch) does not -- it builds a Result straight
+# from the returned statuses with no filtering -- so UNAPPLIED can reach a
+# Result on that path today. Pre-existing gap, not introduced or fixed here.
+Status = Literal["SURVIVED", "KILLED", "TIMEOUT", "SUSPICIOUS", "UNAPPLIED"]
 
-def available():
+
+class Job(NamedTuple):
+    """One mutant queued to run, paired with the tests selected for it.
+
+    Direction: parent -> child. Every fork-per-mutant path (`run_batch`,
+    `run_warm_batch`'s warm host, `_fork_grandchildren`) receives a list of
+    these as a plain in-process argument -- the child inherits it via `fork`,
+    so nothing is actually serialised. `run_warm_session` is the one path
+    where a `Job` list really does cross a pipe: `build_jobs` returns it in
+    the parent, and it is pickled to the warm host.
+
+    Named because every call site destructures it as `mutant, selected =
+    job` -- the two fields already have names in the reader's head, just not
+    in the code before this.
+    """
+
+    mutant: Mutant
+    selected: list[str]
+
+
+class WarmSessionEvidence(TypedDict):
+    """What the warm host learned from running the suite, sent back once.
+
+    Direction: child (the warm host) -> parent. Pickled across the status
+    pipe by `_warm_session_host` right after its coverage (and probe) runs
+    finish, and unpickled in `run_warm_session` before `build_jobs` is called
+    with it as the parent's only evidence about what happened in the child.
+    """
+
+    runs: list[dict[str, str]]
+    """One ``{node_id: outcome}`` mapping per unmutated run: the coverage-pass
+    run first, then one per flakiness probe. Same shape ``baseline.classify``
+    consumes."""
+    startup: float
+    coverage_seconds: float
+    probe_seconds: float
+
+
+class WarmSessionOutcome(NamedTuple):
+    """What `run_warm_session` hands back once every job has settled.
+
+    Not itself pickled -- assembled in the parent from data that already
+    crossed the pipe (the evidence above, and one streamed frame per job) --
+    but named for the same reason as `Job`: `run_session` destructures it
+    positionally as `jobs, statuses, child_seconds, child_wall_seconds =
+    outcome`, and those four names belong on the type, not just at the call
+    site.
+    """
+
+    jobs: list[Job]
+    statuses: list[Status]
+    child_seconds: float
+    child_wall_seconds: float
+
+
+def available() -> bool:
     """Whether this platform can fork. False on Windows, where the subprocess
     path in runner.py is used instead."""
     return FORK_AVAILABLE
 
 
-def warm_up():
+def warm_up() -> None:
     """Import pytest in the parent so children inherit it already loaded.
 
     Deliberately imports nothing from the project under test -- see the module
     docstring for why that would be a correctness bug rather than a slow path.
     """
-    import pytest  # noqa: F401
+    import pytest
+
+    # Referenced so the import is not "unused" -- its value is not needed,
+    # only the side effect of pytest being loaded into sys.modules.
+    _ = pytest
 
 
-def run_in_fork(project_dir, mutant, selected, timeout, install_mutation):
+def run_in_fork(
+    project_dir: str | os.PathLike[str],
+    mutant: Mutant,
+    selected: Iterable[str],
+    timeout: float,
+    install_mutation: Callable[[Mutant], None],
+) -> Status:
     """Fork, apply the mutation in the child, run its tests. Returns a status."""
     read_fd, write_fd = os.pipe()
     pid = os.fork()
@@ -66,7 +150,14 @@ def run_in_fork(project_dir, mutant, selected, timeout, install_mutation):
     return _parent(pid, read_fd, timeout)
 
 
-def _child(project_dir, mutant, selected, install_mutation, write_fd, extra_args=()):
+def _child(
+    project_dir: str | os.PathLike[str],
+    mutant: Mutant,
+    selected: Iterable[str],
+    install_mutation: Callable[[Mutant], None],
+    write_fd: int,
+    extra_args: Iterable[str] = (),
+) -> None:
     code = CHILD_CRASHED
     micros = 0
     try:
@@ -91,16 +182,14 @@ def _child(project_dir, mutant, selected, install_mutation, write_fd, extra_args
     except BaseException:
         code = CHILD_CRASHED
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.write(write_fd, _child_payload(code, micros))
-        except OSError:
-            pass
         # os._exit, not sys.exit: skips atexit handlers and buffer flushing that
         # belong to the parent's state, which this child only borrowed.
         os._exit(0)
 
 
-def _mutant_args(selected, extra_args=()):
+def _mutant_args(selected: Iterable[str], extra_args: Iterable[str] = ()) -> list[str]:
     """pytest arguments for one mutant's run, inside an already-chdir'd child.
 
     `--rootdir` is pinned to the cwd, which the child has already set to the
@@ -121,12 +210,25 @@ def _mutant_args(selected, extra_args=()):
     import os as _os
 
     return [
-        "-q", "-p", "no:cacheprovider", "--rootdir", _os.getcwd(),
-        "-p", "no:cov", "-x", *extra_args, *selected,
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--rootdir",
+        _os.getcwd(),
+        "-p",
+        "no:cov",
+        "-x",
+        *extra_args,
+        *selected,
     ]
 
 
-def run_pytest_in_fork(cwd, args, env_updates, timeout):
+def run_pytest_in_fork(
+    cwd: str | os.PathLike[str],
+    args: list[str],
+    env_updates: dict[str, str],
+    timeout: float,
+) -> int | None:
     """Run pytest.main in a forked child. Returns its exit code, or None on timeout.
 
     Used for the coverage pass. That pass was a `python -m pytest` subprocess and
@@ -157,10 +259,8 @@ def run_pytest_in_fork(cwd, args, env_updates, timeout):
         except BaseException:
             code = CHILD_CRASHED
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 os.write(write_fd, bytes([min(code, 255)]))
-            except OSError:
-                pass
             os._exit(0)
 
     os.close(write_fd)
@@ -180,9 +280,17 @@ def run_pytest_in_fork(cwd, args, env_updates, timeout):
 
 
 def run_warm_session(
-    project_dir, cov_args, timeout, concurrency, build_jobs, apply_swap,
-    probe_args=None, probes=0, on_result=None, extra_args=(),
-):
+    project_dir: str | os.PathLike[str],
+    cov_args: list[str],
+    timeout: float,
+    concurrency: int,
+    build_jobs: Callable[[WarmSessionEvidence], list[Job]],
+    apply_swap: Callable[[Mutant], None],
+    probe_args: list[str] | None = None,
+    probes: int = 0,
+    on_result: Callable[[int, Status, float], None] | None = None,
+    extra_args: Iterable[str] = (),
+) -> WarmSessionOutcome | None:
     """One suite run that both builds the coverage map and warms the process.
 
     Previously these were two separate full runs of the test suite: a coverage
@@ -208,16 +316,17 @@ def run_warm_session(
         apply_swap: called in each grandchild to apply its mutation.
         probe_args: pytest arguments for the extra unmutated probe runs.
         probes: how many probe runs to make (M1.4.3).
-        on_result: called as ``(index, status)`` the moment each mutant finishes, so a
-            run killed mid-flight has already reported what it knew.
+        on_result: called as ``(index, status, test_seconds)`` the moment each mutant
+            finishes, so a run killed mid-flight has already reported what it knew.
         extra_args: pytest arguments every run shares, including each mutant's.
 
     Returns:
-        ``(jobs, statuses)``, or None if the host could not complete -- so the caller
-            falls back rather than reporting results it did not actually
-            produce.
+        A :class:`WarmSessionOutcome`, or None if the host could not complete --
+            so the caller falls back rather than reporting results it did not
+            actually produce.
     """
     jobs_read, jobs_write = os.pipe()
+    jobs_write_closed = False
     status_read, status_write = os.pipe()
     pid = os.fork()
 
@@ -225,8 +334,16 @@ def run_warm_session(
         os.close(jobs_write)
         os.close(status_read)
         _warm_session_host(
-            project_dir, cov_args, timeout, concurrency, apply_swap,
-            jobs_read, status_write, probe_args, probes, extra_args,
+            project_dir,
+            cov_args,
+            timeout,
+            concurrency,
+            apply_swap,
+            jobs_read,
+            status_write,
+            probe_args,
+            probes,
+            extra_args,
         )
 
     os.close(jobs_read)
@@ -234,7 +351,9 @@ def run_warm_session(
     try:
         try:
             size = int.from_bytes(_read_exactly(status_read, 8), "big")
-            baseline = pickle.loads(_read_exactly(status_read, size))
+            baseline: WarmSessionEvidence = pickle.loads(
+                _read_exactly(status_read, size)
+            )
         except (EOFError, OSError, pickle.UnpicklingError):
             return None
 
@@ -243,9 +362,9 @@ def run_warm_session(
         os.write(jobs_write, len(payload).to_bytes(8, "big"))
         os.write(jobs_write, payload)
         os.close(jobs_write)
-        jobs_write = None
+        jobs_write_closed = True
 
-        statuses = [None] * len(jobs)
+        statuses: list[Status | None] = [None] * len(jobs)
         child_seconds = 0.0
         child_wall_seconds = 0.0
         done = 0
@@ -264,18 +383,30 @@ def run_warm_session(
             done += 1
             if on_result is not None:
                 on_result(index, status, test_seconds)
-        return jobs, statuses, child_seconds, child_wall_seconds
+        # Every index in range(len(jobs)) was assigned exactly once by the loop
+        # above, so no `None` placeholder survives -- safe to narrow the type.
+        return WarmSessionOutcome(
+            jobs, cast("list[Status]", statuses), child_seconds, child_wall_seconds
+        )
     finally:
-        if jobs_write is not None:
+        if not jobs_write_closed:
             os.close(jobs_write)
         os.close(status_read)
         _kill(pid)
 
 
 def _warm_session_host(
-    project_dir, cov_args, timeout, concurrency, apply_swap, jobs_read, status_write,
-    probe_args, probes, extra_args=(),
-):
+    project_dir: str | os.PathLike[str],
+    cov_args: list[str],
+    timeout: float,
+    concurrency: int,
+    apply_swap: Callable[[Mutant], None],
+    jobs_read: int,
+    status_write: int,
+    probe_args: list[str] | None,
+    probes: int,
+    extra_args: Iterable[str] = (),
+) -> None:
     try:
         os.chdir(project_dir)
         devnull = os.open(os.devnull, os.O_WRONLY)
@@ -294,7 +425,7 @@ def _warm_session_host(
         # be large and most often is not.
         startup = time.perf_counter() - began
 
-        runs = []
+        runs: list[dict[str, str]] = []
         recorder = OutcomeRecorder()
         coverage_began = time.perf_counter()
         pytest.main(cov_args, plugins=[recorder])
@@ -309,17 +440,18 @@ def _warm_session_host(
             pytest.main(probe_args or cov_args, plugins=[probe])
             runs.append(dict(probe.outcomes))
 
-        payload = pickle.dumps({
+        evidence: WarmSessionEvidence = {
             "runs": runs,
             "startup": startup,
             "coverage_seconds": coverage_seconds,
             "probe_seconds": time.perf_counter() - coverage_began - coverage_seconds,
-        })
+        }
+        payload = pickle.dumps(evidence)
         os.write(status_write, len(payload).to_bytes(8, "big"))
         os.write(status_write, payload)
 
         size = int.from_bytes(_read_exactly(jobs_read, 8), "big")
-        jobs = pickle.loads(_read_exactly(jobs_read, size))
+        jobs: list[Job] = pickle.loads(_read_exactly(jobs_read, size))
 
         # Read every module under mutation once, here, so the grandchildren
         # inherit the text instead of each opening the file for itself. The
@@ -328,7 +460,9 @@ def _warm_session_host(
 
         prewarm({mutant.module for mutant, _ in jobs})
 
-        def emit(index, status, test_seconds, child_wall):
+        def emit(
+            index: int, status: Status, test_seconds: float, child_wall: float
+        ) -> None:
             os.write(
                 status_write,
                 index.to_bytes(4, "big")
@@ -344,7 +478,7 @@ def _warm_session_host(
         os._exit(0)
 
 
-def _read_exactly(fd, size):
+def _read_exactly(fd: int, size: int) -> bytes:
     chunks = b""
     while len(chunks) < size:
         chunk = os.read(fd, size - len(chunks))
@@ -354,7 +488,14 @@ def _read_exactly(fd, size):
     return chunks
 
 
-def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swap):
+def run_warm_batch(
+    project_dir: str | os.PathLike[str],
+    jobs: list[Job],
+    timeout: float,
+    concurrency: int,
+    warm_args: list[str],
+    apply_swap: Callable[[Mutant], None],
+) -> list[Status] | None:
     """Run mutants from a process that has already imported the test suite.
 
     The expensive part of a mutant run is not the tests -- it is importing the
@@ -375,7 +516,9 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
 
     if pid == 0:
         os.close(read_fd)
-        _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd)
+        _warm_host(
+            project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd
+        )
 
     os.close(write_fd)
     deadline = time.monotonic() + timeout * max(1, len(jobs))
@@ -388,10 +531,8 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
             collected += chunk
             if time.monotonic() > deadline:
                 break
-        try:
+        with contextlib.suppress(ChildProcessError):
             os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
     finally:
         os.close(read_fd)
 
@@ -400,8 +541,11 @@ def run_warm_batch(project_dir, jobs, timeout, concurrency, warm_args, apply_swa
     return [_STATUS_BY_CODE.get(code, "SUSPICIOUS") for code in collected]
 
 
-_STATUS_BY_CODE = {
-    0: "SURVIVED", 1: "KILLED", 2: "TIMEOUT", 3: "SUSPICIOUS",
+_STATUS_BY_CODE: dict[int, Status] = {
+    0: "SURVIVED",
+    1: "KILLED",
+    2: "TIMEOUT",
+    3: "SUSPICIOUS",
     # Not a status the user ever sees. It means the grandchild could not apply
     # its mutation in place, so nothing was measured and the mutant has to be
     # re-run on the cold path. Reporting SUSPICIOUS instead -- which is what
@@ -410,7 +554,7 @@ _STATUS_BY_CODE = {
     # library that way.
     4: "UNAPPLIED",
 }
-_CODE_BY_STATUS = {v: k for k, v in _STATUS_BY_CODE.items()}
+_CODE_BY_STATUS: dict[Status, int] = {v: k for k, v in _STATUS_BY_CODE.items()}
 
 # One streamed result: a 4-byte job index, a 1-byte status code, 4 bytes of
 # in-child test microseconds, and 4 bytes of total child microseconds as the
@@ -423,7 +567,15 @@ _CODE_BY_STATUS = {v: k for k, v in _STATUS_BY_CODE.items()}
 _FRAME_SIZE = 13
 
 
-def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, write_fd):
+def _warm_host(
+    project_dir: str | os.PathLike[str],
+    jobs: list[Job],
+    timeout: float,
+    concurrency: int,
+    warm_args: list[str],
+    apply_swap: Callable[[Mutant], None],
+    write_fd: int,
+) -> None:
     try:
         os.chdir(project_dir)
         devnull = os.open(os.devnull, os.O_WRONLY)
@@ -444,7 +596,14 @@ def _warm_host(project_dir, jobs, timeout, concurrency, warm_args, apply_swap, w
         os._exit(0)
 
 
-def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None, extra_args=()):
+def _fork_grandchildren(
+    jobs: list[Job],
+    timeout: float,
+    concurrency: int,
+    apply_swap: Callable[[Mutant], None],
+    emit: Callable[[int, Status, float, float], None] | None = None,
+    extra_args: Iterable[str] = (),
+) -> list[Status]:
     """Fork one grandchild per job, at most `concurrency` at a time.
 
     Args:
@@ -461,9 +620,9 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None, extra
     Returns:
         the statuses, in job order.
     """
-    statuses = [None] * len(jobs)
+    statuses: list[Status | None] = [None] * len(jobs)
     pending = list(enumerate(jobs))
-    running = {}
+    running: dict[int, tuple[int, int, float, float]] = {}
 
     while pending or running:
         while pending and len(running) < concurrency:
@@ -474,7 +633,12 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None, extra
                 os.close(read_fd)
                 _grandchild(mutant, selected, apply_swap, write_fd, extra_args)
             os.close(write_fd)
-            running[pid] = (index, read_fd, time.monotonic() + timeout, time.monotonic())
+            running[pid] = (
+                index,
+                read_fd,
+                time.monotonic() + timeout,
+                time.monotonic(),
+            )
 
         for pid, (index, read_fd, deadline, forked_at) in list(running.items()):
             try:
@@ -486,8 +650,14 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None, extra
                 os.close(read_fd)
                 del running[pid]
                 if emit is not None:
-                    emit(index, statuses[index], test_seconds,
-                         time.monotonic() - forked_at)
+                    emit(
+                        index,
+                        # statuses[index] was just assigned above, on this
+                        # same line's left side -- never None here.
+                        cast(Status, statuses[index]),
+                        test_seconds,
+                        time.monotonic() - forked_at,
+                    )
             elif time.monotonic() > deadline:
                 _kill(pid)
                 statuses[index] = "TIMEOUT"
@@ -499,14 +669,22 @@ def _fork_grandchildren(jobs, timeout, concurrency, apply_swap, emit=None, extra
         if running:
             time.sleep(0.002)
 
-    return statuses
+    # Every index in range(len(jobs)) is assigned exactly once, above, before
+    # the loop that reads `running` can exit -- safe to narrow the type.
+    return cast("list[Status]", statuses)
 
 
 # Exit code for "the mutation could not be applied in this process".
 COULD_NOT_APPLY = 71
 
 
-def _grandchild(mutant, selected, apply_swap, write_fd, extra_args=()):
+def _grandchild(
+    mutant: Mutant,
+    selected: Iterable[str],
+    apply_swap: Callable[[Mutant], None],
+    write_fd: int,
+    extra_args: Iterable[str] = (),
+) -> None:
     code = CHILD_CRASHED
     micros = 0
     try:
@@ -532,10 +710,8 @@ def _grandchild(mutant, selected, apply_swap, write_fd, extra_args=()):
         if code != COULD_NOT_APPLY:
             code = CHILD_CRASHED
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.write(write_fd, _child_payload(code, micros))
-        except OSError:
-            pass
         os._exit(0)
 
 
@@ -544,16 +720,23 @@ def _grandchild(mutant, selected, apply_swap, write_fd, extra_args=()):
 _CHILD_PAYLOAD_SIZE = 5
 
 
-def _child_payload(code, micros):
+def _child_payload(code: int, micros: int) -> bytes:
     return bytes([min(code, 255)]) + _micros(micros / 1_000_000)
 
 
-def _micros(seconds):
+def _micros(seconds: float) -> bytes:
     """Seconds as 4 big-endian bytes of microseconds, saturating at 71 minutes."""
     return min(max(int(seconds * 1_000_000), 0), 0xFFFFFFFF).to_bytes(4, "big")
 
 
-def run_batch(project_dir, jobs, timeout, install_mutation, concurrency, extra_args=()):
+def run_batch(
+    project_dir: str | os.PathLike[str],
+    jobs: list[Job],
+    timeout: float,
+    install_mutation: Callable[[Mutant], None],
+    concurrency: int,
+    extra_args: Iterable[str] = (),
+) -> list[Status]:
     """Run many mutants concurrently, one forked child each.
 
     Mutants are independent by construction -- each child gets its own address
@@ -564,9 +747,9 @@ def run_batch(project_dir, jobs, timeout, install_mutation, concurrency, extra_a
     Returns statuses in the order the jobs were given, regardless of the order
     children finish.
     """
-    statuses = [None] * len(jobs)
+    statuses: list[Status | None] = [None] * len(jobs)
     pending = list(enumerate(jobs))
-    running = {}
+    running: dict[int, tuple[int, int, float]] = {}
 
     while pending or running:
         while pending and len(running) < concurrency:
@@ -575,8 +758,14 @@ def run_batch(project_dir, jobs, timeout, install_mutation, concurrency, extra_a
             pid = os.fork()
             if pid == 0:
                 os.close(read_fd)
-                _child(project_dir, mutant, selected, install_mutation, write_fd,
-                       extra_args)
+                _child(
+                    project_dir,
+                    mutant,
+                    selected,
+                    install_mutation,
+                    write_fd,
+                    extra_args,
+                )
             os.close(write_fd)
             running[pid] = (index, read_fd, time.monotonic() + timeout)
 
@@ -598,10 +787,12 @@ def run_batch(project_dir, jobs, timeout, install_mutation, concurrency, extra_a
         if running and pending is not None:
             time.sleep(0.002)
 
-    return statuses
+    # Every index in range(len(jobs)) is assigned exactly once, above, before
+    # the loop that reads `running` can exit -- safe to narrow the type.
+    return cast("list[Status]", statuses)
 
 
-def _parent(pid, read_fd, timeout):
+def _parent(pid: int, read_fd: int, timeout: float) -> Status:
     deadline = time.monotonic() + timeout
     try:
         while True:
@@ -617,7 +808,7 @@ def _parent(pid, read_fd, timeout):
         os.close(read_fd)
 
 
-def _status_from(read_fd):
+def _status_from(read_fd: int) -> tuple[Status, float]:
     """Read one child's result. Returns (status, in-child test seconds).
 
     An empty payload means the child never reached its own `finally` -- a test
@@ -643,7 +834,7 @@ def _status_from(read_fd):
     return "SUSPICIOUS", seconds
 
 
-def _kill(pid):
+def _kill(pid: int) -> None:
     """Terminate a hung child and reap it, so a timeout leaves no zombie."""
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:

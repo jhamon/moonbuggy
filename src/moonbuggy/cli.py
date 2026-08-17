@@ -11,14 +11,21 @@ drift apart.
 
 import argparse
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
-from . import __version__
+from . import __version__, profiling
 from .baseline import BaselineError
 from .cache import ResultCache
 from .coverage_pass import CoveragePassError, run_baseline_pass
-from .discover import LayoutError, find_source_dir, find_source_files, looks_like_pytest_project
+from .discover import (
+    LayoutError,
+    find_source_dir,
+    find_source_files,
+    looks_like_pytest_project,
+)
 from .generate import GenerationError, generate_mutants
+from .mutant import Mutant
 from .report import (
     StreamingJSONL,
     find_record,
@@ -28,14 +35,13 @@ from .report import (
     summarise,
     write_jsonl,
 )
-from . import profiling
 from .runner import run_mutants, run_session
 from .srcio import SourceError, read_source
 
 DEFAULT_OUTPUT_DIR = ".moonbuggy"
 
 
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> int:
     """Run moonbuggy.
 
     Args:
@@ -59,12 +65,14 @@ def main(argv=None):
         return 2
 
 
-def _build_parser():
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="moonbuggy",
         description="Fast, agent-first mutation testing for Python.",
     )
-    parser.add_argument("--version", action="version", version=f"moonbuggy {__version__}")
+    parser.add_argument(
+        "--version", action="version", version=f"moonbuggy {__version__}"
+    )
     parser.set_defaults(command="run")
 
     _add_run_arguments(parser)
@@ -77,37 +85,79 @@ def _build_parser():
     return parser
 
 
-def _add_run_arguments(parser):
+def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--project", default=".", help="project root (default: cwd)")
-    parser.add_argument("--source", default=None, help="directory to mutate (default: discovered)")
+    parser.add_argument(
+        "--source", default=None, help="directory to mutate (default: discovered)"
+    )
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--timeout", type=float, default=30.0,
-                        help="seconds before a mutant is called TIMEOUT (default: 30)")
-    parser.add_argument("--operators", default=None,
-                        help="comma-separated operator names to use (default: all)")
-    parser.add_argument("--include", action="append", default=[],
-                        help="only mutate paths containing this fragment (repeatable)")
-    parser.add_argument("--exclude", action="append", default=[],
-                        help="skip paths containing this fragment (repeatable)")
-    parser.add_argument("--jobs", type=int, default=0,
-                        help="mutants to run concurrently (default: CPU count - 1)")
-    parser.add_argument("-n", "--workers", type=int, default=0,
-                        help="pytest-xdist workers per mutant run (default: 0, serial)")
-    parser.add_argument("--no-cache", action="store_true", help="ignore and do not update the cache")
-    parser.add_argument("--clear-cache", action="store_true", help="delete the cache, then run")
-    parser.add_argument("--quiet", action="store_true", help="only print the summary line")
-    parser.add_argument("--pytest-arg", action="append", default=[], metavar="ARG",
-                        help="extra argument passed to every pytest run, including "
-                             "the baseline and each mutant (repeatable). Needed when "
-                             "your real test command is not bare pytest -- "
-                             "`--pytest-arg=--doctest-modules`, say")
-    parser.add_argument("--flaky-probe", type=int, default=1, metavar="N",
-                        help="extra unmutated suite runs used to detect flaky tests; "
-                             "a test whose outcome varies makes every mutant it covers "
-                             "SUSPICIOUS (default: 1, 0 disables)")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="seconds before a mutant is called TIMEOUT (default: 30)",
+    )
+    parser.add_argument(
+        "--operators",
+        default=None,
+        help="comma-separated operator names to use (default: all)",
+    )
+    parser.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        help="only mutate paths containing this fragment (repeatable)",
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help="skip paths containing this fragment (repeatable)",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=0,
+        help="mutants to run concurrently (default: CPU count - 1)",
+    )
+    parser.add_argument(
+        "-n",
+        "--workers",
+        type=int,
+        default=0,
+        help="pytest-xdist workers per mutant run (default: 0, serial)",
+    )
+    parser.add_argument(
+        "--no-cache", action="store_true", help="ignore and do not update the cache"
+    )
+    parser.add_argument(
+        "--clear-cache", action="store_true", help="delete the cache, then run"
+    )
+    parser.add_argument(
+        "--quiet", action="store_true", help="only print the summary line"
+    )
+    parser.add_argument(
+        "--pytest-arg",
+        action="append",
+        default=[],
+        metavar="ARG",
+        help="extra argument passed to every pytest run, including "
+        "the baseline and each mutant (repeatable). Needed when "
+        "your real test command is not bare pytest -- "
+        "`--pytest-arg=--doctest-modules`, say",
+    )
+    parser.add_argument(
+        "--flaky-probe",
+        type=int,
+        default=1,
+        metavar="N",
+        help="extra unmutated suite runs used to detect flaky tests; "
+        "a test whose outcome varies makes every mutant it covers "
+        "SUSPICIOUS (default: 1, 0 disables)",
+    )
 
 
-def _run(args):
+def _run(args: argparse.Namespace) -> int:
     project_dir = Path(args.project).resolve()
     profiler = profiling.active()
 
@@ -158,7 +208,10 @@ def _run(args):
         return 2
 
     if not args.quiet:
-        print(f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files", file=sys.stderr)
+        print(
+            f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files",
+            file=sys.stderr,
+        )
         print("moonbuggy: running coverage pass...", file=sys.stderr)
 
     jsonl_path = output_dir / "results.jsonl"
@@ -172,18 +225,32 @@ def _run(args):
             # does not apply; fall back to the separate baseline pass and cold
             # forks.
             linemap, flaky = run_baseline_pass(
-                project_dir, source_dir, args.flaky_probe, extra_args=args.pytest_arg,
+                project_dir,
+                source_dir,
+                args.flaky_probe,
+                extra_args=args.pytest_arg,
             )
             results = run_mutants(
-                project_dir, mutants, linemap,
-                timeout=args.timeout, xdist_workers=args.workers, cache=cache,
-                jobs=args.jobs or None, flaky=flaky, on_result=stream.write,
+                project_dir,
+                mutants,
+                linemap,
+                timeout=args.timeout,
+                xdist_workers=args.workers,
+                cache=cache,
+                jobs=args.jobs or None,
+                flaky=flaky,
+                on_result=stream.write,
             )
         else:
             _, results = run_session(
-                project_dir, mutants, source_dir,
-                timeout=args.timeout, cache=cache, jobs=args.jobs or None,
-                probes=args.flaky_probe, on_result=stream.write,
+                project_dir,
+                mutants,
+                source_dir,
+                timeout=args.timeout,
+                cache=cache,
+                jobs=args.jobs or None,
+                probes=args.flaky_probe,
+                on_result=stream.write,
                 extra_args=args.pytest_arg,
             )
 
@@ -222,7 +289,9 @@ def _run(args):
     return 1 if counts["SURVIVED"] else 0
 
 
-def _collect_mutants(project_dir, source_files, wanted):
+def _collect_mutants(
+    project_dir: Path, source_files: list[str], wanted: set[str] | None
+) -> tuple[list[Mutant], list[str]]:
     """Generate mutants for every readable source file.
 
     One unparseable or undecodable file must not end the run: the other files
@@ -240,14 +309,26 @@ def _collect_mutants(project_dir, source_files, wanted):
         ``(mutants, unreadable)`` -- the mutants found, and the relative paths that
             were skipped.
     """
-    mutants = []
-    unreadable = []
+    mutants: list[Mutant] = []
+    unreadable: list[str] = []
     for relative in source_files:
-        skipped = []
+        skipped: list[int] = []
+
+        def _note_skip(line: int, why: str, skipped: list[int] = skipped) -> None:
+            # `skipped=skipped` is the usual late-binding fix for a closure
+            # inside a loop -- captures THIS iteration's list rather than
+            # whatever `skipped` is bound to when `generate_mutants` calls
+            # back, even though nothing here is async or deferred past the
+            # loop body. A plain `def` in place of the original lambda, since
+            # a lambda's parameters cannot carry annotations.
+            skipped.append(line)
+
         try:
             source = read_source(project_dir / relative)
             found = generate_mutants(
-                source, module=relative, on_skip=lambda line, why: skipped.append(line)
+                source,
+                module=relative,
+                on_skip=_note_skip,
             )
         except (SourceError, GenerationError) as error:
             print(f"moonbuggy: skipping {relative}: {error}", file=sys.stderr)
@@ -264,14 +345,14 @@ def _collect_mutants(project_dir, source_files, wanted):
     return mutants, unreadable
 
 
-def _prepare_cache(args, output_dir):
+def _prepare_cache(args: argparse.Namespace, output_dir: Path) -> ResultCache | None:
     cache = ResultCache(output_dir / "cache.json")
     if args.clear_cache:
         cache.clear()
     return None if args.no_cache else cache
 
 
-def _show(args):
+def _show(args: argparse.Namespace) -> int:
     path = Path(args.output_dir) / "results.jsonl"
     if not path.exists():
         path = Path(".") / args.output_dir / "results.jsonl"

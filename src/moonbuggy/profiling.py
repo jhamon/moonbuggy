@@ -25,7 +25,24 @@ Design constraints, in order of importance:
 import json
 import os
 import time
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from typing import TypedDict
+
+
+class Summary(TypedDict):
+    """The shape returned by :meth:`Profiler.summary`.
+
+    ``notes`` values are whatever :meth:`Profiler.note` was called with --
+    this module makes no claim about what a caller finds worth recording.
+    """
+
+    wall: float
+    phases: dict[str, float]
+    other: float
+    attributed: float
+    notes: dict[str, object]
+
 
 ENV_VAR = "MOONBUGGY_PROFILE"
 
@@ -51,14 +68,14 @@ PHASES = (
 class Profiler:
     """Accumulates time per named phase for one run."""
 
-    def __init__(self, enabled=False):
+    def __init__(self, enabled: bool = False) -> None:
         self.enabled = enabled
-        self.totals = dict.fromkeys(PHASES, 0.0)
+        self.totals: dict[str, float] = dict.fromkeys(PHASES, 0.0)
         self.started = time.perf_counter()
-        self.notes = {}
+        self.notes: dict[str, object] = {}
 
     @contextmanager
-    def span(self, name):
+    def span(self, name: str) -> Iterator[None]:
         """Time a block and add it to `name`.
 
         Nested spans are not supported and not needed: a nested span's time
@@ -73,13 +90,13 @@ class Profiler:
         finally:
             self.add(name, time.perf_counter() - began)
 
-    def add(self, name, seconds):
+    def add(self, name: str, seconds: float) -> None:
         """Add measured seconds to a phase."""
         if not self.enabled:
             return
         self.totals[name] = self.totals.get(name, 0.0) + seconds
 
-    def split(self, name, seconds, weights):
+    def split(self, name: str, seconds: float, weights: Mapping[str, float]) -> None:
         """Attribute `seconds` of wall clock across phases in a given ratio.
 
         Used for the concurrent mutant phase, where per-child durations sum to
@@ -107,12 +124,12 @@ class Profiler:
             for phase, measured in weights.items():
                 self.add(phase, seconds * measured / total)
 
-    def note(self, key, value):
+    def note(self, key: str, value: object) -> None:
         """Record a non-timing fact worth reading next to the numbers."""
         if self.enabled:
             self.notes[key] = value
 
-    def summary(self):
+    def summary(self) -> Summary:
         """The report: per-phase seconds, wall clock, and what is unattributed.
 
         Returns:
@@ -132,7 +149,7 @@ class Profiler:
             "notes": dict(self.notes),
         }
 
-    def write(self, path=None):
+    def write(self, path: str | None = None) -> Summary | None:
         """Write the summary as JSON, if profiling is on."""
         if not self.enabled:
             return None
@@ -148,12 +165,12 @@ class Profiler:
 _ACTIVE = Profiler(enabled=bool(os.environ.get(ENV_VAR)))
 
 
-def active():
+def active() -> Profiler:
     """The profiler for this process."""
     return _ACTIVE
 
 
-def reset(enabled=None):
+def reset(enabled: bool | None = None) -> Profiler:
     """Start a fresh profiler. Used by tests and by the in-process harness."""
     global _ACTIVE
     if enabled is None:

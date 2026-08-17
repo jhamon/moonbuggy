@@ -11,6 +11,7 @@ no extra signal. Strings are never mutated, which is what makes criterion C2
 """
 
 import ast
+from collections.abc import Iterator
 
 from . import register
 
@@ -25,7 +26,7 @@ class ConstantInt:
 
     name = "constant_int"
 
-    def mutations(self, node):
+    def mutations(self, node: ast.AST) -> Iterator[ast.AST]:
         """Yield the constant, one larger.
 
         Args:
@@ -52,7 +53,7 @@ class ConstantBool:
 
     name = "constant_bool"
 
-    def mutations(self, node):
+    def mutations(self, node: ast.AST) -> Iterator[ast.AST]:
         """Yield the constant, negated.
 
         Args:

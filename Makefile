@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage oss-hunt check-differential check-fresh-install check-all
+.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -42,6 +42,21 @@ docs: docstring-coverage
 docstring-coverage:
 	$(PYTHON) -m interrogate -c pyproject.toml src/moonbuggy
 	$(dir $(PYTHON))pydoclint --style=google --config=pyproject.toml src/moonbuggy
+
+## Milestone M5.1: the lint gate.
+## Config and the reason for every disabled rule live in pyproject.toml.
+lint:
+	$(dir $(PYTHON))ruff check .
+
+## Milestone M5.2: the formatting gate. Checks only; `ruff format` reformats.
+format-check:
+	$(dir $(PYTHON))ruff format --check .
+
+## Milestone M5.3: the type gate. Strict, over src/moonbuggy only, with
+## nothing carved out. tests/ and scripts/ are deliberately outside it --
+## they are harnesses and benchmark drivers, not the shipped tool.
+typecheck:
+	$(PYTHON) -m mypy
 
 ## Milestone M3.3.10: every code example in the docs is executed.
 docs-test:
@@ -100,7 +115,7 @@ check-fresh-install:
 check-mutmut:
 	$(PYTHON) scripts/check_mutmut_differential.py
 
-check-all: test check-oracle check-spike check-properties check-robustness check-mutmut check-fresh-install
+check-all: lint format-check typecheck test check-oracle check-spike check-properties check-robustness check-mutmut check-fresh-install
 
 ## Criterion B3: coverage mechanism benchmark.
 ## Prints wall-clock and map content for each candidate. See docs/spike-b-findings.md.

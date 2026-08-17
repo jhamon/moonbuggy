@@ -15,7 +15,12 @@ from moonbuggy.generate import generate_mutants
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_project"
 ORACLE = tomllib.loads((Path(__file__).parent / "fixtures" / "oracle.toml").read_text())
-MODULES = ["sample/discounts.py", "sample/inventory.py", "sample/loops.py", "sample/config.py"]
+MODULES = [
+    "sample/discounts.py",
+    "sample/inventory.py",
+    "sample/loops.py",
+    "sample/config.py",
+]
 
 
 def generate_all():
@@ -42,7 +47,8 @@ def test_each_oracle_mutant_is_generated_with_expected_text(expected):
     matches = [
         m
         for m in generate_all()
-        if (m.module, m.line, m.operator) == (expected["module"], expected["line"], expected["operator"])
+        if (m.module, m.line, m.operator)
+        == (expected["module"], expected["line"], expected["operator"])
     ]
 
     assert len(matches) == 1, f"expected exactly one mutant, got {len(matches)}"
@@ -86,9 +92,7 @@ def test_module_level_mutants_are_flagged():
     module-scoped so it can widen the test set for them, so generation has to
     say so.
     """
-    module_level = {
-        (m.module, m.line) for m in generate_all() if m.module_level
-    }
+    module_level = {(m.module, m.line) for m in generate_all() if m.module_level}
 
     # Exactly the oracle's two module-level cases, plus the suppressed CACHE_SIZE
     # line which is also module-level.
@@ -100,9 +104,7 @@ def test_module_level_mutants_are_flagged():
 
 
 def test_function_body_mutants_are_not_flagged_module_level():
-    inside_functions = [
-        m for m in generate_all() if m.module == "sample/loops.py"
-    ]
+    inside_functions = [m for m in generate_all() if m.module == "sample/loops.py"]
 
     assert inside_functions
     assert not any(m.module_level for m in inside_functions)

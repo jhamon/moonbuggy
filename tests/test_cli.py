@@ -9,13 +9,12 @@ asks whether it works on a project it has never seen.
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.slow
 
-PROJECT = '''\
+PROJECT = """\
 def clamp(value, ceiling):
     if value > ceiling:
         return ceiling
@@ -27,9 +26,9 @@ def total(values):
     for value in values:
         running += value
     return running
-'''
+"""
 
-TESTS = '''\
+TESTS = """\
 from calc import clamp, total
 
 
@@ -43,7 +42,7 @@ def test_clamp_caps_large_values():
 
 def test_total_sums():
     assert total([1, 2, 3]) == 6
-'''
+"""
 
 
 @pytest.fixture
@@ -62,10 +61,15 @@ def throwaway(tmp_path):
 def moonbuggy(*args, cwd, expect=None):
     proc = subprocess.run(
         [sys.executable, "-m", "moonbuggy.cli", *args],
-        cwd=cwd, capture_output=True, text=True, timeout=300,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
     if expect is not None:
-        assert proc.returncode == expect, f"{proc.returncode}\n{proc.stdout}\n{proc.stderr}"
+        assert proc.returncode == expect, (
+            f"{proc.returncode}\n{proc.stdout}\n{proc.stderr}"
+        )
     return proc
 
 
@@ -86,7 +90,13 @@ def test_jsonl_records_are_all_parseable(throwaway):
     assert lines
     for line in lines:
         record = json.loads(line)
-        assert record["status"] in {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
+        assert record["status"] in {
+            "KILLED",
+            "SURVIVED",
+            "TIMEOUT",
+            "SUSPICIOUS",
+            "SKIPPED",
+        }
 
 
 def test_plaintext_has_one_line_per_jsonl_record(throwaway):
@@ -104,10 +114,16 @@ def test_grep_for_survived_matches_the_jsonl(throwaway):
     moonbuggy(cwd=throwaway)
     out = throwaway / ".moonbuggy"
 
-    records = [json.loads(line) for line in out.joinpath("results.jsonl").read_text().splitlines()]
+    records = [
+        json.loads(line)
+        for line in out.joinpath("results.jsonl").read_text().splitlines()
+    ]
     expected = sum(1 for r in records if r["status"] == "SURVIVED")
-    grepped = sum(1 for line in out.joinpath("results.txt").read_text().splitlines()
-                  if line.startswith("SURVIVED"))
+    grepped = sum(
+        1
+        for line in out.joinpath("results.txt").read_text().splitlines()
+        if line.startswith("SURVIVED")
+    )
 
     assert grepped == expected
 
@@ -118,7 +134,9 @@ def test_show_prints_the_diff_for_a_mutant_id(throwaway):
     moonbuggy(cwd=throwaway)
     records = [
         json.loads(line)
-        for line in (throwaway / ".moonbuggy" / "results.jsonl").read_text().splitlines()
+        for line in (throwaway / ".moonbuggy" / "results.jsonl")
+        .read_text()
+        .splitlines()
     ]
 
     proc = moonbuggy("show", records[0]["id"], cwd=throwaway, expect=0)
@@ -188,7 +206,9 @@ def test_corrupt_cache_degrades_to_a_cold_run(throwaway):
 def test_editing_source_invalidates_only_that_files_entries(throwaway):
     # Criterion F2, end to end.
     moonbuggy(cwd=throwaway)
-    (throwaway / "calc.py").write_text(PROJECT.replace("running = 0", "running = 0  # touched"))
+    (throwaway / "calc.py").write_text(
+        PROJECT.replace("running = 0", "running = 0  # touched")
+    )
 
     proc = moonbuggy(cwd=throwaway)
 
@@ -209,7 +229,10 @@ def test_users_own_test_suite_still_passes_afterwards(throwaway):
     """
     before = subprocess.run(
         [sys.executable, "-m", "pytest", "-q"],
-        cwd=throwaway, capture_output=True, text=True, timeout=120,
+        cwd=throwaway,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert before.returncode == 0, before.stdout
 
@@ -217,7 +240,10 @@ def test_users_own_test_suite_still_passes_afterwards(throwaway):
 
     after = subprocess.run(
         [sys.executable, "-m", "pytest", "-q"],
-        cwd=throwaway, capture_output=True, text=True, timeout=120,
+        cwd=throwaway,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert after.returncode == 0, (
         "The project's own suite fails after a moonbuggy run:\n" + after.stdout

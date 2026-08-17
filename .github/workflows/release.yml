@@ -1,0 +1,335 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Two tags pushed close together should not run two full multi-hour `gate`
+# jobs (or two `publish` jobs) concurrently. Unlike ci.yml, a release must
+# not be cancelled mid-flight, so this only serialises per-ref rather than
+# cancelling the older run (same reasoning as docs.yml's Pages deploy).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0          # M7.1.2 needs main's history, not just the tag
+          persist-credentials: false
+
+      # Each check is its own step so the log names which one tripped, rather
+      # than a single script whose failure means "something about the version".
+      - name: M7.1.1/M7.1.3 — tag, package version, and changelog agree
+        run: python scripts/check_version_consistency.py "${GITHUB_REF_NAME}"
+
+      - name: M7.1.2 — the tagged commit is an ancestor of main
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "FAIL (M7.1.2): ${GITHUB_SHA} is not an ancestor of main" >&2
+            exit 1
+          fi
+          echo "OK: tagged commit is on main"
+
+      - name: M7.1.4 — the version is not already on PyPI
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/moonbuggy/${VERSION}/json")"
+          if [ "$CODE" = "200" ]; then
+            echo "FAIL (M7.1.4): moonbuggy ${VERSION} already exists on PyPI." >&2
+            echo "PyPI versions cannot be replaced. Ship the fix as the next patch." >&2
+            exit 1
+          fi
+          echo "OK: version ${VERSION} is unused (HTTP ${CODE})"
+
+  gate:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    # check-fresh-install (pulled in by check-all below) defaults PYENV_PY to
+    # a pyenv path that does not exist on the runner; ci.yml's `install` job
+    # and this workflow's own `smoke`/`verify` jobs all set it to the plain
+    # "python" already on PATH. Set once at job level since every step here
+    # goes through check-all.
+    env:
+      PYENV_PY: python
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      # check-all covers lint, format-check, typecheck, test, check-oracle,
+      # check-spike, check-properties, check-robustness, check-mutmut and
+      # check-fresh-install. These five are the gates it does not include.
+      - run: make check-all PYTHON=$(command -v python)
+      - run: make docs PYTHON=$(command -v python)
+      - run: make docs-test PYTHON=$(command -v python)
+      - run: make docs-linkcheck PYTHON=$(command -v python)
+      - run: make check-differential PYTHON=$(command -v python)
+      - run: make oss-hunt PYTHON=$(command -v python)
+
+  build:
+    needs: [preflight, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      # M7.3: without a pinned epoch the archives embed build time and two
+      # builds of the same commit differ, which is what M7.3.1 checks for.
+      - name: Build sdist and wheel
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export SOURCE_DATE_EPOCH
+          echo "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
+          python -m pip install --upgrade build
+          python -m build --sdist --wheel --outdir dist .
+      - run: sha256sum dist/* | tee dist.sha256
+      # upload-artifact roots the artifact at the least common ancestor of
+      # these paths, i.e. the workspace: the artifact contains dist/<files>
+      # and dist.sha256 side by side, not nested one level deeper. Consumers
+      # must therefore download with `path: .`, not `path: dist` (which would
+      # produce dist/dist/<files>). reproducible/ is the exception: it
+      # downloads to a/ and b/ on purpose and already accounts for this.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: |
+            dist/
+            dist.sha256
+
+  build-again:
+    needs: [preflight, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      # M7.3: without a pinned epoch the archives embed build time and two
+      # builds of the same commit differ, which is what M7.3.1 checks for.
+      - name: Build sdist and wheel
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export SOURCE_DATE_EPOCH
+          echo "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
+          python -m pip install --upgrade build
+          python -m build --sdist --wheel --outdir dist .
+      - run: sha256sum dist/* | tee dist-again.sha256
+      # Same artifact-root note as the `build` job above: this artifact
+      # contains dist/<files> and dist-again.sha256 side by side. Only
+      # `reproducible` consumes it, and it already downloads to b/ expecting
+      # exactly this layout.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist-again
+          path: |
+            dist/
+            dist-again.sha256
+
+  reproducible:
+    needs: [build, build-again]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: a
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist-again
+          path: b
+      - name: M7.3.1 — the two builds are byte-identical
+        run: |
+          sed 's|  dist/|  |' a/dist.sha256 | sort > a.sums
+          sed 's|  dist/|  |' b/dist-again.sha256 | sort > b.sums
+          if ! diff -u a.sums b.sums; then
+            echo "FAIL (M7.3.1): two builds of the same tag differ." >&2
+            echo "Usually SOURCE_DATE_EPOCH is not reaching the build." >&2
+            exit 1
+          fi
+          echo "OK: builds are byte-identical"
+          cat a.sums
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      # path: . (not "dist") because the artifact already contains
+      # dist/<files> at its own root; see the comment on the upload step in
+      # the `build` job.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: .
+      # Deliberately NOT ./.github/actions/setup: that installs the project
+      # from source, which would put the repo's own copy on the path and make
+      # this test say nothing about the wheel.
+      - name: M7.4.2 — the wheel reports the tag's version
+        run: |
+          python -m venv /tmp/vercheck
+          /tmp/vercheck/bin/pip install --quiet dist/*.whl
+          REPORTED="$(/tmp/vercheck/bin/moonbuggy --version | awk '{print $2}')"
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          if [ "$REPORTED" != "$EXPECTED" ]; then
+            echo "FAIL (M7.4.2): wheel reports ${REPORTED}, tag says ${EXPECTED}" >&2
+            exit 1
+          fi
+          echo "OK: wheel reports ${REPORTED}"
+      - name: M7.4.3 — the wheel runs end to end on an unseen project
+        run: ./scripts/check_fresh_install.sh --wheel "$(ls dist/*.whl)"
+        env:
+          PYENV_PY: python
+
+  publish:
+    needs: [reproducible, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/p/moonbuggy
+    permissions:
+      # M7.5.1: OIDC, so no long-lived API token exists in repository secrets.
+      id-token: write
+      # M7.5.3: build provenance attestations are signed with the same identity.
+      attestations: write
+      contents: read
+    steps:
+      # path: . (not "dist") because the artifact already contains
+      # dist/<files> at its own root; see the comment on the upload step in
+      # the `build` job. This also lands dist.sha256 next to dist/, not
+      # inside it, so gh-action-pypi-publish's default packages-dir: dist/
+      # never sees it — the rm below is just a belt-and-braces cleanup.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: .
+      # dist.sha256 rides along in the artifact and is not a distribution file;
+      # twine rejects the upload if it is left in the directory.
+      - run: rm -f dist.sha256
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          attestations: true
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # the only job in this repository that writes to it
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      # path: . (not "dist") because the artifact already contains
+      # dist/<files> at its own root; see the comment on the upload step in
+      # the `build` job. dist.sha256 lands next to dist/, not inside it,
+      # so `dist/*` below only globs the actual distribution files anyway —
+      # the rm is just a belt-and-braces cleanup of the workspace.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: .
+      - run: rm -f dist.sha256
+      # M7.6.2: the notes are extracted verbatim. The workflow moves what a
+      # person wrote; it does not generate anything. Same regex as
+      # scripts/check_version_consistency.py, which already proved (in
+      # preflight) that this section exists and is non-empty.
+      - name: Extract the changelog section for this tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python - "$VERSION" > notes.md <<'PY'
+          import re, sys
+          version = sys.argv[1]
+          text = open("CHANGELOG.md").read()
+          pattern = rf"^## \[{re.escape(version)}\].*?$(.*?)(?=^## \[|\Z)"
+          match = re.search(pattern, text, re.MULTILINE | re.DOTALL)
+          if match is None:
+              sys.exit(f"no CHANGELOG.md section for {version}")
+          sys.stdout.write(match.group(1).strip() + "\n")
+          PY
+          cat notes.md
+      - run: gh release create "${GITHUB_REF_NAME}" dist/* --title "${GITHUB_REF_NAME}" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  verify:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      # PyPI's CDN takes a moment to serve a new version. Retry rather than
+      # failing a release that actually succeeded.
+      - name: Install from real PyPI
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python -m venv /tmp/verify
+          for attempt in 1 2 3 4 5; do
+            if /tmp/verify/bin/pip install --quiet "moonbuggy==${VERSION}"; then
+              echo "installed on attempt ${attempt}"
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              echo "FAIL (M7.7.1): could not install moonbuggy==${VERSION}" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          /tmp/verify/bin/moonbuggy --version
+      # M7.7.1: --pypi installs the just-published version from the real
+      # index (not the repository, not a local wheel) into the script's own
+      # venv, then runs H1/H2 against it end to end. This is what makes verify
+      # more than an import check: a stranger's `pip install moonbuggy` is
+      # exercised the same way the wheel was before publish.
+      - name: Run the smoke test against the published package
+        run: ./scripts/check_fresh_install.sh --pypi "${GITHUB_REF_NAME#v}"
+        env:
+          PYENV_PY: python

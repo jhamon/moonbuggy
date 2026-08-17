@@ -34,7 +34,7 @@ REPO = Path(__file__).resolve().parent.parent
 PYTHON = str(REPO / ".venv" / "bin" / "python")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import workloads  # noqa: E402
+import workloads
 
 # Each shape is run this many times and the median taken. One run of a
 # sub-second workload is mostly scheduler noise, and a profile built from
@@ -49,7 +49,13 @@ OVERHEAD_CEILING = 1.20
 def run_once(project, profile_path=None):
     """One moonbuggy run. Returns (external wall clock, profile dict or None)."""
     command = [
-        PYTHON, "-m", "moonbuggy.cli", "--no-cache", "--quiet", "--timeout", "10",
+        PYTHON,
+        "-m",
+        "moonbuggy.cli",
+        "--no-cache",
+        "--quiet",
+        "--timeout",
+        "10",
     ]
     env = None
     if profile_path is not None:
@@ -119,16 +125,23 @@ def report(summary):
 
     attributed = sum(seconds for _, seconds in rows)
     unattributed = wall - attributed
-    print(f"  {'other (unattributed)':<26} {unattributed:>8.4f}s {unattributed / wall:>6.1%}")
+    print(
+        f"  {'other (unattributed)':<26} {unattributed:>8.4f}s "
+        f"{unattributed / wall:>6.1%}"
+    )
 
     share = attributed / wall
-    print(f"\n  M2.1.2 phases cover >= 95% of wall clock : "
-          f"{_verdict(share >= ATTRIBUTION_FLOOR)}  ({share:.1%})")
+    print(
+        f"\n  M2.1.2 phases cover >= 95% of wall clock : "
+        f"{_verdict(share >= ATTRIBUTION_FLOOR)}  ({share:.1%})"
+    )
 
     overhead = summary["external_wall"] / summary["unprofiled_wall"]
-    print(f"  M2.1.4 profiled run within 20% of plain  : "
-          f"{_verdict(overhead <= OVERHEAD_CEILING)}  "
-          f"({overhead:.2f}x, {summary['unprofiled_wall']:.3f}s unprofiled)")
+    print(
+        f"  M2.1.4 profiled run within 20% of plain  : "
+        f"{_verdict(overhead <= OVERHEAD_CEILING)}  "
+        f"({overhead:.2f}x, {summary['unprofiled_wall']:.3f}s unprofiled)"
+    )
     return share >= ATTRIBUTION_FLOOR, overhead <= OVERHEAD_CEILING
 
 

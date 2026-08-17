@@ -16,11 +16,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from moonbuggy import __version__  # noqa: E402
+from moonbuggy import __version__
 
 project = "moonbuggy"
 author = "Jennifer Hamon"
-copyright = "2026, Jennifer Hamon"  # noqa: A001 - Sphinx requires this name
+copyright = "2026, Jennifer Hamon"
 release = __version__
 version = __version__
 
@@ -61,7 +61,15 @@ myst_enable_extensions = ["deflist", "colon_fence"]
 myst_heading_anchors = 3
 
 templates_path = []
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
+# M5.3: `docs/superpowers` holds this project's own development record -- the
+# design spec and implementation plan for building moonbuggy itself, not
+# documentation about moonbuggy. They're checked in as a record, not written
+# for or linked from any page a user would reach, so they have no toctree
+# entry -- which `-W` turns into a build error unless excluded here. Beyond
+# quieting the warning, this keeps them out of `docs/_build/html`, which
+# Task 12 publishes to GitHub Pages: internal planning documents should not
+# ship to users.
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "superpowers"]
 
 html_theme = "furo"
 html_title = f"moonbuggy {release}"
@@ -125,8 +133,8 @@ def records(project):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 '''
 
-doctest_global_cleanup = '''
+doctest_global_cleanup = """
 for _holder in _TEMPORARY_DIRECTORIES:
     _holder.cleanup()
 _TEMPORARY_DIRECTORIES.clear()
-'''
+"""

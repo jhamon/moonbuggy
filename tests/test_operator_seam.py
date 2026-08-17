@@ -44,7 +44,7 @@ def reset_discovery():
 
 
 def test_new_operator_is_discovered_without_touching_the_engine():
-    engine_before = (Path(moonbuggy_generate_path()).read_text())
+    engine_before = Path(moonbuggy_generate_path()).read_text()
     THROWAWAY.write_text(SOURCE)
     try:
         reset_discovery()

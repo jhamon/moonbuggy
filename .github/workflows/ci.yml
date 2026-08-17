@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# M6.1.3: a force-push supersedes its own in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: ${{ matrix.python-version }}
+      # PYTHON is resolved to an absolute path here rather than passed as the
+      # bare word "python": the lint/format-check/docstring-coverage targets
+      # derive their tool directory from $(dir $(PYTHON)), and GNU make's
+      # $(dir) on a slash-free word returns "./" rather than searching PATH.
+      # An absolute path (found the same way, via `command -v`) points at the
+      # bin/ directory setup-python installed ruff and pydoclint into.
+      - run: make lint PYTHON=$(command -v python)
+      - run: make format-check PYTHON=$(command -v python)
+      - run: make typecheck PYTHON=$(command -v python)
+      - run: make test PYTHON=$(command -v python)
+      - run: make docs PYTHON=$(command -v python)
+
+  install:
+    name: fresh install and docs examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      # M6.1: both spawn real installs and neither is version-sensitive, so
+      # they run once on the floor version rather than on every matrix leg.
+      - run: make docs-test PYTHON=$(command -v python)
+      - run: make check-fresh-install PYTHON=$(command -v python)
+        env:
+          PYENV_PY: python

@@ -38,7 +38,16 @@ def make(status, module="sample/inventory.py", line=9, nearest=None, suppressed=
 def test_record_carries_every_required_field():
     record = record_for(make("SURVIVED", nearest="tests/test_inventory.py::test_x"))
 
-    for key in ("id", "status", "file", "line", "operator", "category", "nearest_test", "diff"):
+    for key in (
+        "id",
+        "status",
+        "file",
+        "line",
+        "operator",
+        "category",
+        "nearest_test",
+        "diff",
+    ):
         assert key in record, key
 
 
@@ -86,7 +95,7 @@ def test_plaintext_line_starts_with_a_fixed_status_keyword():
 
 
 def test_every_status_keyword_is_in_the_fixed_vocabulary():
-    assert STATUS_KEYWORDS == {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
+    assert {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"} == STATUS_KEYWORDS
 
 
 def test_plaintext_line_has_no_embedded_newlines():
@@ -99,7 +108,9 @@ def test_plaintext_line_has_no_embedded_newlines():
 
 def test_plaintext_uses_key_value_tokens():
     # Criterion E6. Naive whitespace splitting must parse it.
-    line = render_line(record_for(make("SURVIVED", nearest="tests/test_inventory.py::test_x")))
+    line = render_line(
+        record_for(make("SURVIVED", nearest="tests/test_inventory.py::test_x"))
+    )
 
     tokens = line.split()
     pairs = dict(t.split("=", 1) for t in tokens if "=" in t)

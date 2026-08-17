@@ -19,8 +19,8 @@ real worker process and a real import sequence.
 """
 
 import json
-import shutil
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -44,9 +44,22 @@ def run_fixture_suite(*extra_args, env_extra=None):
     env["MOONBUGGY_MUTANT"] = json.dumps(MUTANT)
     env.update(env_extra or {})
     return subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-         "-p", "moonbuggy.plugin", *extra_args],
-        cwd=FIXTURE, capture_output=True, text=True, timeout=120, env=env,
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-p",
+            "moonbuggy.plugin",
+            *extra_args,
+        ],
+        cwd=FIXTURE,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
     )
 
 
@@ -73,9 +86,21 @@ def test_unmutated_run_is_green():
     env = dict(os.environ)
     env.pop("MOONBUGGY_MUTANT", None)
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-         "-p", "moonbuggy.plugin"],
-        cwd=FIXTURE, capture_output=True, text=True, timeout=120, env=env,
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-p",
+            "moonbuggy.plugin",
+        ],
+        cwd=FIXTURE,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
     )
 
     assert result.returncode == 0, result.stdout
@@ -94,7 +119,9 @@ def test_xdist_test_has_teeth():
     # same run must report the mutant as surviving. If this ever starts failing,
     # test_mutation_reaches_xdist_workers is passing for the wrong reason and
     # no longer detects the failure mode it exists to catch.
-    result = run_fixture_suite("-n", "2", env_extra={"MOONBUGGY_SPIKE_CONTROLLER_ONLY": "1"})
+    result = run_fixture_suite(
+        "-n", "2", env_extra={"MOONBUGGY_SPIKE_CONTROLLER_ONLY": "1"}
+    )
 
     assert result.returncode == 0, (
         "Expected the mutant to survive with worker propagation disabled. "
@@ -128,7 +155,10 @@ def test_mutated_bytecode_is_never_cached_to_disk():
 
     clean = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
-        cwd=FIXTURE, capture_output=True, text=True, timeout=120,
+        cwd=FIXTURE,
+        capture_output=True,
+        text=True,
+        timeout=120,
         env={k: v for k, v in os.environ.items() if k != "MOONBUGGY_MUTANT"},
     )
 
@@ -142,6 +172,7 @@ def test_source_file_on_disk_is_untouched():
     # Criterion D3. In-memory means in-memory.
     run_fixture_suite()
 
-    assert "return quantity >= BULK_THRESHOLD" in (
-        FIXTURE / "sample" / "discounts.py"
-    ).read_text()
+    assert (
+        "return quantity >= BULK_THRESHOLD"
+        in (FIXTURE / "sample" / "discounts.py").read_text()
+    )

@@ -22,14 +22,17 @@ LARGE_FILE_BUDGET_SECONDS = 60.0
 
 def _large_source(functions=2000):
     """Roughly 10k lines: five lines per function, all of them mutable."""
-    return "\n\n".join(
-        f"def step_{n}(x):\n"
-        f"    total = x + {n}\n"
-        f"    if total > {n}:\n"
-        f"        total = total * 2\n"
-        f"    return total"
-        for n in range(functions)
-    ) + "\n"
+    return (
+        "\n\n".join(
+            f"def step_{n}(x):\n"
+            f"    total = x + {n}\n"
+            f"    if total > {n}:\n"
+            f"        total = total * 2\n"
+            f"    return total"
+            for n in range(functions)
+        )
+        + "\n"
+    )
 
 
 def _deeply_nested_source(depth=90):
@@ -101,6 +104,7 @@ def test_an_expression_too_deep_to_rewrite_is_reported_not_crashed(monkeypatch):
     generation does with a RecursionError from an operator, and that is exactly
     what this provokes.
     """
+
     class ExplodingOperator:
         name = "exploding"
 

@@ -19,10 +19,10 @@ from moonbuggy.inmemory import install, uninstall_all
 
 # The mutated line must be the line that RAISES, since that is the line a
 # traceback quotes. Mutating any other line proves nothing about linecache.
-SOURCE = '''\
+SOURCE = """\
 def boom():
     raise ValueError("original")
-'''
+"""
 MUTATED_LINE = 'raise ValueError("mutated")'
 
 

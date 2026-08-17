@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "moonbuggy"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Fast, agent-first mutation testing for Python"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -44,12 +44,25 @@ docs = [
   # nothing enforces is a convention the next file quietly breaks.
   "pydoclint>=0.5",
 ]
+# Milestone M5: the static quality gate. Pinned here so a clean venv can run
+# `make lint`, `make format-check`, and `make typecheck` from a fresh checkout.
+# Not required to use moonbuggy.
+lint = [
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
 
 [project.scripts]
 moonbuggy = "moonbuggy.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/moonbuggy"]
+
+[tool.hatch.version]
+# M7: one literal version in the repository. docs/conf.py and
+# scripts/oss_hunt.py already read __version__, so making that the source and
+# having the build read it removes a number that could drift from the build.
+path = "src/moonbuggy/__init__.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -95,11 +108,17 @@ exclude = '\.venv|__pycache__'
 # the completeness gate too -- otherwise the exemption is not one.
 skip-checking-short-docstrings = true
 allow-init-docstring = true
-# Type hints are not this codebase's convention. Several core objects cross
-# process boundaries as plain tuples and dicts by design, and annotating them
-# would document a shape the code deliberately does not enforce. What is
-# checked is that the documented arguments match the real ones.
-arg-type-hints-in-signature = false
+# M5.3 reversed the decision this comment used to record: that type hints
+# were not this codebase's convention because core objects cross process
+# boundaries as plain tuples and dicts, so annotating them would document a
+# shape the code did not enforce. Those objects still cross process
+# boundaries -- but now as NamedTuple/TypedDict declarations (Job, Status,
+# WarmSessionEvidence, WarmSessionOutcome at the top of forkserver.py;
+# OutcomesFile in baseline.py), each carrying a comment naming the direction
+# it travels. The shape is enforced rather than implied, which is what
+# removed the objection. The signature is now the authority, so docstrings
+# are not required to repeat types.
+arg-type-hints-in-signature = true
 arg-type-hints-in-docstring = false
 check-return-types = false
 check-yield-types = false
@@ -108,3 +127,55 @@ check-yield-types = false
 # the caller has to handle, and where the `raise` statement physically lives
 # is not information the caller needs.
 skip-checking-raises = true
+
+[tool.ruff]
+# Milestone M5.2. 88 is ruff's default. The prose comments in this codebase
+# wrap nearer 79, and the formatter does not rewrap comments or docstrings, so
+# they stay as written -- the extra width is available to code.
+line-length = 88
+target-version = "py312"
+# tests/fixtures is *input data* for moonbuggy's own suite, not code this
+# project maintains. It deliberately contains a file with a syntax error
+# (M1.4.1) and a file in a non-UTF8 encoding (M1.4.7). A linter pointed at it
+# fails on input it is designed to fail on.
+# "*.md" excludes Markdown files -- ruff format rewrites Python code fences
+# inside them, and docs/oss-findings.md's fences are quoted suggested tests
+# against other people's projects, not source this project maintains.
+extend-exclude = ["tests/fixtures", "docs/_build", ".venv", "*.md"]
+
+[tool.ruff.lint]
+# M5.1: chosen for this code rather than inherited from ALL and then riddled
+# with suppressions. E/F/W are the pyflakes and pycodestyle core, I sorts
+# imports, UP catches syntax kept alive past its Python version, B is bugbear,
+# SIM is the readability set.
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# conf.py must adjust sys.path before importing the package, which is E402.
+# That is the file's contract with Sphinx, not a style choice, so it is
+# exempted here rather than with a `# noqa` -- M5.1.2 wants zero inline
+# suppressions. (The file also carries a `# noqa: A001` for Sphinx's required
+# module-level `copyright` name. A-rules are not in `select`, so that
+# suppression is inert and Task 1 Step 8 simply deletes it.)
+"docs/conf.py" = ["E402"]
+# `copy` is re-exported here on purpose, not consumed here -- it is kept
+# importable as `moonbuggy.operators.copy` for operators that need it, without
+# every operator module having to import it itself (M5.1.3).
+"src/moonbuggy/operators/__init__.py" = ["F401"]
+# These scripts and this test module each need `sys.path.insert` to run before
+# a local, not-installed module can be imported (the sibling `workloads`
+# module, or a script's own `scripts/` or `src/` directory). That ordering is
+# the file's contract, not a style choice -- the same reasoning as
+# docs/conf.py above.
+"scripts/ab_compare.py" = ["E402"]
+"scripts/differential.py" = ["E402"]
+"scripts/profile_run.py" = ["E402"]
+"scripts/verify_findings.py" = ["E402"]
+"tests/test_ab_harness.py" = ["E402"]
+
+[tool.mypy]
+# Milestone M5.3. Strict over the package only -- tests/ and scripts/ are
+# harnesses and benchmark drivers, and annotating them buys ceremony.
+python_version = "3.12"
+files = ["src/moonbuggy"]
+strict = true

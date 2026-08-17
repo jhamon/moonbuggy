@@ -24,14 +24,18 @@ three named risks. What the spike found for each:
 
 import importlib.util
 import linecache
+import os
 import sys
-from importlib.machinery import PathFinder, SourceFileLoader
+import types
+from collections.abc import Buffer, Sequence
+from importlib.abc import Loader
+from importlib.machinery import ModuleSpec, PathFinder, SourceFileLoader
 from pathlib import Path
 
 from .srcio import detect_encoding, encode_source, read_source, replace_line
 
 
-def mutated_source(path, line, mutated_text):
+def mutated_source(path: str | os.PathLike[str], line: int, mutated_text: str) -> str:
     """The file's source with one line replaced, keeping its indentation.
 
     Args:
@@ -63,7 +67,13 @@ class _MutatingLoader(SourceFileLoader):
     the .py files really are untouched. See docs/spike-a-findings.md.
     """
 
-    def __init__(self, fullname, path, source, encoding=None):
+    def __init__(
+        self,
+        fullname: str,
+        path: str,
+        source: str,
+        encoding: str | None = None,
+    ) -> None:
         super().__init__(fullname, path)
         self._source = source
         self._source_path = str(Path(path).resolve())
@@ -73,30 +83,40 @@ class _MutatingLoader(SourceFileLoader):
         # imports without error and contains different characters (M1.4.7).
         self._encoding = encoding or "utf-8"
 
-    def get_data(self, path):
+    def get_data(self, path: str) -> bytes:
         if str(Path(path).resolve()) == self._source_path:
             return encode_source(self._source, self._encoding)
         # Anything else is a bytecode path. Refusing it forces compilation from
         # the mutated source rather than any cache lying around on disk.
         raise OSError(f"moonbuggy: not reading cached bytecode for {path}")
 
-    def set_data(self, path, data, **kwargs):
+    def set_data(self, path: str, data: Buffer, **kwargs: object) -> None:
         """Never write bytecode for a mutated module. Deliberately a no-op."""
         return
 
-    def get_source(self, fullname):
+    def get_source(self, fullname: str) -> str:
         return self._source
 
 
 class _MutationFinder:
     """Serves one specific file mutated; invisible for everything else."""
 
-    def __init__(self, path, source, encoding=None):
+    def __init__(
+        self,
+        path: str | os.PathLike[str],
+        source: str,
+        encoding: str | None = None,
+    ) -> None:
         self.path = str(Path(path).resolve())
         self.source = source
         self.encoding = encoding
 
-    def find_spec(self, fullname, path=None, target=None):
+    def find_spec(
+        self,
+        fullname: str,
+        path: Sequence[str] | None = None,
+        target: types.ModuleType | None = None,
+    ) -> ModuleSpec | None:
         # PathFinder is consulted directly rather than by re-entering
         # sys.meta_path, so this cannot recurse into itself.
         spec = PathFinder.find_spec(fullname, path, target)
@@ -104,14 +124,17 @@ class _MutationFinder:
             return None
         if str(Path(spec.origin).resolve()) != self.path:
             return None
+        loader: Loader = _MutatingLoader(
+            fullname, spec.origin, self.source, self.encoding
+        )
         return importlib.util.spec_from_file_location(
             fullname,
             spec.origin,
-            loader=_MutatingLoader(fullname, spec.origin, self.source, self.encoding),
+            loader=loader,
         )
 
 
-def install(path, line, mutated_text):
+def install(path: str | os.PathLike[str], line: int, mutated_text: str) -> str:
     """Apply a mutation to `path` for every subsequent import in this process.
 
     Safe to call before the module is imported, which is the normal case:
@@ -139,7 +162,7 @@ def install(path, line, mutated_text):
     return source
 
 
-def uninstall_all():
+def uninstall_all() -> None:
     """Remove every installed mutation from this process.
 
     Only meaningful in-process; the normal lifecycle is one mutant per process,
@@ -152,13 +175,13 @@ def uninstall_all():
         _evict_already_imported(finder.path)
 
 
-def _populate_linecache(path, source):
+def _populate_linecache(path: str, source: str) -> None:
     lines = source.splitlines(keepends=True)
     # mtime None: linecache.checkcache skips entries it did not read from disk.
     linecache.cache[path] = (len(source), None, lines, path)
 
 
-def _evict_already_imported(path):
+def _evict_already_imported(path: str) -> None:
     """Drop any module already imported from this file.
 
     A module imported before install() would otherwise keep its unmutated code

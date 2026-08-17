@@ -18,8 +18,13 @@ doctest. Without the argument reaching every run, no mutant can be killed.
 """
 
 import pytest
-
-from support import assert_no_traceback, moonbuggy, records, status_of_mutation, write_project
+from support import (
+    assert_no_traceback,
+    moonbuggy,
+    records,
+    status_of_mutation,
+    write_project,
+)
 
 pytestmark = pytest.mark.slow
 
@@ -35,12 +40,15 @@ def double(value):
 
 
 def test_extra_pytest_args_reach_the_mutant_runs_not_just_the_baseline(tmp_path):
-    project = write_project(tmp_path, {
-        "lib.py": DOCTESTED,
-        # A test file has to exist or pytest collects nothing at all, which is
-        # a different failure. It deliberately asserts nothing about `double`.
-        "test_placeholder.py": "def test_placeholder():\n    assert True\n",
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "lib.py": DOCTESTED,
+            # A test file has to exist or pytest collects nothing at all, which is
+            # a different failure. It deliberately asserts nothing about `double`.
+            "test_placeholder.py": "def test_placeholder():\n    assert True\n",
+        },
+    )
 
     proc = moonbuggy("--pytest-arg=--doctest-modules", cwd=project)
 
@@ -52,9 +60,9 @@ def test_extra_pytest_args_reach_the_mutant_runs_not_just_the_baseline(tmp_path)
         "a mutant was SUSPICIOUS, which is what happens when the mutant run is "
         "asked to select a node id its own arguments cannot produce\n" + proc.stderr
     )
-    assert status_of_mutation(
-        project, "return value * 2", "return value / 2"
-    ) == "KILLED", "the doctest catches this; the mutant run must have run it"
+    assert (
+        status_of_mutation(project, "return value * 2", "return value / 2") == "KILLED"
+    ), "the doctest catches this; the mutant run must have run it"
 
 
 def test_without_the_flag_the_doctest_is_simply_not_part_of_the_suite(tmp_path):
@@ -64,11 +72,17 @@ def test_without_the_flag_the_doctest_is_simply_not_part_of_the_suite(tmp_path):
     a survivor is only as meaningful as the test command it survived, and why
     `--pytest-arg` exists at all.
     """
-    project = write_project(tmp_path, {
-        "lib.py": DOCTESTED,
-        "test_placeholder.py": "def test_placeholder():\n    assert True\n",
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "lib.py": DOCTESTED,
+            "test_placeholder.py": "def test_placeholder():\n    assert True\n",
+        },
+    )
 
     moonbuggy(cwd=project)
 
-    assert status_of_mutation(project, "return value * 2", "return value / 2") == "SURVIVED"
+    assert (
+        status_of_mutation(project, "return value * 2", "return value / 2")
+        == "SURVIVED"
+    )

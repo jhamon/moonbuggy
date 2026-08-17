@@ -21,12 +21,10 @@ import time
 from pathlib import Path
 
 import pytest
-
 from support import (
     assert_no_traceback,
     moonbuggy,
     records,
-    status_of,
     status_of_mutation,
     write_project,
 )
@@ -38,12 +36,19 @@ pytestmark = pytest.mark.slow
 # M1.4.1 -- a source file with a syntax error
 # --------------------------------------------------------------------------
 
+
 def test_syntax_error_names_the_file_and_the_rest_still_runs(tmp_path):
-    project = write_project(tmp_path, {
-        "good.py": "def double(x):\n    return x * 2\n",
-        "broken.py": "def oops(:\n    return\n",
-        "test_good.py": "from good import double\n\ndef test_double():\n    assert double(2) == 4\n",
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "good.py": "def double(x):\n    return x * 2\n",
+            "broken.py": "def oops(:\n    return\n",
+            "test_good.py": (
+                "from good import double\n\ndef test_double():\n"
+                "    assert double(2) == 4\n"
+            ),
+        },
+    )
 
     proc = moonbuggy(cwd=project)
 
@@ -55,10 +60,13 @@ def test_syntax_error_names_the_file_and_the_rest_still_runs(tmp_path):
 
 
 def test_a_project_of_only_broken_files_exits_two(tmp_path):
-    project = write_project(tmp_path, {
-        "broken.py": "def oops(:\n",
-        "test_x.py": "def test_nothing():\n    assert True\n",
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "broken.py": "def oops(:\n",
+            "test_x.py": "def test_nothing():\n    assert True\n",
+        },
+    )
 
     proc = moonbuggy(cwd=project, expect=2)
 
@@ -72,7 +80,7 @@ def test_a_project_of_only_broken_files_exits_two(tmp_path):
 # M1.4.2 -- a module with import-time side effects
 # --------------------------------------------------------------------------
 
-SIDE_EFFECTS_AT_IMPORT = '''\
+SIDE_EFFECTS_AT_IMPORT = """\
 import socket
 from pathlib import Path
 
@@ -90,17 +98,20 @@ BASE = 4 + 1
 
 def scaled(value):
     return value * BASE
-'''
+"""
 
 
 def test_import_time_side_effects_do_not_corrupt_statuses(tmp_path):
-    project = write_project(tmp_path, {
-        "sideff.py": SIDE_EFFECTS_AT_IMPORT,
-        "test_sideff.py": (
-            "from sideff import scaled\n\n"
-            "def test_scaled():\n    assert scaled(2) == 10\n"
-        ),
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "sideff.py": SIDE_EFFECTS_AT_IMPORT,
+            "test_sideff.py": (
+                "from sideff import scaled\n\n"
+                "def test_scaled():\n    assert scaled(2) == 10\n"
+            ),
+        },
+    )
 
     proc = moonbuggy(cwd=project)
 
@@ -143,10 +154,16 @@ def test_multiply_is_stable():
 
 
 def test_flaky_tests_make_their_mutants_suspicious_not_confident(tmp_path):
-    project = write_project(tmp_path, {
-        "unstable.py": "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b\n",
-        "test_unstable.py": FLAKY_TESTS,
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "unstable.py": (
+                "def add(a, b):\n    return a + b\n\n\n"
+                "def multiply(a, b):\n    return a * b\n"
+            ),
+            "test_unstable.py": FLAKY_TESTS,
+        },
+    )
 
     proc = moonbuggy(cwd=project)
 
@@ -168,10 +185,16 @@ def test_disabling_the_probe_gives_up_the_guarantee_and_says_so(tmp_path):
     baseline run there is no evidence of flakiness, and the status reverts to a
     confident one that may be wrong.
     """
-    project = write_project(tmp_path, {
-        "unstable.py": "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b\n",
-        "test_unstable.py": FLAKY_TESTS,
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "unstable.py": (
+                "def add(a, b):\n    return a + b\n\n\n"
+                "def multiply(a, b):\n    return a * b\n"
+            ),
+            "test_unstable.py": FLAKY_TESTS,
+        },
+    )
 
     moonbuggy("--flaky-probe", "0", cwd=project)
 
@@ -182,15 +205,19 @@ def test_disabling_the_probe_gives_up_the_guarantee_and_says_so(tmp_path):
 # M1.4.4 -- a suite that is already red
 # --------------------------------------------------------------------------
 
+
 def test_red_baseline_is_refused_with_no_results_claimed(tmp_path):
-    project = write_project(tmp_path, {
-        "lib.py": "def double(x):\n    return x * 2\n",
-        "test_lib.py": (
-            "from lib import double\n\n"
-            "def test_passes():\n    assert double(2) == 4\n\n"
-            "def test_already_broken():\n    assert double(2) == 5\n"
-        ),
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "lib.py": "def double(x):\n    return x * 2\n",
+            "test_lib.py": (
+                "from lib import double\n\n"
+                "def test_passes():\n    assert double(2) == 4\n\n"
+                "def test_already_broken():\n    assert double(2) == 5\n"
+            ),
+        },
+    )
 
     proc = moonbuggy(cwd=project, expect=2)
 
@@ -232,13 +259,16 @@ def count_to(limit):
 
 
 def test_threaded_code_completes_and_hangs_are_bounded_by_the_timeout(tmp_path):
-    project = write_project(tmp_path, {
-        "threaded.py": THREADED,
-        "test_threaded.py": (
-            "from threaded import count_to\n\n"
-            "def test_counts():\n    assert count_to(5) == 5\n"
-        ),
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "threaded.py": THREADED,
+            "test_threaded.py": (
+                "from threaded import count_to\n\n"
+                "def test_counts():\n    assert count_to(5) == 5\n"
+            ),
+        },
+    )
 
     started = time.monotonic()
     proc = moonbuggy("--timeout", "5", cwd=project, timeout=120)
@@ -258,7 +288,7 @@ def test_threaded_code_completes_and_hangs_are_bounded_by_the_timeout(tmp_path):
 # M1.4.6 -- a test that calls sys.exit() / os._exit()
 # --------------------------------------------------------------------------
 
-EXITING = '''\
+EXITING = """\
 import os
 import sys
 
@@ -276,21 +306,24 @@ def bail(value):
     if value < 0:
         sys.exit("negative")
     return value
-'''
+"""
 
 
 def test_a_mutant_that_kills_its_own_process_is_still_classified(tmp_path):
-    project = write_project(tmp_path, {
-        "exiting.py": EXITING,
-        "test_exiting.py": (
-            "import pytest\n\n"
-            "from exiting import bail, guard\n\n"
-            "def test_guard():\n    assert guard(3, 1) == 4\n\n"
-            "def test_bail_exits():\n"
-            "    with pytest.raises(SystemExit):\n        bail(-1)\n\n"
-            "def test_bail_passes_through():\n    assert bail(2) == 2\n"
-        ),
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "exiting.py": EXITING,
+            "test_exiting.py": (
+                "import pytest\n\n"
+                "from exiting import bail, guard\n\n"
+                "def test_guard():\n    assert guard(3, 1) == 4\n\n"
+                "def test_bail_exits():\n"
+                "    with pytest.raises(SystemExit):\n        bail(-1)\n\n"
+                "def test_bail_passes_through():\n    assert bail(2) == 2\n"
+            ),
+        },
+    )
 
     proc = moonbuggy("--timeout", "10", cwd=project, timeout=180)
 
@@ -300,14 +333,16 @@ def test_a_mutant_that_kills_its_own_process_is_still_classified(tmp_path):
     # os._exit leaves no exit code and no output. The only honest reading is
     # "we could not tell" -- but a reading there must be, and every mutant must
     # still appear in the report.
-    assert status_of_mutation(
-        project, "if value * scale > 3:", "if value * scale >= 3:"
-    ) == "SUSPICIOUS"
+    assert (
+        status_of_mutation(project, "if value * scale > 3:", "if value * scale >= 3:")
+        == "SUSPICIOUS"
+    )
     ids = {r["id"] for r in records(project)}
     assert any("exiting.py:15" in i for i in ids), "the sys.exit() branch went missing"
-    assert all(r["status"] in {
-        "KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"
-    } for r in records(project))
+    assert all(
+        r["status"] in {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
+        for r in records(project)
+    )
 
 
 # --------------------------------------------------------------------------
@@ -331,32 +366,45 @@ def test_a_declared_latin1_module_is_mutated_correctly(tmp_path):
     different character. Either way the mutant's source is not the user's
     source, and the status it produces is about a file that does not exist.
     """
-    project = write_project(tmp_path, {
-        "money.py": LATIN1_SOURCE,
-        "test_money.py": (
-            "from money import CURRENCY, price\n\n"
-            "def test_price():\n    assert price(3) == 6\n\n"
-            "def test_currency_symbol_survives():\n"
-            "    assert CURRENCY == '\\u00a3'\n"
-        ),
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "money.py": LATIN1_SOURCE,
+            "test_money.py": (
+                "from money import CURRENCY, price\n\n"
+                "def test_price():\n    assert price(3) == 6\n\n"
+                "def test_currency_symbol_survives():\n"
+                "    assert CURRENCY == '\\u00a3'\n"
+            ),
+        },
+    )
 
     proc = moonbuggy(cwd=project)
 
     assert_no_traceback(proc)
     assert proc.returncode in (0, 1), proc.stderr
-    assert status_of_mutation(project, "return pence * 2", "return pence / 2") == "KILLED"
+    assert (
+        status_of_mutation(project, "return pence * 2", "return pence / 2") == "KILLED"
+    )
     # And the file is left exactly as it was found.
     assert (project / "money.py").read_bytes() == LATIN1_SOURCE
 
 
 def test_undeclared_non_utf8_bytes_are_refused_by_name(tmp_path):
-    project = write_project(tmp_path, {
-        # No coding cookie, so PEP 263 says UTF-8, and these bytes are not.
-        "mojibake.py": b"VALUE = '\xff\xfe'\n\n\ndef double(x):\n    return x * 2\n",
-        "good.py": "def triple(x):\n    return x * 3\n",
-        "test_good.py": "from good import triple\n\ndef test_triple():\n    assert triple(2) == 6\n",
-    })
+    project = write_project(
+        tmp_path,
+        {
+            # No coding cookie, so PEP 263 says UTF-8, and these bytes are not.
+            "mojibake.py": (
+                b"VALUE = '\xff\xfe'\n\n\ndef double(x):\n    return x * 2\n"
+            ),
+            "good.py": "def triple(x):\n    return x * 3\n",
+            "test_good.py": (
+                "from good import triple\n\ndef test_triple():\n"
+                "    assert triple(2) == 6\n"
+            ),
+        },
+    )
 
     proc = moonbuggy(cwd=project)
 
@@ -370,6 +418,7 @@ def test_undeclared_non_utf8_bytes_are_refused_by_name(tmp_path):
 # M1.4.9 -- empty project / no tests / no source
 # --------------------------------------------------------------------------
 
+
 def test_an_empty_directory_exits_two(tmp_path):
     proc = moonbuggy(cwd=tmp_path, expect=2)
 
@@ -378,9 +427,12 @@ def test_an_empty_directory_exits_two(tmp_path):
 
 
 def test_a_project_with_no_source_exits_two(tmp_path):
-    project = write_project(tmp_path, {
-        "test_only.py": "def test_nothing():\n    assert True\n",
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "test_only.py": "def test_nothing():\n    assert True\n",
+        },
+    )
 
     proc = moonbuggy(cwd=project, expect=2)
 
@@ -389,9 +441,12 @@ def test_a_project_with_no_source_exits_two(tmp_path):
 
 
 def test_a_project_with_no_tests_exits_two(tmp_path):
-    project = write_project(tmp_path, {
-        "lib.py": "def double(x):\n    return x * 2\n",
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "lib.py": "def double(x):\n    return x * 2\n",
+        },
+    )
 
     proc = moonbuggy(cwd=project, expect=2)
 
@@ -435,22 +490,25 @@ def test_selection_is_still_correct_under_side_effecting_fixtures(tmp_path):
     the tree, edits the file and runs the entire suite -- so agreement between
     them is evidence about selection specifically.
     """
-    project = write_project(tmp_path, {
-        "widgets.py": (
-            "def prepare(path):\n"
-            "    path.write_text('start')\n"
-            "    return {'size': 4 + 1}\n"
-            "\n\n"
-            "def consume(widget):\n"
-            "    return widget['size'] + 1\n"
-        ),
-        "conftest.py": FIXTURE_CONFTEST,
-        "test_widgets.py": (
-            "from widgets import consume\n\n"
-            "def test_size(widget):\n    assert widget['size'] == 5\n\n"
-            "def test_consume(widget):\n    assert consume(widget) == 6\n"
-        ),
-    })
+    project = write_project(
+        tmp_path,
+        {
+            "widgets.py": (
+                "def prepare(path):\n"
+                "    path.write_text('start')\n"
+                "    return {'size': 4 + 1}\n"
+                "\n\n"
+                "def consume(widget):\n"
+                "    return widget['size'] + 1\n"
+            ),
+            "conftest.py": FIXTURE_CONFTEST,
+            "test_widgets.py": (
+                "from widgets import consume\n\n"
+                "def test_size(widget):\n    assert widget['size'] == 5\n\n"
+                "def test_consume(widget):\n    assert consume(widget) == 6\n"
+            ),
+        },
+    )
 
     proc = moonbuggy(cwd=project)
     assert_no_traceback(proc)
@@ -467,26 +525,30 @@ def _naive_statuses(project):
     pytest inside it; doing that from the test runner's own process would put
     two conflicting conftest files on the path.
     """
-    script = '''
+    src_dir = str(Path(__file__).resolve().parents[1] / "src")
+    script = f"""
 import json, sys
 from pathlib import Path
-sys.path.insert(0, %r)
+sys.path.insert(0, {src_dir!r})
 from moonbuggy.generate import generate_mutants
 from moonbuggy.naive import run_naive
 from moonbuggy.srcio import read_source
 
-project = Path(%r)
+project = Path({str(project)!r})
 mutants = []
 for path in sorted(project.glob("*.py")):
-    if path.name.startswith("test_") or path.name in {"conftest.py", "setup.py"}:
+    if path.name.startswith("test_") or path.name in {{"conftest.py", "setup.py"}}:
         continue
     mutants += generate_mutants(read_source(path), module=path.name)
 statuses = run_naive(project, mutants)
-print(json.dumps({m.id: s for m, s in statuses.items()}))
-''' % (str(Path(__file__).resolve().parents[1] / "src"), str(project))
+print(json.dumps({{m.id: s for m, s in statuses.items()}}))
+"""
 
     proc = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, timeout=600,
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=600,
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout.strip().splitlines()[-1])
@@ -495,6 +557,7 @@ print(json.dumps({m.id: s for m, s in statuses.items()}))
 # --------------------------------------------------------------------------
 # M1.4.13 -- crash recovery
 # --------------------------------------------------------------------------
+
 
 def test_a_killed_run_leaves_a_readable_jsonl_and_a_usable_cache(tmp_path):
     """Kill the process mid-flight; both artifacts must survive it.
@@ -510,7 +573,9 @@ def test_a_killed_run_leaves_a_readable_jsonl_and_a_usable_cache(tmp_path):
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "moonbuggy.cli", "--clear-cache"],
-        cwd=project, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cwd=project,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     jsonl = project / ".moonbuggy" / "results.jsonl"
     _wait_for_a_line(jsonl, proc)
@@ -530,15 +595,15 @@ def test_a_killed_run_leaves_a_readable_jsonl_and_a_usable_cache(tmp_path):
 
 def _slow_project(root):
     """A project whose mutants take long enough to be interrupted partway."""
-    functions = "\n\n".join(
-        f"def step_{n}(x):\n    return x + {n}" for n in range(25)
-    )
+    functions = "\n\n".join(f"def step_{n}(x):\n    return x + {n}" for n in range(25))
     tests = "import time\n\nimport slowlib\n\n" + "\n\n".join(
         f"def test_step_{n}():\n    time.sleep(0.05)\n"
         f"    assert slowlib.step_{n}(1) == {n + 1}"
         for n in range(25)
     )
-    return write_project(root, {"slowlib.py": functions + "\n", "test_slow.py": tests + "\n"})
+    return write_project(
+        root, {"slowlib.py": functions + "\n", "test_slow.py": tests + "\n"}
+    )
 
 
 def _wait_for_a_line(path, proc, limit=60.0):

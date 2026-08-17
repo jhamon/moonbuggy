@@ -30,7 +30,13 @@ ORACLE = REPO / "tests" / "fixtures" / "oracle.toml"
 MUTMUT = str(REPO / ".venv" / "bin" / "mutmut")
 
 # mutmut's status glyphs, from its progress line.
-GLYPHS = {"🎉": "KILLED", "🙁": "SURVIVED", "⏰": "TIMEOUT", "🤔": "SUSPICIOUS", "🫥": "SKIPPED"}
+GLYPHS = {
+    "🎉": "KILLED",
+    "🙁": "SURVIVED",
+    "⏰": "TIMEOUT",
+    "🤔": "SUSPICIOUS",
+    "🫥": "SKIPPED",
+}
 
 # Explanations for known, expected divergences. A disagreement that is NOT
 # listed here is what this script exists to surface.
@@ -55,20 +61,26 @@ def run_mutmut(project):
     (project / "pytest.ini").write_text(
         "[pytest]\ntestpaths = mutants/tests\npythonpath = mutants\n"
     )
-    (project / "pyproject.toml").write_text('[tool.mutmut]\nsource_paths = ["sample/"]\n')
+    (project / "pyproject.toml").write_text(
+        '[tool.mutmut]\nsource_paths = ["sample/"]\n'
+    )
 
     proc = subprocess.run([MUTMUT, "run"], cwd=project, capture_output=True, text=True)
     output = proc.stdout.replace("\r", "\n")
 
     match = re.findall(
-        r"(\d+)/(\d+)\s+🎉\s*(\d+)\s+🫥\s*(\d+)\s+⏰\s*(\d+)\s+🤔\s*(\d+)\s+🙁\s*(\d+)", output
+        r"(\d+)/(\d+)\s+🎉\s*(\d+)\s+🫥\s*(\d+)\s+⏰\s*(\d+)\s+🤔\s*(\d+)\s+🙁\s*(\d+)",
+        output,
     )
     if not match:
         raise SystemExit(f"could not parse mutmut output:\n{output[-2000:]}")
     _, total, killed, skipped, timeout, suspicious, survived = match[-1]
     return int(total), {
-        "KILLED": int(killed), "SKIPPED": int(skipped), "TIMEOUT": int(timeout),
-        "SUSPICIOUS": int(suspicious), "SURVIVED": int(survived),
+        "KILLED": int(killed),
+        "SKIPPED": int(skipped),
+        "TIMEOUT": int(timeout),
+        "SUSPICIOUS": int(suspicious),
+        "SURVIVED": int(survived),
     }
 
 
@@ -79,9 +91,13 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         project = Path(tmp) / "fixture"
-        shutil.copytree(FIXTURE, project, ignore=shutil.ignore_patterns(
-            "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
-        ))
+        shutil.copytree(
+            FIXTURE,
+            project,
+            ignore=shutil.ignore_patterns(
+                "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
+            ),
+        )
         mutmut_total, mutmut_counts = run_mutmut(project)
 
     print("Criterion A5 -- advisory mutmut cross-check (never gates the build)\n")
@@ -99,16 +115,17 @@ def main():
     print("\nAgreements worth having:")
     if expected.get("SURVIVED") == mutmut_counts.get("SURVIVED"):
         print(
-            f"  SURVIVED matches exactly ({expected['SURVIVED']}). This is the number that "
-            "matters\n  most -- a survivor is what a user acts on, and a tool inventing or "
-            "missing\n  them is the failure mode with real cost. Two independent engines "
-            "agreeing\n  here is meaningful corroboration of the oracle."
+            f"  SURVIVED matches exactly ({expected['SURVIVED']}). This is the number"
+            " that matters\n  most -- a survivor is what a user acts on, and a tool"
+            " inventing or missing\n  them is the failure mode with real cost. Two"
+            " independent engines agreeing\n  here is meaningful corroboration of the"
+            " oracle."
         )
     else:
         print(
             f"  SURVIVED DIFFERS: oracle {expected.get('SURVIVED')}, mutmut "
-            f"{mutmut_counts.get('SURVIVED')}.\n  This needs investigation and a written "
-            "explanation before it is dismissed."
+            f"{mutmut_counts.get('SURVIVED')}.\n  This needs investigation and a"
+            " written explanation before it is dismissed."
         )
 
     print("\nExplained divergences:")
@@ -116,9 +133,10 @@ def main():
         print(f"  - {key}: {explanation}")
 
     print(
-        f"\n  Totals differ by {mutmut_total - oracle_total} mutants, accounted for by "
-        "`operator_set`\n  above. mutmut is not authoritative and no label is changed on "
-        "its say-so;\n  the hand-written oracle remains the source of truth (criterion A2b)."
+        f"\n  Totals differ by {mutmut_total - oracle_total} mutants, accounted for"
+        " by `operator_set`\n  above. mutmut is not authoritative and no label is"
+        " changed on its say-so;\n  the hand-written oracle remains the source of"
+        " truth (criterion A2b)."
     )
     return 0
 

@@ -37,7 +37,9 @@ def build(root, shape):
     if shape == "fast-tests":
         return _build(root, modules=3, functions=4, tests_per_module=30, iterations=0)
     if shape == "slow-tests":
-        return _build(root, modules=3, functions=4, tests_per_module=30, iterations=6000)
+        return _build(
+            root, modules=3, functions=4, tests_per_module=30, iterations=6000
+        )
     if shape == "many-files":
         return _build(root, modules=40, functions=2, tests_per_module=3, iterations=0)
     raise ValueError(f"unknown workload shape: {shape}")

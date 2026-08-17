@@ -29,7 +29,9 @@ back to the import-hook path. A silently-unapplied mutation is a false SURVIVED.
 
 import ast
 import linecache
-from types import FunctionType
+import os
+from types import CodeType, FunctionType, ModuleType
+from typing import cast
 
 from .inmemory import mutated_source
 from .srcio import strip_coding_cookie
@@ -39,7 +41,12 @@ class SwapFailed(Exception):
     """The mutation could not be applied in place. Caller should fall back."""
 
 
-def apply_in_place(module, path, line, mutated_text):
+def apply_in_place(
+    module: ModuleType,
+    path: str | os.PathLike[str],
+    line: int,
+    mutated_text: str,
+) -> None:
     """Mutate an imported module object in place.
 
     Args:
@@ -62,7 +69,12 @@ def apply_in_place(module, path, line, mutated_text):
     qualname = _enclosing_function_path(tree, line)
 
     # Keep tracebacks honest even though nothing was re-imported (D4).
-    linecache.cache[str(path)] = (len(source), None, source.splitlines(keepends=True), str(path))
+    linecache.cache[str(path)] = (
+        len(source),
+        None,
+        source.splitlines(keepends=True),
+        str(path),
+    )
 
     if qualname is None:
         _exec_module_level(module, source, line)
@@ -73,7 +85,7 @@ def apply_in_place(module, path, line, mutated_text):
 _MISSING = object()
 
 
-def _exec_module_level(module, source, line):
+def _exec_module_level(module: ModuleType, source: str, line: int) -> None:
     """Re-execute one module-level statement in the module's own namespace.
 
     Re-executing is only half the job, and the missing half caused two false
@@ -106,7 +118,9 @@ def _exec_module_level(module, source, line):
 
     try:
         exec(compile(statement, "<moonbuggy>", "exec"), module.__dict__)
-    except Exception as error:  # noqa: BLE001 - any failure means fall back
+    # Any failure here means fall back to rebinding aliases instead -- the
+    # exception is deliberately broad, not narrowed to a specific type.
+    except Exception as error:
         raise SwapFailed(f"could not exec module-level statement: {error}") from error
 
     for name in names:
@@ -120,9 +134,9 @@ def _exec_module_level(module, source, line):
             _rebind_aliases(name, previous, fresh)
 
 
-def _bound_names(statement):
+def _bound_names(statement: str) -> set[str]:
     """The module-level names this statement binds."""
-    names = set()
+    names: set[str] = set()
     for node in ast.walk(ast.parse(statement)):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             names.add(node.name)
@@ -130,13 +144,14 @@ def _bound_names(statement):
             names.update(
                 target.id for target in node.targets if isinstance(target, ast.Name)
             )
-        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-            if isinstance(node.target, ast.Name):
-                names.add(node.target.id)
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)) and isinstance(
+            node.target, ast.Name
+        ):
+            names.add(node.target.id)
     return names
 
 
-def _adopt(previous, fresh):
+def _adopt(previous: object, fresh: object) -> bool:
     """Move the new function's body and defaults onto the existing object.
 
     Returns False when that cannot be done -- a decorated function whose
@@ -156,7 +171,7 @@ def _adopt(previous, fresh):
     return True
 
 
-def _rebind_aliases(name, previous, fresh):
+def _rebind_aliases(name: str, previous: object, fresh: object) -> None:
     """Repoint every module attribute that is still the pre-mutation object.
 
     Matched on identity *and* on name, so an unrelated attribute holding an
@@ -174,11 +189,13 @@ def _rebind_aliases(name, previous, fresh):
         try:
             if getattr(other, name, None) is previous:
                 setattr(other, name, fresh)
-        except Exception:  # noqa: BLE001 - a module with an exotic __getattr__
+        # A module with an exotic __getattr__ can raise anything here; that
+        # module just does not get its alias rebound.
+        except Exception:
             continue
 
 
-def _statement_at(source, line):
+def _statement_at(source: str, line: int) -> str | None:
     """The full source of the top-level statement covering `line`."""
     tree = ast.parse(source)
     lines = source.splitlines()
@@ -188,7 +205,12 @@ def _statement_at(source, line):
     return None
 
 
-def _swap_code(module, source, path, qualname):
+def _swap_code(
+    module: ModuleType,
+    source: str,
+    path: str | os.PathLike[str],
+    qualname: list[str],
+) -> None:
     new_code = _find_code(compile(source, str(path), "exec"), qualname)
     if new_code is None:
         raise SwapFailed(f"no compiled code object for {'.'.join(qualname)}")
@@ -214,7 +236,7 @@ def _swap_code(module, source, path, qualname):
         raise SwapFailed(f"could not replace __code__: {error}") from error
 
 
-def _enclosing_function_path(tree, line):
+def _enclosing_function_path(tree: ast.AST, line: int) -> list[str] | None:
     """Qualname path of the OUTERMOST function containing `line`, or None.
 
     Outermost rather than innermost, and that is the whole trick for nested
@@ -234,9 +256,9 @@ def _enclosing_function_path(tree, line):
     None means the line is at module or class-body level, which executes at
     import time and therefore needs the exec mechanism instead.
     """
-    found = None
+    found: list[str] | None = None
 
-    def walk(node, path, inside_function):
+    def walk(node: ast.AST, path: list[str], inside_function: bool) -> None:
         nonlocal found
         for child in ast.iter_child_nodes(node):
             name = getattr(child, "name", None)
@@ -244,7 +266,9 @@ def _enclosing_function_path(tree, line):
             is_scope = is_function or isinstance(child, ast.ClassDef)
             child_path = path + [name] if (is_scope and name) else path
 
-            if is_function and not inside_function:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
+                not inside_function
+            ):
                 start, end = child.lineno, child.end_lineno or child.lineno
                 # The `def` line itself (decorators, signature) is not part of
                 # the body's code object, so a mutation there cannot be swapped.
@@ -258,7 +282,7 @@ def _enclosing_function_path(tree, line):
     return found
 
 
-def _find_code(code, qualname):
+def _find_code(code: CodeType, qualname: list[str]) -> CodeType | None:
     """Descend co_consts following the qualname path to the target code object."""
     current = code
     for name in qualname:
@@ -273,13 +297,17 @@ def _find_code(code, qualname):
     return current
 
 
-def _resolve(module, qualname):
+def _resolve(module: ModuleType, qualname: list[str]) -> FunctionType | None:
     """The live function object at `qualname` within an imported module."""
-    current = module
+    current: object = module
     for name in qualname:
         current = getattr(current, name, None)
         if current is None:
             return None
     # Unwrap staticmethod/classmethod, which hide the function one level down.
     current = getattr(current, "__func__", current)
-    return current if hasattr(current, "__code__") else None
+    if not hasattr(current, "__code__"):
+        return None
+    # hasattr narrows nothing for mypy; __code__ is the actual runtime check
+    # that this is function-shaped, same as callers rely on downstream.
+    return cast(FunctionType, current)

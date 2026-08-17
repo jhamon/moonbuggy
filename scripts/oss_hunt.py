@@ -28,7 +28,6 @@ What the harness guarantees, and why each guarantee is here:
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -93,7 +92,7 @@ TARGETS = [
         # rather than anything wrong with humanize.
         extra_requirements=["freezegun", "pytest-benchmark"],
         note="Number and filesize formatting; the two modules with the most "
-             "branch-heavy arithmetic.",
+        "branch-heavy arithmetic.",
     ),
     Target(
         name="sqlparse",
@@ -102,7 +101,7 @@ TARGETS = [
         source="sqlparse",
         modules=["sql.py", "utils.py", "tokens.py"],
         note="SQL parser. Mutating the whole engine is far more than can be "
-             "triaged, so the core token and utility modules are the sample.",
+        "triaged, so the core token and utility modules are the sample.",
     ),
     Target(
         name="more-itertools",
@@ -111,8 +110,8 @@ TARGETS = [
         source="more_itertools",
         modules=["recipes.py"],
         note="recipes.py is the itertools-recipes half of the library: many "
-             "small pure functions, which is the shape mutation testing has "
-             "the most to say about.",
+        "small pure functions, which is the shape mutation testing has "
+        "the most to say about.",
     ),
     Target(
         name="boltons",
@@ -130,8 +129,8 @@ TARGETS = [
         # nothing to do with boltons' library code.
         test_args=["--doctest-modules", "boltons", "tests"],
         note="Utility collection. Three modules chosen for having dedicated "
-             "test files and no I/O. Its own test command enables doctests, "
-             "so ours does too.",
+        "test files and no I/O. Its own test command enables doctests, "
+        "so ours does too.",
     ),
 ]
 
@@ -154,8 +153,19 @@ def prepare(target, root):
     """Clone at the pinned tag and build an isolated venv. Returns (dir, python)."""
     checkout = root / target.name
     if not checkout.exists():
-        run(["git", "clone", "--depth", "1", "--branch", target.tag,
-             target.repo, str(checkout)], timeout=600)
+        run(
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                target.tag,
+                target.repo,
+                str(checkout),
+            ],
+            timeout=600,
+        )
 
     venv = checkout / ".venv"
     if not (venv / VENV_PYTHON).exists():
@@ -163,10 +173,24 @@ def prepare(target, root):
 
     python = str(venv / VENV_PYTHON)
     run([python, "-m", "pip", "install", "-q", "--upgrade", "pip"], timeout=600)
-    run([python, "-m", "pip", "install", "-q", "pytest", "pytest-cov",
-         *target.extra_requirements], timeout=1200)
-    run([python, "-m", "pip", "install", "-q", *target.install],
-        cwd=checkout, timeout=1200)
+    run(
+        [
+            python,
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "pytest",
+            "pytest-cov",
+            *target.extra_requirements,
+        ],
+        timeout=1200,
+    )
+    run(
+        [python, "-m", "pip", "install", "-q", *target.install],
+        cwd=checkout,
+        timeout=1200,
+    )
     # moonbuggy itself, from this working tree rather than from PyPI, so the
     # findings are about the code that produced them.
     run([python, "-m", "pip", "install", "-q", "-e", str(REPO)], timeout=1200)
@@ -176,18 +200,27 @@ def prepare(target, root):
 def baseline_is_green(checkout, python, target):
     """M4.1: the project's own suite must pass before anything is mutated."""
     began = time.perf_counter()
-    proc = run([python, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-                *target.test_args],
-               cwd=checkout, timeout=1800, check=False)
+    proc = run(
+        [python, "-m", "pytest", "-q", "-p", "no:cacheprovider", *target.test_args],
+        cwd=checkout,
+        timeout=1800,
+        check=False,
+    )
     return proc.returncode == 0, time.perf_counter() - began, proc.stdout[-3000:]
 
 
 def mutate(checkout, python, target, timeout):
     """Run moonbuggy over the chosen modules. Returns (seconds, records)."""
     command = [
-        python, "-m", "moonbuggy.cli", "--no-cache", "--quiet",
-        "--source", str(checkout / target.source),
-        "--timeout", str(timeout),
+        python,
+        "-m",
+        "moonbuggy.cli",
+        "--no-cache",
+        "--quiet",
+        "--source",
+        str(checkout / target.source),
+        "--timeout",
+        str(timeout),
     ]
     for fragment in target.modules:
         command += ["--include", fragment]
@@ -206,7 +239,9 @@ def mutate(checkout, python, target, timeout):
             f"moonbuggy produced no results for {target.name}:\n"
             f"{proc.stdout[-3000:]}\n{proc.stderr[-3000:]}"
         )
-    records = [json.loads(line) for line in results.read_text().splitlines() if line.strip()]
+    records = [
+        json.loads(line) for line in results.read_text().splitlines() if line.strip()
+    ]
     return elapsed, records, proc.stderr[-3000:]
 
 
@@ -221,11 +256,17 @@ def moonbuggy_version():
 
 def hunt(target, root, timeout):
     """Everything for one target. Returns a record dict, never raises."""
-    entry = {"name": target.name, "tag": target.tag, "repo": target.repo,
-             "modules": target.modules or ["<all>"], "note": target.note}
+    entry = {
+        "name": target.name,
+        "tag": target.tag,
+        "repo": target.repo,
+        "modules": target.modules or ["<all>"],
+        "note": target.note,
+    }
+    # A blocked target is data, not a crash -- deliberately broad.
     try:
         checkout, python = prepare(target, root)
-    except Exception as error:  # noqa: BLE001 - a blocked target is data, not a crash
+    except Exception as error:
         entry["blocker"] = f"could not prepare: {error}"
         return entry
 
@@ -240,7 +281,7 @@ def hunt(target, root, timeout):
 
     try:
         elapsed, records, stderr = mutate(checkout, python, target, timeout)
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         entry["blocker"] = f"mutation run failed: {error}"
         return entry
 
@@ -250,30 +291,40 @@ def hunt(target, root, timeout):
     killed = counts.get("KILLED", 0)
     scored = killed + counts.get("SURVIVED", 0)
 
-    entry.update({
-        "mutants": len(records),
-        "statuses": counts,
-        "wall_seconds": round(elapsed, 2),
-        # The conventional definition: killed over killed-plus-survived.
-        # TIMEOUT and SUSPICIOUS are excluded because neither is evidence
-        # either way about whether the suite catches the change.
-        "mutation_score": round(killed / scored, 4) if scored else None,
-        "survivors": [r for r in records if r["status"] == "SURVIVED"],
-        "stderr_tail": stderr,
-    })
+    entry.update(
+        {
+            "mutants": len(records),
+            "statuses": counts,
+            "wall_seconds": round(elapsed, 2),
+            # The conventional definition: killed over killed-plus-survived.
+            # TIMEOUT and SUSPICIOUS are excluded because neither is evidence
+            # either way about whether the suite catches the change.
+            "mutation_score": round(killed / scored, 4) if scored else None,
+            "survivors": [r for r in records if r["status"] == "SURVIVED"],
+            "stderr_tail": stderr,
+        }
+    )
     return entry
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--only", action="append", default=[],
-                        help="run just this target (repeatable)")
-    parser.add_argument("--timeout", type=float, default=30.0,
-                        help="per-mutant timeout in seconds")
-    parser.add_argument("--out", default=str(REPO / "docs" / "oss-run.json"),
-                        help="where to write the machine-readable run record")
-    parser.add_argument("--keep", action="store_true",
-                        help="keep the checkouts for hand verification (M4.7)")
+    parser.add_argument(
+        "--only", action="append", default=[], help="run just this target (repeatable)"
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=30.0, help="per-mutant timeout in seconds"
+    )
+    parser.add_argument(
+        "--out",
+        default=str(REPO / "docs" / "oss-run.json"),
+        help="where to write the machine-readable run record",
+    )
+    parser.add_argument(
+        "--keep",
+        action="store_true",
+        help="keep the checkouts for hand verification (M4.7)",
+    )
     args = parser.parse_args(argv)
 
     targets = [t for t in TARGETS if not args.only or t.name in args.only]
@@ -291,10 +342,12 @@ def main(argv=None):
         if "blocker" in entry:
             print(f"    BLOCKED: {entry['blocker']}\n")
             continue
-        print(f"    {entry['mutants']} mutants in {entry['wall_seconds']}s, "
-              f"score {entry['mutation_score']}, "
-              + "  ".join(f"{k}={v}" for k, v in sorted(entry["statuses"].items()) if v)
-              + "\n")
+        print(
+            f"    {entry['mutants']} mutants in {entry['wall_seconds']}s, "
+            f"score {entry['mutation_score']}, "
+            + "  ".join(f"{k}={v}" for k, v in sorted(entry["statuses"].items()) if v)
+            + "\n"
+        )
 
     payload = {"moonbuggy": version, "targets": entries}
     Path(args.out).write_text(json.dumps(payload, indent=2, sort_keys=True))

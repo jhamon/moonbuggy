@@ -21,7 +21,12 @@ from moonbuggy.naive import run_naive
 FIXTURES = Path(__file__).parent / "fixtures"
 FIXTURE = FIXTURES / "sample_project"
 ORACLE = tomllib.loads((FIXTURES / "oracle.toml").read_text())
-MODULES = ["sample/discounts.py", "sample/inventory.py", "sample/loops.py", "sample/config.py"]
+MODULES = [
+    "sample/discounts.py",
+    "sample/inventory.py",
+    "sample/loops.py",
+    "sample/config.py",
+]
 
 pytestmark = pytest.mark.slow
 
@@ -42,7 +47,8 @@ def test_naive_oracle_agrees_with_hand_written_labels(naive_results):
         expected = by_site[(mutant.module, mutant.line, mutant.operator)]
         if status != expected["status"]:
             disagreements.append(
-                f"{expected['id']}: hand-labelled {expected['status']}, naive oracle says {status}"
+                f"{expected['id']}: hand-labelled {expected['status']}, "
+                f"naive oracle says {status}"
             )
 
     assert not disagreements, "\n".join(disagreements)

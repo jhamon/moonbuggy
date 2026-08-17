@@ -19,7 +19,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from ab_compare import (  # noqa: E402
+from ab_compare import (
     DEFAULT_RUNS,
     main,
     median_confidence_interval,
@@ -129,13 +129,27 @@ def test_the_same_commit_compared_with_itself_is_indistinguishable():
     repo = Path(__file__).resolve().parents[1]
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=repo, capture_output=True, text=True, check=True,
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
     proc = subprocess.run(
-        [sys.executable, "scripts/ab_compare.py",
-         "--baseline", head, "--candidate", head, "--shape", "fast-tests"],
-        cwd=repo, capture_output=True, text=True, timeout=900,
+        [
+            sys.executable,
+            "scripts/ab_compare.py",
+            "--baseline",
+            head,
+            "--candidate",
+            head,
+            "--shape",
+            "fast-tests",
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=900,
     )
 
     assert proc.returncode == 0, proc.stderr

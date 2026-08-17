@@ -90,9 +90,13 @@ def generate_workload(root, name):
 
 def fresh_copy(root, name):
     target = root / name
-    shutil.copytree(FIXTURE, target, ignore=shutil.ignore_patterns(
-        "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
-    ))
+    shutil.copytree(
+        FIXTURE,
+        target,
+        ignore=shutil.ignore_patterns(
+            "__pycache__", ".pytest_cache", ".moonbuggy", "mutants", ".coverage"
+        ),
+    )
     return target
 
 
@@ -109,7 +113,17 @@ def run_moonbuggy(project):
     # --no-cache so this is a cold run. Comparing a warm moonbuggy against a
     # cold mutmut would be meaningless.
     elapsed, proc = timed(
-        [PYTHON, "-m", "moonbuggy.cli", "--no-cache", "--quiet", "--timeout", str(TIMEOUT), "--jobs", os.environ.get("MB_JOBS", "0")],
+        [
+            PYTHON,
+            "-m",
+            "moonbuggy.cli",
+            "--no-cache",
+            "--quiet",
+            "--timeout",
+            str(TIMEOUT),
+            "--jobs",
+            os.environ.get("MB_JOBS", "0"),
+        ],
         project,
     )
     records = [
@@ -121,7 +135,7 @@ def run_moonbuggy(project):
 
 def run_mutmut(project, package="sample"):
     (project / "pytest.ini").write_text(
-        f"[pytest]\ntestpaths = mutants/tests\npythonpath = mutants\n"
+        "[pytest]\ntestpaths = mutants/tests\npythonpath = mutants\n"
     )
     (project / "pyproject.toml").write_text(
         f'[tool.mutmut]\nsource_paths = ["{package}/"]\n'
@@ -135,9 +149,15 @@ def run_mutmut(project, package="sample"):
     if not totals:
         raise SystemExit(f"could not parse mutmut output:\n{output[-2000:]}")
     _, total, killed, timeout, survived = totals[-1]
-    return elapsed, int(total), {
-        "KILLED": int(killed), "TIMEOUT": int(timeout), "SURVIVED": int(survived),
-    }
+    return (
+        elapsed,
+        int(total),
+        {
+            "KILLED": int(killed),
+            "TIMEOUT": int(timeout),
+            "SURVIVED": int(survived),
+        },
+    )
 
 
 def run_naive(project, package="sample"):
@@ -169,12 +189,17 @@ def report(title, note, rows):
     print("  " + "-" * 76)
     for label, elapsed, count, counts in rows:
         breakdown = "  ".join(f"{k}={v}" for k, v in sorted(counts.items()) if v)
-        print(f"  {label:<14} {elapsed:>7.2f}s {count:>9} {count / elapsed:>9.2f}   {breakdown}")
+        print(
+            f"  {label:<14} {elapsed:>7.2f}s {count:>9} "
+            f"{count / elapsed:>9.2f}   {breakdown}"
+        )
 
 
 def main():
-    print(f"python: {platform.python_version()}   "
-          f"platform: {platform.system()} {platform.release()}   timeout: {TIMEOUT}s")
+    print(
+        f"python: {platform.python_version()}   "
+        f"platform: {platform.system()} {platform.release()}   timeout: {TIMEOUT}s"
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -187,8 +212,14 @@ def main():
 
         speed_rows = [
             ("moonbuggy", *run_moonbuggy(generate_workload(root, "wl-moon"))),
-            ("mutmut", *run_mutmut(generate_workload(root, "wl-mutmut"), package="app")),
-            ("naive baseline", *run_naive(generate_workload(root, "wl-naive"), package="app")),
+            (
+                "mutmut",
+                *run_mutmut(generate_workload(root, "wl-mutmut"), package="app"),
+            ),
+            (
+                "naive baseline",
+                *run_naive(generate_workload(root, "wl-naive"), package="app"),
+            ),
         ]
 
     report(
@@ -200,41 +231,55 @@ def main():
     )
     report(
         "SPEED WORKLOAD -- generated, test execution dominates startup",
-        f"{WORKLOAD_MODULES} modules, {WORKLOAD_MODULES * WORKLOAD_TESTS_PER_MODULE} tests "
+        f"{WORKLOAD_MODULES} modules, "
+        f"{WORKLOAD_MODULES * WORKLOAD_TESTS_PER_MODULE} tests "
         "doing real work, each line covered by\n  a few tests. This is the shape where "
         "coverage-guided selection pays,\n  and the basis of the G2 verdict.",
         speed_rows,
     )
 
-    moon = dict(zip(("time", "count", "counts"), speed_rows[0][1:]))
-    mutmut = dict(zip(("time", "count", "counts"), speed_rows[1][1:]))
-    naive = dict(zip(("time", "count", "counts"), speed_rows[2][1:]))
+    moon = dict(zip(("time", "count", "counts"), speed_rows[0][1:], strict=True))
+    mutmut = dict(zip(("time", "count", "counts"), speed_rows[1][1:], strict=True))
+    naive = dict(zip(("time", "count", "counts"), speed_rows[2][1:], strict=True))
 
     print("\nVerdicts (on the speed workload)")
     beats_mutmut = moon["time"] < mutmut["time"]
-    print(f"  G2  faster than mutmut : {_verdict(beats_mutmut)}  "
-          f"({mutmut['time'] / moon['time']:.2f}x)")
-    print(f"      faster than naive  : {_verdict(moon['time'] < naive['time'])}  "
-          f"({naive['time'] / moon['time']:.2f}x)")
-    print(f"  G3  mutant counts      : moonbuggy {moon['count']}, mutmut {mutmut['count']}, "
-          f"naive {naive['count']}")
+    print(
+        f"  G2  faster than mutmut : {_verdict(beats_mutmut)}  "
+        f"({mutmut['time'] / moon['time']:.2f}x)"
+    )
+    print(
+        f"      faster than naive  : {_verdict(moon['time'] < naive['time'])}  "
+        f"({naive['time'] / moon['time']:.2f}x)"
+    )
+    print(
+        f"  G3  mutant counts      : moonbuggy {moon['count']}, "
+        f"mutmut {mutmut['count']}, naive {naive['count']}"
+    )
 
     # G3: the real question is whether moonbuggy went fast by SKIPPING work.
     # Comparing counts against mutmut cannot answer that -- the two implement
     # different operator sets. The naive baseline shares moonbuggy's operators
     # exactly, so an equal count there proves nothing was pruned.
     no_pruning = moon["count"] == naive["count"]
-    print(f"  G3  no mutants pruned  : {_verdict(no_pruning)}  "
-          f"(moonbuggy {moon['count']} == naive {naive['count']}, same operator set)")
+    print(
+        f"  G3  no mutants pruned  : {_verdict(no_pruning)}  "
+        f"(moonbuggy {moon['count']} == naive {naive['count']}, same operator set)"
+    )
 
     if moon["count"] < mutmut["count"]:
         print(
-            f"\n  NOTE: mutmut generates {mutmut['count'] - moon['count']} more mutants, from"
-            " operators the MVP set (3.2)\n  does not implement. So the wall-clock comparison is"
+            f"\n  NOTE: mutmut generates {mutmut['count'] - moon['count']} more"
+            " mutants, from"
+            " operators the MVP set (3.2)\n  does not implement. So the wall-clock"
+            " comparison is"
             " not like-for-like, and\n  mutmut is still ahead on raw throughput"
-            f" ({mutmut['count'] / mutmut['time']:.0f} vs {moon['count'] / moon['time']:.0f}"
-            " mut/sec).\n  What G3 asks -- that moonbuggy is not fast because it does less --"
-            " is\n  answered by the naive comparison above, and by the A2b inventory test\n"
+            f" ({mutmut['count'] / mutmut['time']:.0f} vs"
+            f" {moon['count'] / moon['time']:.0f}"
+            " mut/sec).\n  What G3 asks -- that moonbuggy is not fast because it does"
+            " less --"
+            " is\n  answered by the naive comparison above, and by the A2b inventory"
+            " test\n"
             "  proving every expected mutant is generated."
         )
 

@@ -19,7 +19,12 @@ from moonbuggy.runner import run_mutants
 FIXTURES = Path(__file__).parent / "fixtures"
 FIXTURE = FIXTURES / "sample_project"
 ORACLE = tomllib.loads((FIXTURES / "oracle.toml").read_text())
-MODULES = ["sample/discounts.py", "sample/inventory.py", "sample/loops.py", "sample/config.py"]
+MODULES = [
+    "sample/discounts.py",
+    "sample/inventory.py",
+    "sample/loops.py",
+    "sample/config.py",
+]
 
 pytestmark = pytest.mark.slow
 
@@ -88,8 +93,7 @@ def test_selection_runs_fewer_tests_than_the_whole_suite(serial_results, linemap
     # Criterion D2. The whole speed argument rests on this being true.
     total = len(linemap.all_tests())
     narrowed = [
-        r for r in serial_results
-        if r.status == "KILLED" and not r.mutant.module_level
+        r for r in serial_results if r.status == "KILLED" and not r.mutant.module_level
     ]
 
     assert narrowed
@@ -106,7 +110,9 @@ def test_module_level_mutants_deliberately_run_everything(serial_results, linema
     failure mode.
     """
     total = len(linemap.all_tests())
-    module_level = [r for r in serial_results if r.mutant.module_level and not r.mutant.suppressed]
+    module_level = [
+        r for r in serial_results if r.mutant.module_level and not r.mutant.suppressed
+    ]
 
     assert module_level
     assert all(r.tests_run == total for r in module_level)
@@ -116,7 +122,8 @@ def test_uncovered_mutant_runs_no_tests_at_all(serial_results):
     # inventory-L15-const: no covering tests, so nothing to run. It must still
     # be reported SURVIVED rather than hidden.
     uncovered = [
-        r for r in serial_results
+        r
+        for r in serial_results
         if (r.mutant.module, r.mutant.line) == ("sample/inventory.py", 15)
     ]
 

@@ -29,7 +29,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
-from moonbuggy.srcio import read_source, replace_line  # noqa: E402
+from moonbuggy.srcio import read_source, replace_line
 
 RUN_RECORD = REPO / "docs" / "oss-run.json"
 
@@ -41,9 +41,21 @@ def checkout_for(name, workdir):
 def run_suite(checkout, python, timeout=1800):
     """The project's whole suite. Returns (passed, tail of output)."""
     proc = subprocess.run(
-        [python, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
-         "--rootdir", str(checkout)],
-        cwd=checkout, capture_output=True, text=True, timeout=timeout,
+        [
+            python,
+            "-m",
+            "pytest",
+            "-q",
+            "-x",
+            "-p",
+            "no:cacheprovider",
+            "--rootdir",
+            str(checkout),
+        ],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
     return proc.returncode, (proc.stdout + proc.stderr)[-1200:]
 
@@ -64,17 +76,22 @@ def verify(checkout, python, survivor, baseline_code):
         target.write_bytes(original_bytes)
 
     if code == baseline_code:
-        verdict = "confirmed"   # suite still green: nothing catches it
+        verdict = "confirmed"  # suite still green: nothing catches it
     elif code == 1:
-        verdict = "refuted"     # a test outside the selected set caught it
+        verdict = "refuted"  # a test outside the selected set caught it
     else:
         verdict = "inconclusive"
 
     return {
-        "id": survivor["id"], "file": survivor["file"], "line": survivor["line"],
-        "operator": survivor["operator"], "diff": survivor["diff"],
-        "tests_run": survivor["tests_run"], "exit_code": code,
-        "verdict": verdict, "seconds": round(elapsed, 1),
+        "id": survivor["id"],
+        "file": survivor["file"],
+        "line": survivor["line"],
+        "operator": survivor["operator"],
+        "diff": survivor["diff"],
+        "tests_run": survivor["tests_run"],
+        "exit_code": code,
+        "verdict": verdict,
+        "seconds": round(elapsed, 1),
         "output": "" if verdict == "confirmed" else output,
     }
 
@@ -82,9 +99,12 @@ def verify(checkout, python, survivor, baseline_code):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--target", action="append", default=[])
-    parser.add_argument("--limit", type=int, default=4,
-                        help="survivors to verify per target")
-    parser.add_argument("--workdir", default=str(Path.home() / ".cache" / "moonbuggy-oss"))
+    parser.add_argument(
+        "--limit", type=int, default=4, help="survivors to verify per target"
+    )
+    parser.add_argument(
+        "--workdir", default=str(Path.home() / ".cache" / "moonbuggy-oss")
+    )
     parser.add_argument("--out", default=str(REPO / "docs" / "oss-verified.json"))
     args = parser.parse_args(argv)
 
@@ -108,14 +128,19 @@ def main(argv=None):
             result["target"] = entry["name"]
             result["tag"] = entry["tag"]
             verified.append(result)
-            print(f"    {result['verdict']:12} {survivor['file']}:{survivor['line']} "
-                  f"{survivor['operator']}  ({result['seconds']}s)")
+            print(
+                f"    {result['verdict']:12} {survivor['file']}:{survivor['line']} "
+                f"{survivor['operator']}  ({result['seconds']}s)"
+            )
 
     Path(args.out).write_text(json.dumps(verified, indent=2, sort_keys=True))
     counts = {}
     for item in verified:
         counts[item["verdict"]] = counts.get(item["verdict"], 0) + 1
-    print(f"\n{len(verified)} verified: " + "  ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    print(
+        f"\n{len(verified)} verified: "
+        + "  ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+    )
     print(f"-> {args.out}")
 
 
