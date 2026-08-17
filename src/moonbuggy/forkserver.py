@@ -583,6 +583,12 @@ def _warm_session_host(
         # be large and most often is not.
         startup = time.perf_counter() - began
 
+        # Everything reachable at this point was inherited from the parent --
+        # moonbuggy's own modules, pytest, coverage -- and none of it is
+        # garbage. Freezing it here, rather than only before the forks, keeps
+        # the collections the coverage run itself triggers from walking it.
+        _freeze_heap()
+
         # The probes are unmutated runs whose only job is to disagree with the
         # coverage run, so nothing about them depends on it. Started here, in
         # a sibling process, they run alongside it instead of after it.
