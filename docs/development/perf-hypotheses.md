@@ -1072,6 +1072,23 @@ not.**
   The residual risk is H12's in reverse: with the host no longer installing a
   rewrite hook, a test module imported late in a grandchild is not rewritten
   either — same consequence, no message.
+- **Checked by** the 728-mutant status-and-tests-run diff, plus `make test`,
+  `check-oracle` and `check-robustness`.
+- **Attempted:** yes, adopted (commit `f1ddf4a`).
+- **Actual saving:** **faster on all three shapes**, at the top of the
+  prediction.
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.353s [0.348, 0.356] | 0.328s [0.325, 0.329] | **faster 1.08x** |
+  | slow-tests | 0.459s [0.454, 0.468] | 0.433s [0.431, 0.436] | **faster 1.06x** |
+  | many-files | 0.542s [0.540, 0.545] | 0.511s [0.510, 0.515] | **faster 1.06x** |
+
+  The one entry in this round whose prediction needed no correction: the
+  micro-benchmark said 23–29ms, the phase is 38–50% of the run, and the A/B
+  found 23–31ms. Worth noting *why* it was available at all — H12 asked this
+  question of the grandchild and got the right answer, and nobody asked it of
+  the host for two rounds.
 
 ### H22 — Index only the modules that can actually be mutated
 
@@ -1086,6 +1103,21 @@ not.**
 - **Correctness risk:** low, and bounded by an existing fallback. `module_at()`
   already rescans `sys.modules` on an index miss, so a narrower index can cost
   a scan but cannot produce a wrong answer.
+- **Checked by** the 728-mutant diff, `make check-oracle`, `check-robustness`
+  and `check-properties`.
+- **Attempted:** yes, adopted (commit `0ce2382`).
+- **Actual saving:** **1.03x on two shapes, indistinguishable on the third.**
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.333s [0.333, 0.335] | 0.322s [0.321, 0.323] | **faster 1.03x** |
+  | slow-tests | 0.442s [0.439, 0.449] | 0.430s [0.428, 0.436] | **faster 1.03x** |
+  | many-files | 0.525s [0.517, 0.537] | 0.513s [0.510, 0.520] | indistinguishable |
+
+  Adopted on H3's rule. The shape it does *least* for is the one with the most
+  modules to skip, which is the opposite of the obvious guess: many-files has
+  the longest parent planning window, so host work removed there is partly work
+  removed from slack. That is the H23 interaction arriving one entry early.
 
 ### H23 — Prewarm the host while the parent is still planning
 
@@ -1101,6 +1133,25 @@ not.**
   prediction becomes under 1% on two of the three shapes.
 - **Correctness risk:** low. Nothing moves between processes; two independent
   pieces of host-local work swap places with a blocking read.
+- **Attempted:** yes, adopted (commit `676dce3`), with an ingredient the
+  prediction did not anticipate. H22 had already made `index_modules` nearly
+  free, so what is worth hiding is no longer the index but **H28's
+  collection** — 5–12ms — alongside the config's 4.9ms. The node ids it
+  collects from come from the host's own outcome recorder rather than the
+  parent's map, which is what makes it possible before the jobs arrive at all:
+  the recorder's ids are a superset of anything selection can ask for, because
+  the map's tests are exactly those ids unioned with the coverage contexts.
+- **Actual saving:** **1.04x on many-files, 1.01x on fast-tests,
+  indistinguishable on slow-tests.**
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.308s [0.307, 0.311] | 0.304s [0.301, 0.306] | **faster 1.01x** |
+  | slow-tests | 0.418s [0.416, 0.419] | 0.415s [0.410, 0.417] | indistinguishable |
+  | many-files | 0.497s [0.496, 0.500] | 0.479s [0.475, 0.484] | **faster 1.04x** |
+
+  The gradient is the planning window, as predicted: many-files plans for 21ms
+  and gains most, slow-tests plans for 4ms and gains nothing measurable.
 
 ### H24 — Cache the line map's per-module path resolution
 
@@ -1112,6 +1163,28 @@ not.**
 - **Predicted saving:** 1–2% on many-files, under 0.5% elsewhere
 - **Correctness risk:** low; a dict keyed on the module string, within one
   `LineMap` whose project root is fixed at construction.
+- **Attempted:** yes, implemented and measured. **Kept, worth nothing.**
+- **Actual saving:** **indistinguishable on all three shapes.**
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.307s [0.304, 0.316] | 0.309s [0.306, 0.313] | indistinguishable |
+  | slow-tests | 0.417s [0.416, 0.420] | 0.416s [0.415, 0.417] | indistinguishable |
+  | many-files | 0.477s [0.476, 0.482] | 0.480s [0.479, 0.484] | indistinguishable |
+
+  **The prediction was right about the milliseconds and wrong about whose they
+  were, because H23 had just landed.** H23 fills the parent's planning window
+  with host work; planning on many-files is 21ms and the host now has ~15ms to
+  do inside it. Shortening planning by 10ms therefore shortens nothing — it
+  makes the host the bottleneck of that window instead. **H24 optimises slack,
+  and it is slack because H23 put it there.** Measured before H23 it would have
+  scored around 1.5% on many-files, and the order these were done in is the
+  whole reason it scores zero.
+
+  Kept on H5's and H16's rule rather than discarded on H8's: it is one dict and
+  strictly less work, no shape is worse for it, and it is worth something again
+  the moment planning returns to the critical path. Recorded as zero rather
+  than quietly folded into the round's total.
 
 ### H25 — Take pytest out of the parent, and fork the host first
 
@@ -1131,6 +1204,27 @@ not.**
   ingredient: H17 had nothing to hide the parent's work behind, and a deferred
   pytest import creates a 49ms shadow. The parent must still never import the
   code under mutation, which this does not touch.
+- **Attempted:** no. **Refuted by arithmetic before implementing, and the
+  arithmetic was corrected by H30's measurement.**
+
+  The prediction counted the parent's `import coverage` as work that could hide
+  in the shadow. It cannot, and H30 is the proof: when H30 removed that import
+  from the parent, **the host stopped inheriting it and paid 16ms for it
+  itself** — the coverage-pass phase went 146ms to 162ms. An import the host
+  needs is on the critical path wherever it is issued, and forking earlier
+  moves it rather than hiding it. The same argument applies to `import
+  pytest`, which is the 49ms this entry was built around.
+
+  Strike both imports from the hideable column and what remains is discovery
+  plus generation: **2.6ms on fast- and slow-tests, 13.2ms on many-files —
+  0.7% to 2.5%.** That is H17's ceiling almost exactly (H17 computed 0.6–2.0%),
+  and H17 was implemented in full at that ceiling and measured indistinguishable
+  on all three shapes.
+- **Actual saving:** none available; not implemented. Two rounds had already
+  found that the parent's pre-fork work is not where the time is. This round
+  gives the stronger version: **it cannot be, because everything expensive the
+  parent does before forking is something the host would otherwise have to do
+  itself.**
 
 ### H26 — Stop loading third-party pytest plugins
 
@@ -1146,6 +1240,29 @@ not.**
   plugins are the *user's*, their tests may require them, and a suite run
   without them is not the suite. See the entry for what the measurement is
   actually good for.
+- **Attempted:** no, and it never will be. **Rejected on correctness**, and the
+  size of the number is exactly why it is written down: 40% of the largest
+  phase is sitting there, and it is not available.
+
+  A suite that needs `pytest-django`, `pytest-asyncio` or `anyio` does not run
+  without them; a suite that needs none of them may still have a `conftest.py`
+  that assumes one is loaded. Running the tests without the plugins the project
+  installed is not running the project's tests, and every mutant judged that
+  way is judged against a suite the user does not have.
+
+  Two narrower versions, also rejected:
+
+  - **`-p no:terminal`.** Measured at 40ms against the full pass's 167ms — and
+    the outcome recorder saw **zero tests**, so the run had not happened. Not a
+    trade-off; a broken measurement that the wall-clock number alone would have
+    flattered.
+  - **`-p no:warnings`.** Rejected without measuring: a project with
+    `filterwarnings = error` has tests that pass or fail on a warning, and
+    turning the plugin off makes some of them stop failing. H2's failure mode
+    exactly.
+- **Actual saving:** none available. The honest summary is that **what is left
+  of the coverage pass is largely other people's code deciding to import
+  itself, and moonbuggy does not get a vote.**
 
 ### H27 — Splice the changed token instead of unparsing the node
 
@@ -1156,6 +1273,25 @@ not.**
 - **Predicted saving:** under 1% on fast- and slow-tests, 1–2% on many-files
 - **Correctness risk:** medium — it changes the operator seam's contract, which
   is the thing H6 deliberately made hard to get wrong.
+- **Attempted:** no. **Refuted by measurement before implementing**, the way H9
+  and H19 were. Generation on many-files — the shape where it is largest — is
+  **9.5ms for 560 mutants over 41 files**, and `ast.unparse` is **~1.4ms of
+  it**; it does not reach the top twelve functions by self time. Walking the
+  tree (`_mutate_node`, `iter_child_nodes`) is most of the phase.
+
+  A *perfect* fix is therefore worth 1.4ms of a 478ms run — **0.3%**, an order
+  of magnitude below what the A/B can resolve — in exchange for changing the
+  seam contract H6 built specifically so one operator cannot leak a mutation
+  into another's node.
+
+  Generation also already splices by column offset: `_splice` keeps the rest of
+  the line and unparses only the replaced node. The quadratic H6 recorded is
+  real and reachable — 6000 terms still takes 37s — but it needs an expression
+  no real module contains, and this is the second round to measure that and
+  find nothing.
+- **Actual saving:** none available; not implemented. H6 predicted "under 1% on
+  all three shapes" for its own fix and was right; the follow-up lever it named
+  is smaller still on anything anyone runs.
 
 ### H28 — Collect once in the host; give each grandchild the collected items
 
@@ -1175,6 +1311,41 @@ not.**
   assume.
 - **To be checked by** the 728-mutant status-and-tests-run diff H14 and H15
   used, plus `make check-oracle`, `check-robustness` and `check-properties`.
+- **Checked by** exactly that, **and the diff found a real bug before any A/B
+  ran.** Twelve mutants on slow-tests went KILLED to SUSPICIOUS. The cause:
+  `-x` stopping the run raises `_pytest.main.Failed`, and the first
+  implementation caught `_pytest.outcomes.Failed` — two unrelated classes with
+  the same name. Every mutant its tests actually killed became a crashed
+  grandchild, on the only one of the three shapes whose tests can fail.
+
+  Worth being blunt about what that would have looked like unguarded: a 1.1x
+  speed-up, three green gates, and a tool reporting SUSPICIOUS instead of
+  KILLED. The fix takes the class off the session object so it cannot drift
+  from the one the loop raises. Re-run: **728 mutants, 0 disagreements**, and
+  `check-oracle`, `check-robustness` and `check-properties` all pass.
+- **Attempted:** yes, adopted (commit `443b696`).
+- **Actual saving:** **faster on two shapes, indistinguishable on the third**,
+  at the bottom of the predicted range.
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.365s [0.363, 0.368] | 0.364s [0.362, 0.367] | indistinguishable |
+  | slow-tests | 0.516s [0.514, 0.520] | 0.477s [0.472, 0.483] | **faster 1.08x** |
+  | many-files | 0.622s [0.621, 0.626] | 0.566s [0.562, 0.580] | **faster 1.10x** |
+
+  In isolation the grandchild went **6.3ms to 2.3ms** — a third of what it
+  was — for 5–12ms paid once in the host. So why is fast-tests unmoved?
+  Because what the A/B measures is the mutant *phase*, not the grandchild, and
+  on fast-tests that phase is fork-bound rather than execution-bound. Profiled
+  on both sides it goes from 52ms in-child + 22ms fork to 36ms in-child + 35ms
+  fork: **74ms to 70ms.** The saving is real and exactly where it was
+  predicted; on that shape it is spent waiting for processes instead.
+
+  **The prediction confused the process with the phase** — a third variant of
+  the mistake this register keeps recording. H8 multiplied a per-mutant latency
+  by the mutant count; H19 divided a phase by a shard count; H28 made a
+  repeating process three times faster on a shape where the repeating process
+  is not what the wall clock waits for.
 
 ### H29 — Exit without running interpreter finalisation
 
@@ -1191,6 +1362,27 @@ not.**
   must already be closed. A missed flush loses the report, which is worse than
   a slow run; it is the one change in this round whose failure mode is silent
   and user-visible.
+- **Checked by** the 728-mutant diff plus a run of many-files with stdout
+  redirected to a file — the fully-buffered case, which is the one that would
+  actually lose output. All 560 report lines, both artifacts and the stderr
+  summary arrive intact. `check-oracle`, `check-robustness` and
+  `check-fresh-install` pass, the last of which exercises the installed console
+  script this repoints.
+- **Attempted:** yes, adopted (commit `ae6aeaa`).
+- **Actual saving:** **faster on all three shapes**, slightly above the
+  prediction.
+
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.324s [0.321, 0.327] | 0.311s [0.308, 0.312] | **faster 1.04x** |
+  | slow-tests | 0.432s [0.430, 0.436] | 0.421s [0.419, 0.425] | **faster 1.03x** |
+  | many-files | 0.513s [0.508, 0.519] | 0.500s [0.495, 0.506] | **faster 1.03x** |
+
+  13ms, flat across the shapes, which is what a constant looks like. Worth
+  keeping for a reason beyond its size: **it is the only change in four rounds
+  to come out of the "interpreter start/teardown" row**, and that row only
+  became a place to look when the instrument stopped lumping moonbuggy's import
+  chain in with it.
 
 ### H30 — Build the map in the host, so the parent never imports coverage
 
@@ -1209,4 +1401,169 @@ not.**
 - **Note:** this is H11 read forwards rather than backwards, and it is the
   third time the register has had to ask "how many times does this import
   happen on the critical path" rather than "should this process import less".
+- **Attempted:** yes, implemented in full and measured. **Discarded.**
+- **Actual saving:** **indistinguishable on all three shapes.**
 
+  | shape | baseline | candidate | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.324s [0.322, 0.327] | 0.323s [0.320, 0.325] | indistinguishable |
+  | slow-tests | 0.433s [0.428, 0.434] | 0.435s [0.429, 0.438] | indistinguishable |
+  | many-files | 0.508s [0.507, 0.513] | 0.506s [0.505, 0.508] | indistinguishable |
+
+  It worked exactly as designed and bought nothing, and the profile says
+  precisely why. It did remove a verified 14ms `import coverage` from the
+  parent — checked directly: afterwards `"coverage" in sys.modules` is `False`
+  in the parent at the end of a run. But `prewarm_reader` was never only for
+  the parent's own read. **The host inherited that import across the fork**,
+  and without it pytest-cov imports coverage inside the host instead:
+
+  | phase, fast-tests | before | after |
+  |---|---:|---:|
+  | import chain (parent) | 46–48ms | 47ms |
+  | coverage pass (host) | **146ms** | **162ms** |
+  | planning (parent) | 4.0ms | 3.5ms |
+
+  −14ms in the parent, +16ms in the host, and the host is downstream of the
+  parent on one critical path.
+
+  **The general result is worth more than the change was.** The register has
+  now asked three times how many times an import happens on the critical path.
+  The answer here is **once, and it cannot be moved off it** — a parent import
+  is a host import that happened earlier. H3 half-saw this, H11 saw it from one
+  side, this sees it from the other, and H25 above is refuted by it.
+
+  Discarded on H8's and H17's rule: not strictly less work but differently
+  shaped work — a new pipe payload, a new fallback path, a deleted function —
+  for nothing measurable. The 728-mutant diff was clean, which is why the
+  reason for discarding it is wall clock and not correctness. Kept on the
+  branch `h30-map-in-host` (`eb97ed8`) rather than in the tree.
+
+
+## Results
+
+| # | hypothesis | predicted | actual | outcome |
+|---|---|---|---|---|
+| H21 | `--assert=plain` in the coverage pass | 4–6% | 1.06–1.08x | adopted |
+| H22 | index only the mutable modules | 2–3% | 1.03x on two shapes | adopted |
+| H23 | prewarm the host during planning | 1–3% | 1.01–1.04x on two shapes | adopted |
+| H24 | cache the map's path resolution | 1–2% | indistinguishable | kept, worth nothing |
+| H25 | defer pytest, fork the host first | 2–3% | 0.7–2.5% ceiling | refuted by arithmetic |
+| H26 | stop loading third-party plugins | 15–20% | 40% of a phase | **rejected on correctness** |
+| H27 | splice instead of `ast.unparse` | <1–2% | 0.3% ceiling | refuted by measurement |
+| H28 | collect once in the host | 8–15% | 1.08–1.10x on two shapes | adopted |
+| H29 | exit without finalisation | 2–3% | 1.03–1.04x | adopted |
+| H30 | build the map in the host | 2–4% | indistinguishable | **discarded** |
+
+**Scoreboard for the predictions: one exactly right (H21), two right about the
+direction and the shapes and low about the size (H23, H29), one right about the
+size and wrong about which process would spend it (H28), one right about the
+milliseconds and wrong about whose they were (H24), one wrong about its
+arithmetic in a way another entry in the same round disproved (H25), and one
+that worked perfectly and bought nothing (H30).**
+
+Five adopted, one kept at zero, one discarded after implementation, three not
+implemented at all. The three that were never implemented cost one measurement
+each and between them would have been a seam-contract change, a correctness
+regression and a restructure — which is the argument for the register in one
+sentence.
+
+### Three things this round is worth reading for
+
+**1. The instrument was the highest-value change, and it was not a hypothesis.**
+Naming the import chain turned a 51–70ms "unattributed" remainder into a phase,
+which made "interpreter start/teardown" a number small enough to attack (H29)
+and made H25's and H30's arithmetic checkable. The third round predicted this
+and it still under-sold it: the fix did not merely restore a gate, it produced
+two of the round's ten entries.
+
+**2. Two entries measured zero for the same reason, and it was each other.**
+H23 hides host work inside the parent's planning window; H24 shortens that
+window. Run in the other order, H24 scores ~1.5% on many-files and H23 scores
+less. Neither number is wrong, and neither is a property of the change alone —
+**each is credited with what it was worth given what had already landed**, which
+is the rule H10 and H12 established and the first time it has produced a zero.
+
+**3. "How many times does this import happen on the critical path" has an
+answer now.** Once, and it cannot be moved. H3 removed a parent import and
+found the host paid it instead. H11 added one and found half of it genuinely
+disappeared. H30 removed the other one and found the host paid it instead —
++16ms in the host for −14ms in the parent. The distinction that survives all
+three: an import **both** processes would do is worth hoisting into the parent,
+because the fork makes one copy free. An import only the host needs is on the
+critical path wherever it is issued, and moving it is not optimising, it is
+bookkeeping. H25 was refuted by this without being written.
+
+## Outcome
+
+**Cumulative effect of everything adopted, `0de3fe3` → `fc8563a`**, measured by
+one interleaved `make ab` rather than by multiplying the individual results:
+
+| shape | before | after | verdict |
+|---|---|---|---|
+| fast-tests | 0.362s [0.361, 0.363] | 0.302s [0.301, 0.305] | **faster 1.20x** |
+| slow-tests | 0.510s [0.506, 0.511] | 0.415s [0.413, 0.424] | **faster 1.23x** |
+| many-files | 0.613s [0.612, 0.616] | 0.478s [0.476, 0.484] | **faster 1.28x** |
+
+No adopted change regressed any shape, which is why all three ran on every A/B
+(M2.4.2). `make test`, `make check-oracle`, `make check-robustness`,
+`make check-properties` and `make check-fresh-install` pass on `fc8563a`.
+`make lint`, `format-check` and `typecheck` could not be run: ruff and mypy are
+not installed in this checkout's `.venv`, so those three gates are unverified
+here rather than passing.
+
+Across four rounds, on the same machine and the same three workloads:
+fast-tests 0.554s → 0.302s, slow-tests 0.989s → 0.415s, many-files 1.534s →
+0.478s — **1.8x, 2.4x and 3.2x.**
+
+### What the re-taken profile says now
+
+`make profile` on `fc8563a`, five runs per shape, median:
+
+| phase | fast-tests | slow-tests | many-files |
+|---|---:|---:|---:|
+| coverage pass | 50.8% | 46.6% | 42.3% |
+| in-child test execution | 9.8% | 18.5% | 12.6% |
+| per-mutant fork | 8.4% | 11.8% | 20.0% |
+| import chain | 16.4% | 12.1% | 10.6% |
+| interpreter start/teardown | 6.9% | 5.0% | 4.4% |
+| planning | 1.1% | 0.6% | 2.2% |
+| generation | 0.7% | 0.5% | 2.5% |
+| reporting, discovery, cache I/O, flaky probe | ~0.5% | ~0.4% | ~1.3% |
+| **unattributed** | **5.2%** | **4.4%** | **4.1%** |
+
+Absolute medians: fast-tests 0.306s / 84 mutants, slow-tests 0.416s / 84
+mutants, many-files 0.482s / 560 mutants.
+
+M2.1.2 passes on slow-tests and many-files and **fails on fast-tests by 0.2
+percentage points** (94.8%). Same shape of problem the instrument fix just
+solved and a much smaller one: the remainder is 16–20ms in absolute terms on
+every shape, unchanged while the denominator fell by another 20%. It is the
+gaps between spans — argument parsing, the fork itself, the handful of
+statements between `main()` and the first span. Recorded rather than fixed,
+because the next round should decide whether a 16ms residue is worth a span or
+whether the gate's 95% is simply the wrong number for a 300ms run.
+
+### Where the time is now
+
+**The coverage pass is half of a fast run and it is not moving.** H19, H20 and
+now H26 have attacked it from six directions across two rounds. What remains
+is: coverage's trace core measuring the user's suite, pytest's own session
+setup, and third-party plugins importing themselves — and the only lever big
+enough to matter is the one that would run the user's tests without the
+plugins the user installed.
+
+**The two next-largest numbers are both about starting a Python process.** The
+import chain is 10.6–16.4% and 86% of it is `import pytest`; interpreter
+start/teardown is another 4.4–6.9%. H25 establishes that the import cannot be
+moved off the critical path, and H29 has already taken the teardown half. What
+is left is not a moonbuggy problem.
+
+**Per-mutant fork is now 20% on many-files — the largest it has been since the
+second round** — not because forking got slower but because H28 took a third out
+of what the forks were waiting for. That is the first time in four rounds that
+the fork itself, rather than what happens inside it, is the biggest remaining
+per-mutant cost. **H1 is the change that would remove it, and H1 is still
+deferred**, on the same grounds and with one new fact against it: H28 shows
+that a great deal of per-mutant work can be hoisted into the host *without*
+letting two mutants share a process, which is the cheap half of H1's benefit
+taken at none of H1's risk.
