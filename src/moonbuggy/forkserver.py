@@ -456,9 +456,12 @@ def _warm_session_host(
         # Read every module under mutation once, here, so the grandchildren
         # inherit the text instead of each opening the file for itself. The
         # host is the only place this can pay off -- see srcio._SOURCE_CACHE.
+        from .codeswap import index_modules
         from .srcio import prewarm
 
         prewarm({mutant.module for mutant, _ in jobs})
+        # Same argument, for finding the module to swap: see index_modules.
+        index_modules()
 
         def emit(
             index: int, status: Status, test_seconds: float, child_wall: float
@@ -587,6 +590,10 @@ def _warm_host(
         # One full run to import every test module, rewrite its asserts and
         # populate pytest's caches. Every grandchild inherits all of it.
         pytest.main(warm_args)
+
+        from .codeswap import index_modules
+
+        index_modules()
 
         statuses = _fork_grandchildren(jobs, timeout, concurrency, apply_swap)
         os.write(write_fd, bytes(_CODE_BY_STATUS[s] for s in statuses))
