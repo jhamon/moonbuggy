@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "moonbuggy"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Fast, agent-first mutation testing for Python"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -57,6 +57,12 @@ moonbuggy = "moonbuggy.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/moonbuggy"]
+
+[tool.hatch.version]
+# M7: one literal version in the repository. docs/conf.py and
+# scripts/oss_hunt.py already read __version__, so making that the source and
+# having the build read it removes a number that could drift from the build.
+path = "src/moonbuggy/__init__.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

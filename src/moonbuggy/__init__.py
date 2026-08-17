@@ -4,4 +4,4 @@ See docs/acceptance-criteria.md for what "done" means, and the design doc for
 the architecture these modules implement.
 """
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
