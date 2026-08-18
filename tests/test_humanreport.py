@@ -5,7 +5,14 @@ which is what lets the alignment, truncation, and encoding cases be ordinary
 unit tests.
 """
 
-from moonbuggy.humanreport import changed_span, coverage_sentence, render_group, ruler
+from moonbuggy.humanreport import (
+    changed_span,
+    coverage_sentence,
+    render_group,
+    render_report,
+    ruler,
+    score_text,
+)
 from moonbuggy.terminal import Palette
 
 PLAIN = Palette()
@@ -151,3 +158,70 @@ def test_only_survivors_get_a_coverage_sentence():
 def test_a_whitespace_only_mutation_says_so():
     lines = render_group([rec(original="x = 1", mutated="x = 1 ")], PLAIN, timeout=30.0)
     assert "    (differs only in trailing whitespace)" in lines
+
+
+def test_score_shows_its_denominator():
+    counts = {"KILLED": 15, "SURVIVED": 5, "TIMEOUT": 1, "SKIPPED": 1, "SUSPICIOUS": 0}
+    assert score_text(counts) == "15/21 killed, 71%"
+
+
+def test_score_is_not_a_number_when_everything_was_skipped():
+    counts = {"KILLED": 0, "SURVIVED": 0, "TIMEOUT": 0, "SKIPPED": 3, "SUSPICIOUS": 0}
+    assert score_text(counts) == "n/a"
+
+
+def test_the_last_line_states_the_exit_code():
+    # The reader's terminal comes to rest on the final line, and anyone wiring
+    # this into a pre-commit hook needs the list connected to the red.
+    report = render_report([rec()], palette=PLAIN, files=1, elapsed=9.4, timeout=30.0)
+    assert report.splitlines()[-1] == "exit 1 -- survivors"
+
+
+def test_a_clean_run_says_so():
+    report = render_report(
+        [rec(status="KILLED")], palette=PLAIN, files=1, elapsed=1.0, timeout=30.0
+    )
+    assert report.splitlines()[-1] == "exit 0 -- nothing survived"
+
+
+def test_killed_mutants_appear_only_as_counts():
+    report = render_report(
+        [rec(status="KILLED")], palette=PLAIN, files=1, elapsed=1.0, timeout=30.0
+    )
+    assert "KILLED  comparison_swap" not in report
+    assert "1 killed" in report
+
+
+def test_timeouts_move_below_the_survivors():
+    records = [
+        rec(),
+        rec(status="TIMEOUT", file="sample/loops.py", line=12, nearest_test=None),
+    ]
+    report = render_report(records, palette=PLAIN, files=2, elapsed=1.0, timeout=30.0)
+    assert report.index("Problems with the run") > report.index("SURVIVED")
+
+
+def test_suspicious_collapses_to_one_line():
+    # humanize in the project's own OSS data is 84 SUSPICIOUS against 16
+    # SURVIVED. Rendered in full the finding drowns in the plumbing.
+    records = [rec(status="SUSPICIOUS", nearest_test=None) for _ in range(84)]
+    report = render_report(records, palette=PLAIN, files=1, elapsed=1.0, timeout=30.0)
+    assert "84 mutants could not be answered confidently (SUSPICIOUS)." in report
+    assert report.count("SUSPICIOUS  comparison_swap") == 0
+
+
+def test_groups_are_ordered_by_file_then_line():
+    records = [
+        rec(file="b.py", line=1),
+        rec(file="a.py", line=9),
+        rec(file="a.py", line=2),
+    ]
+    report = render_report(records, palette=PLAIN, files=2, elapsed=1.0, timeout=30.0)
+    assert report.index("a.py:2") < report.index("a.py:9") < report.index("b.py:1")
+
+
+def test_no_line_exceeds_the_report_width():
+    report = render_report([rec()], palette=PLAIN, files=1, elapsed=9.4, timeout=30.0)
+    # The node id is the one deliberate exception; it is a paste target.
+    body = [line for line in report.splitlines() if "::" not in line]
+    assert max(len(line) for line in body) <= 100

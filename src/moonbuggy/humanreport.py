@@ -9,9 +9,9 @@ that was written to `results.jsonl` -- so the human view cannot drift from the
 canonical one, for the same reason the plaintext view cannot.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
-from .report import Record
+from .report import Record, summarise
 from .terminal import Palette, display_width, sanitise
 
 
@@ -175,3 +175,101 @@ def render_group(
         lines.append(ruler(mutated, start, end, SIGIL_WIDTH))
     lines.extend(f"{' ' * STATUS_INDENT}{line}" for line in coverage_sentence(first))
     return lines
+
+
+# The order counts appear in the footer. Survivors first because they are the
+# work; killed and skipped last because they are context.
+FOOTER_ORDER = ("SURVIVED", "TIMEOUT", "SUSPICIOUS", "KILLED", "SKIPPED")
+
+
+def score_text(counts: Mapping[str, int]) -> str:
+    """The kill rate, with the denominator visible.
+
+    Suppressed mutants leave the denominator, because a mutant nobody could
+    kill is not a test failure. The number appears in the footer rather than
+    the header: at the top of a report a percentage reads as a target, and at
+    the bottom it reads as an observation.
+
+    Args:
+        counts: per-status counts, as `report.summarise` returns.
+
+    Returns:
+        Something like "15/21 killed, 71%", or "n/a" when nothing was runnable.
+    """
+    total = sum(counts.values())
+    runnable = total - counts.get("SKIPPED", 0)
+    if runnable <= 0:
+        return "n/a"
+    killed = counts.get("KILLED", 0)
+    return f"{killed}/{runnable} killed, {round(100 * killed / runnable)}%"
+
+
+def render_report(
+    records: Sequence[Record],
+    *,
+    palette: Palette,
+    files: int,
+    elapsed: float,
+    timeout: float,
+) -> str:
+    """The whole human report.
+
+    Args:
+        records: every mutant's record, in any order.
+        palette: the escape sequences to use, possibly empty.
+        files: how many source files were mutated.
+        elapsed: the run's wall clock, in seconds.
+        timeout: the run's configured timeout in seconds, forwarded to
+            `render_group` so a TIMEOUT record's note names the budget the
+            run actually used rather than a hardcoded guess.
+
+    Returns:
+        The report, newline-separated, with no trailing newline.
+    """
+    counts = summarise(records)
+    lines = [f"moonbuggy  {len(records)} mutants across {files} files", ""]
+
+    survivors = [r for r in records if r["status"] == "SURVIVED"]
+    timeouts = [r for r in records if r["status"] == "TIMEOUT"]
+    suspicious = [r for r in records if r["status"] == "SUSPICIOUS"]
+
+    for group in _group_by_location(survivors):
+        lines.extend(render_group(group, palette, timeout=timeout))
+        lines.append("")
+
+    if timeouts or suspicious:
+        lines.extend(["Problems with the run", ""])
+        for group in _group_by_location(timeouts):
+            lines.extend(render_group(group, palette, timeout=timeout))
+            lines.append("")
+        if suspicious:
+            # One cause, not N findings. The documented action -- investigate
+            # the run -- is the same however many mutants are affected.
+            lines.append(
+                f"{len(suspicious)} mutants could not be answered confidently "
+                "(SUSPICIOUS)."
+            )
+            lines.append(
+                f"This is usually one cause rather than {len(suspicious)}.  "
+                "See docs/troubleshooting.md"
+            )
+            lines.append("")
+
+    tally = ", ".join(
+        f"{counts[status]} {status.lower()}"
+        for status in FOOTER_ORDER
+        if counts.get(status) or status in {"SURVIVED", "KILLED"}
+    )
+    lines.append(f"{tally} in {elapsed:.1f}s -- {score_text(counts)}")
+    lines.append("Full records: .moonbuggy/results.jsonl")
+    lines.append(
+        "exit 1 -- survivors" if counts["SURVIVED"] else "exit 0 -- nothing survived"
+    )
+    return "\n".join(lines)
+
+
+def _group_by_location(records: Sequence[Record]) -> list[list[Record]]:
+    grouped: dict[tuple[str, int], list[Record]] = {}
+    for record in records:
+        grouped.setdefault((record["file"], record["line"]), []).append(record)
+    return [grouped[key] for key in sorted(grouped)]
