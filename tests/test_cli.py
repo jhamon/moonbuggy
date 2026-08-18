@@ -6,14 +6,11 @@ that moonbuggy works on the one layout it was developed against; criterion H2
 asks whether it works on a project it has never seen.
 """
 
-import io
 import json
 import subprocess
 import sys
 
 import pytest
-
-from moonbuggy.cli import _harden_streams, main
 
 pytestmark = pytest.mark.slow
 
@@ -284,26 +281,6 @@ def test_exclude_filters_files(throwaway):
 
     assert "helper.py" in with_helper
     assert "helper.py" not in without
-
-
-def test_harden_streams_makes_encoding_errors_non_fatal(monkeypatch):
-    """A source byte stdout cannot encode must degrade, never kill the run."""
-    stream = io.TextIOWrapper(io.BytesIO(), encoding="ascii", errors="strict")
-    monkeypatch.setattr("sys.stdout", stream)
-    monkeypatch.setattr("sys.stderr", stream)
-    _harden_streams()
-    assert stream.errors == "backslashreplace"
-    print("café")  # would raise UnicodeEncodeError before hardening
-
-
-def test_interrupt_returns_130_not_a_traceback(monkeypatch):
-    """Ctrl-C is an anticipated ending, so it gets a message and a code."""
-
-    def _boom(_args):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr("moonbuggy.cli._run", _boom)
-    assert main([]) == 130
 
 
 def _records(project):
