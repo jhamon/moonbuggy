@@ -51,6 +51,26 @@ DEFAULT_OUTPUT_DIR = ".moonbuggy"
 _IMPORTS_DONE = time.perf_counter()
 
 
+def _harden_streams() -> None:
+    """Make stdout/stderr degrade instead of raising on unencodable output.
+
+    A source file may legally be latin-1 or cp1251 (srcio honours PEP 263),
+    so a mutated line can hold characters stdout cannot encode. With the
+    default errors="strict" that is a UnicodeEncodeError raised from inside
+    the report, past main's handler, as a traceback -- which criterion H5
+    forbids -- and past run()'s explicit flush, losing the buffered report.
+    backslashreplace degrades the character and keeps the run.
+
+    `getattr` rather than a direct call: an in-process caller may have
+    replaced the streams with an object that has no `reconfigure`, and
+    `main`'s docstring says calling it in-process is supported.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="backslashreplace")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run moonbuggy.
 
@@ -59,8 +79,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         The process exit code: 0 for a clean run, 1 when there are survivors,
-        2 when the run could not happen at all.
+        2 when the run could not happen at all, 130 when interrupted.
     """
+    _harden_streams()
     profiling.active().add("import chain", _IMPORTS_DONE - profiling.active().started)
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -68,6 +89,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "show":
             return _show(args)
         return _run(args)
+    except KeyboardInterrupt:
+        # An anticipated ending, not a crash. 130 is the shell convention for
+        # SIGINT. The results file is valid at every instant (criterion
+        # M1.4.13), so whatever finished is already usable.
+        print(
+            "\nmoonbuggy: interrupted. Partial results in "
+            f"{args.output_dir}/results.jsonl",
+            file=sys.stderr,
+        )
+        return 130
     except (LayoutError, CoveragePassError, BaselineError, SourceError) as error:
         # Criteria H5 and M1.4.12: an actionable message, never a traceback.
         # Every failure moonbuggy can anticipate is funnelled through here, so
@@ -275,7 +306,7 @@ def _run(args: argparse.Namespace) -> int:
         # results, so the two artifacts cannot disagree (criterion E3).
         records = read_jsonl(jsonl_path)
         text_path = output_dir / "results.txt"
-        text_path.write_text(plaintext_from_records(records) + "\n")
+        text_path.write_text(plaintext_from_records(records) + "\n", encoding="utf-8")
 
         if not args.quiet:
             for record in records:

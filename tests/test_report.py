@@ -173,3 +173,12 @@ def test_diff_stays_derived_from_the_operands():
     """The diff string must not drift from the fields it is built out of."""
     record = record_for(make("SURVIVED"))
     assert record["diff"] == f"- {record['original']}\n+ {record['mutated']}"
+
+
+def test_jsonl_is_written_as_utf8_regardless_of_locale(tmp_path):
+    """results.jsonl must not depend on the machine's locale encoding."""
+    path = tmp_path / "results.jsonl"
+    write_jsonl([make("SURVIVED", nearest="tests/t.py::test_café")], path)
+    # Decodes as UTF-8 and no other way round-trips.
+    assert read_jsonl(path)[0]["nearest_test"] == "tests/t.py::test_café"
+    path.read_bytes().decode("utf-8")
