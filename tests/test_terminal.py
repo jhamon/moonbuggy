@@ -5,7 +5,7 @@ Keeping them here, behind pure functions, is what lets humanreport.py be
 tested as string-in string-out with no pty.
 """
 
-from moonbuggy.terminal import display_width, sanitise
+from moonbuggy.terminal import char_width, display_width, sanitise
 
 
 def test_ascii_is_one_cell_per_character():
@@ -17,8 +17,16 @@ def test_east_asian_wide_is_two_cells():
 
 
 def test_combining_marks_occupy_no_cell():
-    # "e" plus U+0301 COMBINING ACUTE ACCENT is one cell, not two.
-    assert display_width("é") == 1
+    # Must stay decomposed -- "e" + U+0301 COMBINING ACUTE ACCENT -- not the
+    # precomposed "é" (U+00E9), which is a single Ll code point and would not
+    # exercise the combining-mark branch at all.
+    assert display_width("é") == 1
+
+
+def test_combining_mark_alone_is_zero_width():
+    # Direct pin of char_width's zero-width branch, independent of any base
+    # character it might be combined with.
+    assert char_width("́") == 0
 
 
 def test_ambiguous_width_follows_the_locale():
