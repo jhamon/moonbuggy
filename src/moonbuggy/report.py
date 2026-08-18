@@ -45,6 +45,8 @@ class Record(TypedDict):
     duration: float
     module_level: bool
     suppressed: bool
+    original: str
+    mutated: str
     diff: str
 
 
@@ -67,6 +69,11 @@ def record_for(result: Result) -> Record:
         "duration": round(result.duration, 4),
         "module_level": mutant.module_level,
         "suppressed": mutant.suppressed,
+        # The operands, not just the rendered diff. The human reporter computes
+        # a changed span from these; deriving them by splitting `diff` would be
+        # a reporter parsing its own output format.
+        "original": mutant.original,
+        "mutated": mutant.mutated,
         "diff": f"- {mutant.original}\n+ {mutant.mutated}",
     }
 
