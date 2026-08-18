@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-17
+
 ### Changed
 
 - Runs are a further 1.20x to 1.28x faster, on top of the two rounds below,
