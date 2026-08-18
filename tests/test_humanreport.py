@@ -12,6 +12,7 @@ from moonbuggy.humanreport import (
     render_report,
     ruler,
     score_text,
+    window,
 )
 from moonbuggy.terminal import Palette
 
@@ -221,7 +222,54 @@ def test_groups_are_ordered_by_file_then_line():
 
 
 def test_no_line_exceeds_the_report_width():
-    report = render_report([rec()], palette=PLAIN, files=1, elapsed=9.4, timeout=30.0)
+    # A source line far past the budget is the real regression guard: before
+    # `width` existed there was no wrapping logic at all to pin down.
+    long_line = "x = " + "a" * 300
+    report = render_report(
+        [rec(original=long_line, mutated=long_line + "1")],
+        palette=PLAIN,
+        files=1,
+        elapsed=9.4,
+        timeout=30.0,
+        width=72,
+    )
     # The node id is the one deliberate exception; it is a paste target.
     body = [line for line in report.splitlines() if "::" not in line]
-    assert max(len(line) for line in body) <= 100
+    assert max(len(line) for line in body) <= 72
+
+
+def test_a_short_line_is_returned_unchanged():
+    assert window("return 0", 7, 8, 74) == ("return 0", 7, 8)
+
+
+def test_a_long_line_is_windowed_around_the_change():
+    # Never tail-truncated: the change may be at column 300.
+    text = "x = " + "a" * 300 + " + CHANGED"
+    start = text.index("CHANGED")
+    got, new_start, new_end = window(text, start, start + 7, 40)
+    assert "CHANGED" in got
+    assert got.startswith("...")
+    assert got[new_start:new_end] == "CHANGED"
+
+
+def test_the_window_never_exceeds_its_budget():
+    text = "y = " + "b" * 500
+    got, _, _ = window(text, 100, 104, 40)
+    assert len(got) <= 40
+
+
+def test_deep_indentation_is_dedented():
+    deep = " " * 20 + "return stock > 0"
+    mutated = " " * 20 + "return stock >= 0"
+    lines = render_group(
+        [rec(original=deep, mutated=mutated)], PLAIN, timeout=30.0, width=80
+    )
+    assert "    - return stock > 0" in lines
+
+
+def test_a_narrow_terminal_still_renders():
+    report = render_report(
+        [rec()], palette=PLAIN, files=1, elapsed=1.0, timeout=30.0, width=40
+    )
+    body = [line for line in report.splitlines() if "::" not in line]
+    assert max(len(line) for line in body) <= 40

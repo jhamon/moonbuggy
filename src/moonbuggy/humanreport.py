@@ -12,7 +12,7 @@ canonical one, for the same reason the plaintext view cannot.
 from collections.abc import Mapping, Sequence
 
 from .report import Record, summarise
-from .terminal import Palette, display_width, sanitise
+from .terminal import FALLBACK_WIDTH, TAB_WIDTH, Palette, display_width, sanitise
 
 
 def changed_span(original: str, mutated: str) -> tuple[int, int]:
@@ -78,6 +78,82 @@ def ruler(mutated: str, start: int, end: int, indent: int) -> str:
     return " " * lead + "^" * span
 
 
+ELLIPSIS = "..."
+
+
+def window(text: str, start: int, end: int, budget: int) -> tuple[str, int, int]:
+    """Cut a long line down to a budget, keeping the changed span visible.
+
+    Tail truncation is the specific wrong answer here, because the change may
+    be at column 300. Wrapping is worse: a continuation line carries no `-` or
+    `+` sigil, so it stops being clear which side of the diff it belongs to.
+
+    Args:
+        text: the line to fit.
+        start: the changed span's first character index.
+        end: the changed span's end index, exclusive.
+        budget: how many cells are available.
+
+    Returns:
+        ``(windowed_text, start, end)`` with the indices rebased onto the
+        returned text.
+    """
+    if display_width(text) <= budget:
+        return text, start, end
+    room = budget - 2 * len(ELLIPSIS)
+    span = max(1, end - start)
+    lead = max(0, (room - span) // 2)
+    left = max(0, start - lead)
+    right = min(len(text), left + room)
+    left = max(0, right - room)
+    cut = text[left:right]
+    prefix = ELLIPSIS if left > 0 else ""
+    suffix = ELLIPSIS if right < len(text) else ""
+    shift = len(prefix) - left
+    return (
+        prefix + cut + suffix,
+        start + shift,
+        min(end + shift, len(cut) + len(prefix)),
+    )
+
+
+def _shared_indent(a: str, b: str) -> int:
+    """How many leading whitespace characters two lines share.
+
+    Args:
+        a: the first line.
+        b: the second line.
+
+    Returns:
+        The count of leading characters that are whitespace and identical in
+        both lines.
+    """
+    limit = min(len(a), len(b))
+    count = 0
+    while count < limit and a[count] == b[count] and a[count].isspace():
+        count += 1
+    return count
+
+
+def _clip(line: str, width: int) -> str:
+    """Fit a line with no highlighted span into a width, node ids exempt.
+
+    A node id is a paste target and so is never truncated, however long. It
+    is recognised by its `::`, the same marker pytest itself uses.
+
+    Args:
+        line: the line to fit.
+        width: how many cells are available.
+
+    Returns:
+        `line` unchanged if it already fits or holds a node id, otherwise a
+        windowed copy.
+    """
+    if "::" in line or display_width(line) <= width:
+        return line
+    return window(line, 0, 0, width)[0]
+
+
 # Indents. Two levels, not four: the location anchors at column 0, the status
 # word sits under it, and the code sits under that. Deeper nesting spends
 # columns to express a hierarchy that is only three deep.
@@ -125,7 +201,11 @@ def coverage_sentence(record: Record) -> list[str]:
 
 
 def render_group(
-    records: Sequence[Record], palette: Palette, *, timeout: float
+    records: Sequence[Record],
+    palette: Palette,
+    *,
+    timeout: float,
+    width: int = FALLBACK_WIDTH,
 ) -> list[str]:
     """Every mutant sharing one file and line, as report lines.
 
@@ -142,6 +222,9 @@ def render_group(
             own, so this must come from the caller's `--timeout` rather than a
             hardcoded constant, or the note would print a number the run never
             used.
+        width: how many columns the report may use. Source lines that are
+            indented past `terminal.TAB_WIDTH` cells are dedented, and every
+            code line is windowed to fit.
 
     Returns:
         The group's lines, without a trailing blank.
@@ -149,9 +232,22 @@ def render_group(
     first = records[0]
     lines = [f"{first['file']}:{first['line']}"]
     original = sanitise(first["original"]).rstrip()
+    first_mutated = sanitise(first["mutated"]).rstrip()
+    # A statement nested several blocks deep spends most of its width on
+    # indentation the reader already knows -- the group header names the file
+    # and line. Dedenting only past TAB_WIDTH cells leaves ordinary
+    # indentation alone and reclaims width from only the deep case.
+    dedent = _shared_indent(original, first_mutated)
+    if display_width(original[:dedent]) <= TAB_WIDTH:
+        dedent = 0
+    if dedent:
+        original = original[dedent:]
+    budget = width - SIGIL_WIDTH
     shown_original = False
     for record in records:
         mutated = sanitise(record["mutated"]).rstrip()
+        if dedent:
+            mutated = mutated[dedent:]
         note = ""
         if record["status"] == "TIMEOUT":
             note = f"  (timed out after {timeout:g}s)"
@@ -159,21 +255,31 @@ def render_group(
             f"{' ' * STATUS_INDENT}{record['status']}  {record['operator']}{note}"
         )
         if not shown_original:
+            # Windowed around the same span that would highlight it as a
+            # mutant, so the "-" line stays visually aligned with the "+"
+            # line's ruler even though it carries no caret of its own.
+            orig_start, orig_end = changed_span(mutated, original)
+            windowed_original, _, _ = window(original, orig_start, orig_end, budget)
             lines.append(
                 f"{' ' * CODE_INDENT}{palette.dim}{palette.minus}- "
-                f"{original}{palette.reset}"
+                f"{windowed_original}{palette.reset}"
             )
             shown_original = True
         if mutated == original:
             # Two identical-looking lines would read as a rendering bug.
             lines.append(f"{' ' * CODE_INDENT}(differs only in trailing whitespace)")
             continue
-        lines.append(
-            f"{' ' * CODE_INDENT}{palette.bold}{palette.plus}+ {mutated}{palette.reset}"
-        )
         start, end = changed_span(original, mutated)
-        lines.append(ruler(mutated, start, end, SIGIL_WIDTH))
-    lines.extend(f"{' ' * STATUS_INDENT}{line}" for line in coverage_sentence(first))
+        windowed_mutated, w_start, w_end = window(mutated, start, end, budget)
+        lines.append(
+            f"{' ' * CODE_INDENT}{palette.bold}{palette.plus}+ "
+            f"{windowed_mutated}{palette.reset}"
+        )
+        lines.append(ruler(windowed_mutated, w_start, w_end, SIGIL_WIDTH))
+    lines.extend(
+        _clip(f"{' ' * STATUS_INDENT}{line}", width)
+        for line in coverage_sentence(first)
+    )
     return lines
 
 
@@ -211,6 +317,7 @@ def render_report(
     files: int,
     elapsed: float,
     timeout: float,
+    width: int = FALLBACK_WIDTH,
 ) -> str:
     """The whole human report.
 
@@ -222,6 +329,8 @@ def render_report(
         timeout: the run's configured timeout in seconds, forwarded to
             `render_group` so a TIMEOUT record's note names the budget the
             run actually used rather than a hardcoded guess.
+        width: how many columns the report may use, forwarded to
+            `render_group` and applied to every header and footer line too.
 
     Returns:
         The report, newline-separated, with no trailing newline.
@@ -234,13 +343,13 @@ def render_report(
     suspicious = [r for r in records if r["status"] == "SUSPICIOUS"]
 
     for group in _group_by_location(survivors):
-        lines.extend(render_group(group, palette, timeout=timeout))
+        lines.extend(render_group(group, palette, timeout=timeout, width=width))
         lines.append("")
 
     if timeouts or suspicious:
         lines.extend(["Problems with the run", ""])
         for group in _group_by_location(timeouts):
-            lines.extend(render_group(group, palette, timeout=timeout))
+            lines.extend(render_group(group, palette, timeout=timeout, width=width))
             lines.append("")
         if suspicious:
             # One cause, not N findings. The documented action -- investigate
@@ -265,7 +374,7 @@ def render_report(
     lines.append(
         "exit 1 -- survivors" if counts["SURVIVED"] else "exit 0 -- nothing survived"
     )
-    return "\n".join(lines)
+    return "\n".join(_clip(line, width) for line in lines)
 
 
 def _group_by_location(records: Sequence[Record]) -> list[list[Record]]:
