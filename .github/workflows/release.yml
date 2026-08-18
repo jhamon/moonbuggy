@@ -4,10 +4,10 @@ on:
   push:
     tags: ["v*"]
 
-# Two tags pushed close together should not run two full multi-hour `gate`
-# jobs (or two `publish` jobs) concurrently. Unlike ci.yml, a release must
-# not be cancelled mid-flight, so this only serialises per-ref rather than
-# cancelling the older run (same reasoning as docs.yml's Pages deploy).
+# Two tags pushed close together should not run two full `gate` jobs (or two
+# `publish` jobs) concurrently. Unlike ci.yml, a release must not be cancelled
+# mid-flight, so this only serialises per-ref rather than cancelling the older
+# run (same reasoning as docs.yml's Pages deploy).
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -58,7 +58,10 @@ jobs:
   gate:
     needs: preflight
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # 120, not 360: 360 was sized for `make oss-hunt`, which no longer runs
+    # here. What remains is roughly nightly.yml's workload (90 minutes) plus
+    # check-differential and the docs builds.
+    timeout-minutes: 120
     permissions:
       contents: read
     # check-fresh-install (pulled in by check-all below) defaults PYENV_PY to
@@ -77,13 +80,16 @@ jobs:
           python-version: "3.12"
       # check-all covers lint, format-check, typecheck, test, check-oracle,
       # check-spike, check-properties, check-robustness, check-mutmut and
-      # check-fresh-install. These five are the gates it does not include.
+      # check-fresh-install. These four are the gates it does not include.
       - run: make check-all PYTHON=$(command -v python)
       - run: make docs PYTHON=$(command -v python)
       - run: make docs-test PYTHON=$(command -v python)
       - run: make docs-linkcheck PYTHON=$(command -v python)
       - run: make check-differential PYTHON=$(command -v python)
-      - run: make oss-hunt PYTHON=$(command -v python)
+      # `make oss-hunt` is deliberately NOT here. It clones five upstream
+      # repositories and builds a venv for each, which dominates the release's
+      # wall clock, and its result depends on those repositories rather than on
+      # the tagged commit. weekly.yml runs it on its own schedule instead.
 
   build:
     needs: [preflight, gate]
