@@ -6,6 +6,45 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-19
+
+### Added
+
+- A human report: at a terminal, survivors are grouped by file and line, each
+  shown with the code delta and a caret ruler under exactly the span that
+  changed, followed by a summary. The grep-friendly one-line-per-mutant agent
+  format is unchanged and is still what you get when stdout is piped or
+  redirected, so anything parsing moonbuggy's output keeps working.
+- `--report MODE` selects the format explicitly. Selection otherwise checks
+  `MOONBUGGY_REPORT`, then whether `CI` is set (agent format, since a CI run is
+  rarely a place for a human report; `CI` counts as set for anything but an
+  empty string, `0` or `false`), then whether stdout is a terminal.
+- `--color WHEN` (auto, always, never; `NO_COLOR` is honoured), `--width N` to
+  wrap the human report to a fixed number of columns, and `--no-progress` to
+  suppress the live progress line.
+- A live progress line on stderr while mutants run, so a long run shows what it
+  is doing without polluting stdout.
+- `make check-cli`, which runs the CLI end to end against real pytest
+  subprocesses.
+
+### Changed
+
+- `--quiet` now reports the summary line for the human format too, rather than
+  applying only to the agent format.
+
+### Fixed
+
+- The human report keeps a mutant's location and score intact at any terminal
+  width, windowing long source lines rather than truncating the parts that
+  identify the mutant.
+- Long lines clip on character boundaries, so an escape sequence is never cut
+  in half, and East Asian wide characters are budgeted by display width.
+- The report footer names the actual results path rather than a hardcoded one,
+  and a run whose `--output-dir` falls outside the project degrades the summary
+  line instead of failing.
+- A source file that cannot be decoded, and a Ctrl-C during a run, are both
+  handled rather than raising.
+
 ## [0.1.1] - 2026-08-17
 
 ### Changed
