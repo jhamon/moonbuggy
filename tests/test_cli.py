@@ -12,6 +12,8 @@ import sys
 
 import pytest
 
+from moonbuggy.cli import main
+
 pytestmark = pytest.mark.slow
 
 PROJECT = """\
@@ -281,6 +283,37 @@ def test_exclude_filters_files(throwaway):
 
     assert "helper.py" in with_helper
     assert "helper.py" not in without
+
+
+def test_human_report_renders_on_a_non_tty(tmp_path, capsys):
+    """A human redirecting to a file still wants the human format.
+
+    Without this, `moonbuggy | less` silently gets the agent format -- which
+    is the trap TTY detection alone walks into. These run the real mutation
+    engine against the shared fixture, so they belong in this slow, e2e
+    module rather than test_cli_unit.py.
+    """
+    project = "tests/fixtures/sample_project"
+    code = main(
+        ["--project", project, "--output-dir", str(tmp_path), "--report", "human"]
+    )
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "SURVIVED  comparison_swap" in out
+    assert "\x1b" not in out  # no escapes on a non-tty
+
+
+def test_agent_report_is_the_default_off_a_tty(tmp_path, capsys):
+    main(
+        [
+            "--project",
+            "tests/fixtures/sample_project",
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "nearest_test=" in out  # the key=value agent format
 
 
 def _records(project):

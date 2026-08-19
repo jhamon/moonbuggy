@@ -160,6 +160,21 @@ def test_nonsense_columns_is_ignored():
     assert resolve_width(None, {"COLUMNS": "-5"}, None) == 80
 
 
+def test_width_is_floored_at_the_minimum():
+    # Below MIN_WIDTH, window()'s `budget - 2 * len(ELLIPSIS)` goes negative
+    # and it returns more ellipsis than content, so resolve_width must never
+    # hand out a value that small.
+    assert resolve_width(4, {}, None) == 20
+
+
+def test_width_zero_flag_falls_back_and_is_still_floored():
+    assert resolve_width(0, {"COLUMNS": "1"}, None) == 20
+
+
+def test_width_floors_a_tiny_columns_env_var():
+    assert resolve_width(None, {"COLUMNS": "1"}, None) == 20
+
+
 def test_palette_is_empty_without_colour():
     plain = palette_for(0)
     assert plain.dim == "" and plain.bold == "" and plain.reset == ""

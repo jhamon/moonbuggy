@@ -9,6 +9,8 @@ every plain `pytest` invocation.
 
 import io
 
+import pytest
+
 from moonbuggy.cli import _harden_streams, main
 
 
@@ -30,3 +32,9 @@ def test_interrupt_returns_130_not_a_traceback(monkeypatch):
 
     monkeypatch.setattr("moonbuggy.cli._run", _boom)
     assert main([]) == 130
+
+
+def test_report_flag_rejects_an_unknown_value():
+    """argparse's own validation, pinned so a typo fails fast and clearly."""
+    with pytest.raises(SystemExit):
+        main(["--report", "fancy"])

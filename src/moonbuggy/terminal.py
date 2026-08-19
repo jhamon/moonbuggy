@@ -129,6 +129,12 @@ TRUECOLOR = 16777216
 MAX_WIDTH = 100
 FALLBACK_WIDTH = 80
 
+# The narrowest the report is ever allowed to wrap to. Below this, `window`'s
+# `room = budget - 2 * len(ELLIPSIS)` goes negative and it returns more
+# ellipsis than content, so a floor here is what keeps every downstream
+# consumer of `resolve_width`'s result safe to call without its own check.
+MIN_WIDTH = 20
+
 
 def resolve_format(flag: str | None, env: Mapping[str, str], isatty: bool) -> str:
     """Choose the human or the agent report.
@@ -218,7 +224,7 @@ def resolve_width(flag: int | None, env: Mapping[str, str], fd: int | None) -> i
             one to measure.
 
     Returns:
-        A column count between 1 and MAX_WIDTH.
+        A column count between MIN_WIDTH and MAX_WIDTH.
     """
     detected: int | None = None
     if flag is not None and flag > 0:
@@ -233,7 +239,7 @@ def resolve_width(flag: int | None, env: Mapping[str, str], fd: int | None) -> i
                 detected = os.get_terminal_size(fd).columns
             except OSError:
                 detected = None
-    return min(detected or FALLBACK_WIDTH, MAX_WIDTH)
+    return max(MIN_WIDTH, min(detected or FALLBACK_WIDTH, MAX_WIDTH))
 
 
 @dataclass(frozen=True)

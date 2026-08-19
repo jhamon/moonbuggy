@@ -10,9 +10,11 @@ drift apart.
 """
 
 import argparse
+import io
 import os
 import sys
 import time
+from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -27,6 +29,7 @@ from .discover import (
     looks_like_pytest_project,
 )
 from .generate import GenerationError, generate_mutants
+from .humanreport import render_report
 from .mutant import Mutant
 from .report import (
     StreamingJSONL,
@@ -37,8 +40,15 @@ from .report import (
     summarise,
     write_jsonl,
 )
-from .runner import run_mutants, run_session
+from .runner import Result, run_mutants, run_session
 from .srcio import SourceError, read_source
+from .terminal import (
+    LiveRegion,
+    palette_for,
+    resolve_colour,
+    resolve_format,
+    resolve_width,
+)
 
 DEFAULT_OUTPUT_DIR = ".moonbuggy"
 
@@ -197,11 +207,61 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "a test whose outcome varies makes every mutant it covers "
         "SUSPICIOUS (default: 1, 0 disables)",
     )
+    parser.add_argument(
+        "--report",
+        choices=["human", "agent"],
+        default=None,
+        help="output format: 'human' for a readable report with diffs, "
+        "'agent' for one grep-friendly line per mutant "
+        "(default: human at a terminal, agent when piped; "
+        "MOONBUGGY_REPORT overrides)",
+    )
+    parser.add_argument(
+        "--color",
+        choices=["auto", "always", "never"],
+        default=None,
+        help="colour in the human report (default: auto; NO_COLOR is honoured)",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="wrap the human report to this many columns (default: detected)",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="do not draw the live progress line",
+    )
 
 
 def _run(args: argparse.Namespace) -> int:
     project_dir = Path(args.project).resolve()
     profiler = profiling.active()
+    started = time.perf_counter()
+
+    fmt = resolve_format(args.report, os.environ, sys.stdout.isatty())
+    palette = palette_for(resolve_colour(args.color, os.environ, sys.stdout.isatty()))
+    stdout_fd: int | None = None
+    if sys.stdout.isatty():
+        try:
+            stdout_fd = sys.stdout.fileno()
+        except (OSError, ValueError, io.UnsupportedOperation):
+            stdout_fd = None
+    width = resolve_width(args.width, os.environ, stdout_fd)
+    # Progress is a separate decision from format: the report is the payload
+    # and goes to stdout, progress is ephemeral and goes to stderr, so a human
+    # redirecting the report still sees the run move.
+    progress = LiveRegion(
+        sys.stderr,
+        enabled=(
+            not args.no_progress
+            and sys.stderr.isatty()
+            and os.environ.get("TERM", "dumb") != "dumb"
+            and not os.environ.get("CI")
+        ),
+        clock=time.perf_counter,
+    )
 
     with profiler.span("discovery"):
         recognised = looks_like_pytest_project(project_dir)
@@ -232,7 +292,9 @@ def _run(args: argparse.Namespace) -> int:
 
     wanted = set(args.operators.split(",")) if args.operators else None
     with profiler.span("generation"):
-        mutants, unreadable = _collect_mutants(project_dir, source_files, wanted)
+        mutants, unreadable = _collect_mutants(
+            project_dir, source_files, wanted, progress
+        )
 
     if not mutants:
         if unreadable:
@@ -250,51 +312,77 @@ def _run(args: argparse.Namespace) -> int:
         return 2
 
     if not args.quiet:
-        print(
-            f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files",
-            file=sys.stderr,
+        progress.log(
+            f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files"
         )
-        print("moonbuggy: running coverage pass...", file=sys.stderr)
+        progress.log("moonbuggy: running coverage pass...")
 
     jsonl_path = output_dir / "results.jsonl"
 
     # Records are streamed to disk as each mutant is settled, so a run killed
     # mid-flight leaves whole, parseable lines for everything it did finish
     # (criterion M1.4.13) rather than an empty file or a truncated one.
-    with StreamingJSONL(jsonl_path) as stream:
-        if args.workers:
-            # xdist needs real subprocesses, so the warm single-pass session
-            # does not apply; fall back to the separate baseline pass and cold
-            # forks.
-            linemap, flaky = run_baseline_pass(
-                project_dir,
-                source_dir,
-                args.flaky_probe,
-                extra_args=args.pytest_arg,
-            )
-            results = run_mutants(
-                project_dir,
-                mutants,
-                linemap,
-                timeout=args.timeout,
-                xdist_workers=args.workers,
-                cache=cache,
-                jobs=args.jobs or None,
-                flaky=flaky,
-                on_result=stream.write,
-            )
-        else:
-            _, results = run_session(
-                project_dir,
-                mutants,
-                source_dir,
-                timeout=args.timeout,
-                cache=cache,
-                jobs=args.jobs or None,
-                probes=args.flaky_probe,
-                on_result=stream.write,
-                extra_args=args.pytest_arg,
-            )
+    try:
+        with StreamingJSONL(jsonl_path) as stream:
+            counts_so_far: Counter[str] = Counter()
+
+            def _settled(result: Result) -> None:
+                stream.write(result)
+                counts_so_far[result.status] += 1
+                done = sum(counts_so_far.values())
+                line = f"moonbuggy  {done}/{len(mutants)}  " + "  ".join(
+                    f"{status.lower()} {counts_so_far[status]}"
+                    for status in ("KILLED", "SURVIVED", "TIMEOUT")
+                    if counts_so_far[status]
+                )
+                progress.tick(line[: width - 1])
+                if result.status == "SURVIVED":
+                    # Survivors are rare and are the whole point, so they
+                    # scroll into the scrollback as they land. Killed mutants
+                    # never do.
+                    progress.log(
+                        f"SURVIVED  {result.mutant.module}:{result.mutant.line}"
+                    )
+
+            if args.workers:
+                # xdist needs real subprocesses, so the warm single-pass
+                # session does not apply; fall back to the separate baseline
+                # pass and cold forks.
+                linemap, flaky = run_baseline_pass(
+                    project_dir,
+                    source_dir,
+                    args.flaky_probe,
+                    extra_args=args.pytest_arg,
+                )
+                results = run_mutants(
+                    project_dir,
+                    mutants,
+                    linemap,
+                    timeout=args.timeout,
+                    xdist_workers=args.workers,
+                    cache=cache,
+                    jobs=args.jobs or None,
+                    flaky=flaky,
+                    on_result=_settled,
+                )
+            else:
+                _, results = run_session(
+                    project_dir,
+                    mutants,
+                    source_dir,
+                    timeout=args.timeout,
+                    cache=cache,
+                    jobs=args.jobs or None,
+                    probes=args.flaky_probe,
+                    on_result=_settled,
+                    extra_args=args.pytest_arg,
+                )
+    finally:
+        # `run()` exits via `os._exit`, which skips `atexit`, so this
+        # `finally` is the only teardown that runs -- the live line must be
+        # erased before the report prints, whether or not an exception
+        # unwinds through here.
+        progress.close()
 
     with profiler.span("reporting"):
         # Rewritten in canonical mutant order. The streamed file is valid at
@@ -308,7 +396,19 @@ def _run(args: argparse.Namespace) -> int:
         text_path = output_dir / "results.txt"
         text_path.write_text(plaintext_from_records(records) + "\n", encoding="utf-8")
 
-        if not args.quiet:
+        if fmt == "human":
+            if not args.quiet:
+                print(
+                    render_report(
+                        records,
+                        palette=palette,
+                        files=len(source_files),
+                        elapsed=time.perf_counter() - started,
+                        timeout=args.timeout,
+                        width=width,
+                    )
+                )
+        elif not args.quiet:
             for record in records:
                 print(render_line(record))
 
@@ -321,18 +421,25 @@ def _run(args: argparse.Namespace) -> int:
     profiler.write()
 
     counts = summarise(records)
-    print(
-        "moonbuggy: "
-        + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
-        + f"  cached={sum(1 for r in results if r.from_cache)}"
-        + f"  -> {jsonl_path.relative_to(project_dir)}",
-        file=sys.stderr,
-    )
+    # The report's own footer already summarises a human run, so this line
+    # would be redundant there. In agent mode it stays exactly as it always
+    # was -- Task 11's golden test pins it byte for byte.
+    if fmt == "agent":
+        print(
+            "moonbuggy: "
+            + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
+            + f"  cached={sum(1 for r in results if r.from_cache)}"
+            + f"  -> {jsonl_path.relative_to(project_dir)}",
+            file=sys.stderr,
+        )
     return 1 if counts["SURVIVED"] else 0
 
 
 def _collect_mutants(
-    project_dir: Path, source_files: list[str], wanted: set[str] | None
+    project_dir: Path,
+    source_files: list[str],
+    wanted: set[str] | None,
+    progress: LiveRegion,
 ) -> tuple[list[Mutant], list[str]]:
     """Generate mutants for every readable source file.
 
@@ -346,6 +453,9 @@ def _collect_mutants(
         project_dir: the project root.
         source_files: paths relative to the project root.
         wanted: a set of operator names to keep, or None for all.
+        progress: the live progress region, so these messages go through the
+            same single writer as everything else printed to stderr while it
+            is open.
 
     Returns:
         ``(mutants, unreadable)`` -- the mutants found, and the relative paths that
@@ -373,15 +483,14 @@ def _collect_mutants(
                 on_skip=_note_skip,
             )
         except (SourceError, GenerationError) as error:
-            print(f"moonbuggy: skipping {relative}: {error}", file=sys.stderr)
+            progress.log(f"moonbuggy: skipping {relative}: {error}")
             unreadable.append(relative)
             continue
         if skipped:
-            print(
+            progress.log(
                 f"moonbuggy: {relative}: {len(skipped)} site(s) too deeply nested "
                 f"to mutate, first at line {min(skipped)}. Those lines are not "
-                "covered by this run.",
-                file=sys.stderr,
+                "covered by this run."
             )
         mutants.extend(m for m in found if wanted is None or m.operator in wanted)
     return mutants, unreadable
