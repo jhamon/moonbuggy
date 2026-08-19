@@ -67,6 +67,93 @@ missing field.
 `grep`, `awk` and `wc -l` usable; a multi-line record would break all three.
 Retrieve a diff with `moonbuggy show <id>`.
 
+## The human report
+
+The plaintext line above is what you get when output is piped, redirected, or
+`MOONBUGGY_REPORT=agent` is set. At a terminal, with none of those in play,
+moonbuggy prints something meant to be read instead: survivors grouped by
+`file:line`, each with the code delta and a caret under exactly what changed.
+
+This is the real output of `tests/fixtures/sample_project`, run with
+`--report human` to force it regardless of terminal detection:
+
+```{code-block} text
+moonbuggy: 22 mutants across 5 files
+moonbuggy: running coverage pass...
+
+sample/inventory.py:9
+  SURVIVED  comparison_swap
+    - return stock > 0 and not discontinued
+    + return stock >= 0 and not discontinued
+                   ^^
+  SURVIVED  constant_int
+    + return stock > 1 and not discontinued
+                     ^
+  2 tests run this line; first is
+  tests/test_inventory.py::test_discontinued_item_is_not_available
+
+sample/inventory.py:13
+  SURVIVED  comparison_swap
+    - if stock < target:
+    + if stock <= target:
+               ^^
+  1 test runs this line; first is
+  tests/test_inventory.py::test_restock_fills_to_target
+
+sample/inventory.py:15
+  SURVIVED  constant_int
+    - return 0
+    + return 1
+             ^
+  no test runs this line at all
+
+sample/loops.py:10
+  SURVIVED  comparison_swap
+    - while n > 0:
+    + while n >= 0:
+              ^^
+  2 tests run this line; first is
+  tests/test_loops.py::test_countdown_of_zero_is_zero
+
+Problems with the run
+
+sample/loops.py:12
+  TIMEOUT  arithmetic_swap  (timed out after 30s)
+    - n -= 1
+    + n += 1
+        ^^
+
+5 survived, 1 timeout, 15 killed, 1 skipped in 30.2s -- 15/21 killed, 71%
+Full records: .moonbuggy/results.jsonl
+exit 1 -- survivors
+```
+
+The location prints once per `file:line` group, with every mutant that lands
+on it nested underneath — adjacent survivors that one new test could kill
+together stay together, and `nearest_test` is shown once rather than repeated
+per mutant. `KILLED` and `SKIPPED` mutants do not get a block; they only move
+the footer counts. `TIMEOUT` and `SUSPICIOUS` mutants move below the survivors
+under a `Problems with the run` heading — a timeout is treated as killed-ish
+elsewhere in this doc, so mixing it in with survivors would misrepresent it as
+a finding. A run with many `SUSPICIOUS` mutants collapses them to a single
+line rather than one block each, because that many is almost always one root
+cause and not eighty-four separate ones.
+
+Flags that shape this view: `--color auto|always|never` (colour is never the
+only carrier of meaning — the caret ruler works with `NO_COLOR` set, piped
+through `less` without `-R`, or read by someone who can't distinguish red from
+green), `--width N` to wrap at a fixed column count instead of the detected
+terminal width, and `--no-progress` to suppress the live line drawn on stderr
+while mutants are still running.
+
+**None of this layout is a contract.** The grouping, the wording of the footer
+sentence, the exact indentation, the `Problems with the run` heading — any of
+it may change between releases as the report is refined. The only thing this
+page guarantees byte for byte is the plaintext line format above, because a
+golden test pins it. If you are scripting against moonbuggy's output, script
+against `results.txt` or `results.jsonl`, never against what prints to a
+terminal.
+
 ## The JSONL schema
 
 Every line of `results.jsonl` is one object with these keys. Keys are sorted, so
