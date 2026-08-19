@@ -8,6 +8,7 @@ unit tests.
 from moonbuggy.humanreport import (
     changed_span,
     coverage_sentence,
+    render_footer,
     render_group,
     render_report,
     ruler,
@@ -172,23 +173,65 @@ def test_score_is_not_a_number_when_everything_was_skipped():
     assert score_text(counts) == "n/a"
 
 
+def test_render_footer_names_whatever_artifact_it_is_given():
+    # `render_footer` has no filesystem knowledge of its own, so it must print
+    # exactly the string the caller hands it -- not the pre-branch hardcoded
+    # `.moonbuggy/results.jsonl`, which is wrong the moment `--output-dir` or
+    # `--project` moves the artifact elsewhere.
+    counts = {"KILLED": 1, "SURVIVED": 0, "TIMEOUT": 0, "SKIPPED": 0, "SUSPICIOUS": 0}
+    footer = render_footer(counts, 1.0, "custom-out/results.jsonl")
+    lines = footer.splitlines()
+    assert lines[1] == "Full records: custom-out/results.jsonl"
+
+
+def test_render_report_footer_carries_the_given_artifact():
+    # `render_report` must forward its `artifact` argument to `render_footer`
+    # rather than letting the footer fall back to a hardcoded path.
+    report = render_report(
+        [rec(status="KILLED")],
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact="custom-out/results.jsonl",
+    )
+    assert "Full records: custom-out/results.jsonl" in report.splitlines()
+
+
 def test_the_last_line_states_the_exit_code():
     # The reader's terminal comes to rest on the final line, and anyone wiring
     # this into a pre-commit hook needs the list connected to the red.
-    report = render_report([rec()], palette=PLAIN, files=1, elapsed=9.4, timeout=30.0)
+    report = render_report(
+        [rec()],
+        palette=PLAIN,
+        files=1,
+        elapsed=9.4,
+        timeout=30.0,
+        artifact=".moonbuggy/results.jsonl",
+    )
     assert report.splitlines()[-1] == "exit 1 -- survivors"
 
 
 def test_a_clean_run_says_so():
     report = render_report(
-        [rec(status="KILLED")], palette=PLAIN, files=1, elapsed=1.0, timeout=30.0
+        [rec(status="KILLED")],
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact=".moonbuggy/results.jsonl",
     )
     assert report.splitlines()[-1] == "exit 0 -- nothing survived"
 
 
 def test_killed_mutants_appear_only_as_counts():
     report = render_report(
-        [rec(status="KILLED")], palette=PLAIN, files=1, elapsed=1.0, timeout=30.0
+        [rec(status="KILLED")],
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact=".moonbuggy/results.jsonl",
     )
     assert "KILLED  comparison_swap" not in report
     assert "1 killed" in report
@@ -199,7 +242,14 @@ def test_timeouts_move_below_the_survivors():
         rec(),
         rec(status="TIMEOUT", file="sample/loops.py", line=12, nearest_test=None),
     ]
-    report = render_report(records, palette=PLAIN, files=2, elapsed=1.0, timeout=30.0)
+    report = render_report(
+        records,
+        palette=PLAIN,
+        files=2,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact=".moonbuggy/results.jsonl",
+    )
     assert report.index("Problems with the run") > report.index("SURVIVED")
 
 
@@ -207,7 +257,14 @@ def test_suspicious_collapses_to_one_line():
     # humanize in the project's own OSS data is 84 SUSPICIOUS against 16
     # SURVIVED. Rendered in full the finding drowns in the plumbing.
     records = [rec(status="SUSPICIOUS", nearest_test=None) for _ in range(84)]
-    report = render_report(records, palette=PLAIN, files=1, elapsed=1.0, timeout=30.0)
+    report = render_report(
+        records,
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact=".moonbuggy/results.jsonl",
+    )
     assert "84 mutants could not be answered confidently (SUSPICIOUS)." in report
     assert report.count("SUSPICIOUS  comparison_swap") == 0
 
@@ -218,7 +275,14 @@ def test_groups_are_ordered_by_file_then_line():
         rec(file="a.py", line=9),
         rec(file="a.py", line=2),
     ]
-    report = render_report(records, palette=PLAIN, files=2, elapsed=1.0, timeout=30.0)
+    report = render_report(
+        records,
+        palette=PLAIN,
+        files=2,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact=".moonbuggy/results.jsonl",
+    )
     assert report.index("a.py:2") < report.index("a.py:9") < report.index("b.py:1")
 
 
@@ -235,6 +299,7 @@ def test_a_long_source_line_is_fitted_to_the_report_width():
         elapsed=9.4,
         timeout=30.0,
         width=72,
+        artifact=".moonbuggy/results.jsonl",
     )
     lines = report.splitlines()
     diff_lines = [line for line in lines if line.lstrip()[:2] in {"- ", "+ "}]
@@ -253,6 +318,7 @@ def test_a_deep_path_keeps_its_line_number_at_a_narrow_width():
         elapsed=1.0,
         timeout=30.0,
         width=40,
+        artifact=".moonbuggy/results.jsonl",
     )
     assert f"{deep}:417" in report.splitlines()
 
@@ -282,7 +348,13 @@ def test_a_narrow_terminal_keeps_the_location_and_the_score_whole():
     # line number that makes `path:line` actionable, and a clipped footer loses
     # the denominator that makes the score mean anything -- so both soft wrap.
     report = render_report(
-        [rec()], palette=PLAIN, files=1, elapsed=1.0, timeout=30.0, width=40
+        [rec()],
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        width=40,
+        artifact=".moonbuggy/results.jsonl",
     )
     lines = report.splitlines()
     assert "sample/inventory.py:9" in lines
@@ -309,7 +381,13 @@ def test_a_narrow_coloured_terminal_never_leaks_the_reset():
     # escape byte as a cell -- severing the trailing reset and leaking colour
     # into every line printed after it.
     report = render_report(
-        [rec()], palette=palette_for(8), files=1, elapsed=1.0, timeout=30.0, width=40
+        [rec()],
+        palette=palette_for(8),
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        width=40,
+        artifact=".moonbuggy/results.jsonl",
     )
     coloured = [line for line in report.splitlines() if "\x1b" in line]
     assert coloured

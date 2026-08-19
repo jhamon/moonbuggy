@@ -471,7 +471,13 @@ def _run(args: argparse.Namespace) -> int:
                 # path still prints its stderr summary under --quiet, so
                 # without this quiet-human would be the only mode that reports
                 # nothing at all.
-                print(render_footer(summarise(records), time.perf_counter() - started))
+                print(
+                    render_footer(
+                        summarise(records),
+                        time.perf_counter() - started,
+                        _display_path(jsonl_path, project_dir),
+                    )
+                )
             else:
                 print(
                     render_report(
@@ -480,6 +486,7 @@ def _run(args: argparse.Namespace) -> int:
                         files=len(source_files),
                         elapsed=time.perf_counter() - started,
                         timeout=args.timeout,
+                        artifact=_display_path(jsonl_path, project_dir),
                         width=width,
                     )
                 )

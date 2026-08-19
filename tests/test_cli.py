@@ -291,6 +291,36 @@ def test_exclude_filters_files(throwaway):
     assert "helper.py" not in without
 
 
+def test_human_footer_names_a_non_default_output_dir(throwaway, capsys):
+    """The human footer's artifact path must track `--output-dir`.
+
+    Reproduces the reported bug: `render_footer` used to hardcode
+    `.moonbuggy/results.jsonl`, so a run with a non-default `--output-dir`
+    printed a footer naming a path that was never written. This runs through
+    `main` in-process (rather than the `moonbuggy` subprocess helper) so it
+    can capture stdout with `capsys`, and asserts the human footer names
+    exactly `custom-out/results.jsonl` -- the same relative path the
+    agent-mode summary would use for this run, via the same `_display_path`
+    call.
+    """
+    code = main(
+        [
+            "--project",
+            str(throwaway),
+            "--output-dir",
+            "custom-out",
+            "--report",
+            "human",
+            "--quiet",
+        ]
+    )
+    lines = capsys.readouterr().out.splitlines()
+
+    assert code in (0, 1)
+    assert (throwaway / "custom-out" / "results.jsonl").exists()
+    assert lines[1] == "Full records: custom-out/results.jsonl"
+
+
 def test_human_report_renders_on_a_non_tty(tmp_path, capsys):
     """A human redirecting to a file still wants the human format.
 
@@ -346,7 +376,10 @@ def test_quiet_in_human_mode_prints_the_footer_and_nothing_else(tmp_path, capsys
     assert len(lines) == 3
     # The denominator is the point of the score, and it is here in full.
     assert lines[0].endswith("-- 15/21 killed, 71%")
-    assert lines[1] == "Full records: .moonbuggy/results.jsonl"
+    # tmp_path is absolute, so it discards project_dir under `/` (H5) and the
+    # footer names the absolute path rather than a shortened relative one --
+    # the same path the agent-mode summary would name for this run.
+    assert lines[1] == f"Full records: {tmp_path / 'results.jsonl'}"
     assert lines[2] == "exit 1 -- survivors"
 
 

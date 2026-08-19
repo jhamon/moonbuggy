@@ -338,7 +338,7 @@ def score_text(counts: Mapping[str, int]) -> str:
     return f"{killed}/{runnable} killed, {round(100 * killed / runnable)}%"
 
 
-def render_footer(counts: Mapping[str, int], elapsed: float) -> str:
+def render_footer(counts: Mapping[str, int], elapsed: float, artifact: str) -> str:
     """The report's closing lines: the tally, the artifact, and the exit code.
 
     Public because `--quiet` in human mode means the footer only, so `cli.py`
@@ -352,6 +352,13 @@ def render_footer(counts: Mapping[str, int], elapsed: float) -> str:
     Args:
         counts: per-status counts, as `report.summarise` returns.
         elapsed: the run's wall clock, in seconds.
+        artifact: the already-rendered display path to `results.jsonl`, e.g.
+            `cli._display_path(jsonl_path, project_dir)`. Taken as a plain
+            string, not a `Path`, because this module has no filesystem
+            knowledge and must not decide project-relative vs. absolute --
+            that decision belongs to the caller alone. No default: a default
+            is exactly how the artifact path drifted from `--output-dir` and
+            `--project` before.
 
     Returns:
         Three newline-separated lines, with no trailing newline.
@@ -364,7 +371,7 @@ def render_footer(counts: Mapping[str, int], elapsed: float) -> str:
     return "\n".join(
         [
             f"{tally} in {elapsed:.1f}s -- {score_text(counts)}",
-            "Full records: .moonbuggy/results.jsonl",
+            f"Full records: {artifact}",
             "exit 1 -- survivors"
             if counts["SURVIVED"]
             else "exit 0 -- nothing survived",
@@ -379,6 +386,7 @@ def render_report(
     files: int,
     elapsed: float,
     timeout: float,
+    artifact: str,
     width: int = FALLBACK_WIDTH,
 ) -> str:
     """The whole human report.
@@ -391,6 +399,9 @@ def render_report(
         timeout: the run's configured timeout in seconds, forwarded to
             `render_group` so a TIMEOUT record's note names the budget the
             run actually used rather than a hardcoded guess.
+        artifact: the already-rendered display path to `results.jsonl`,
+            forwarded to `render_footer`. No default, for the same reason
+            `render_footer` has none.
         width: how many columns the report may use, forwarded to
             `render_group`. Group headers and the footer are never clipped to
             it: a `path:line` header must stay one contiguous token that a
@@ -434,7 +445,7 @@ def render_report(
             )
             lines.append("")
 
-    lines.append(render_footer(counts, elapsed))
+    lines.append(render_footer(counts, elapsed, artifact))
     return "\n".join(lines)
 
 
