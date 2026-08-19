@@ -8,11 +8,19 @@ every plain `pytest` invocation.
 """
 
 import io
+from collections import Counter
 from pathlib import Path
 
 import pytest
 
-from moonbuggy.cli import _display_path, _harden_streams, main
+from moonbuggy.cli import (
+    _clock,
+    _display_path,
+    _harden_streams,
+    _measurable_fd,
+    _settled_line,
+    main,
+)
 
 
 def test_harden_streams_makes_encoding_errors_non_fatal(monkeypatch):
@@ -39,6 +47,31 @@ def test_report_flag_rejects_an_unknown_value():
     """argparse's own validation, pinned so a typo fails fast and clearly."""
     with pytest.raises(SystemExit):
         main(["--report", "fancy"])
+
+
+def test_the_clock_reads_as_minutes_and_seconds():
+    # M:SS, the shape the spec's progress and milestone lines show.
+    assert _clock(7) == "0:07"
+    assert _clock(65.9) == "1:05"
+
+
+def test_the_milestone_line_names_the_counts_and_the_clock():
+    # The greppable stand-in for a live region that is not being drawn.
+    counts = Counter({"KILLED": 9, "SURVIVED": 2})
+    assert (
+        _settled_line(11, 22, counts, 5.0)
+        == "moonbuggy: 11/22 settled -- 9 killed, 2 survived, 0:05"
+    )
+
+
+def test_the_milestone_line_survives_having_nothing_to_report():
+    assert _settled_line(0, 22, Counter(), 0.0) == "moonbuggy: 0/22 settled, 0:00"
+
+
+def test_a_non_terminal_stream_has_no_measurable_width():
+    # None means "no measurement", which resolve_width distinguishes from a
+    # measured 80 -- a StringIO has neither a size nor an fd to ask about.
+    assert _measurable_fd(io.StringIO()) is None
 
 
 def test_display_path_renders_the_short_relative_path():

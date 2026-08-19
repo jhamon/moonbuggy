@@ -17,6 +17,7 @@ import time
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
+from typing import IO
 
 from . import __version__, profiling
 from .baseline import BaselineError
@@ -29,7 +30,7 @@ from .discover import (
     looks_like_pytest_project,
 )
 from .generate import GenerationError, generate_mutants
-from .humanreport import render_report
+from .humanreport import render_footer, render_report
 from .mutant import Mutant
 from .report import (
     StreamingJSONL,
@@ -51,6 +52,11 @@ from .terminal import (
 )
 
 DEFAULT_OUTPUT_DIR = ".moonbuggy"
+
+# How often a run with no live region commits a progress line. Those lines go
+# into a log or a CI transcript and stay there, so they are paced for someone
+# reading the file afterwards rather than for someone watching a terminal.
+MILESTONE_INTERVAL = 10.0
 
 # The end of moonbuggy's import chain, as a timestamp rather than a span: by
 # the time anything here can run, the chain has already happened. `profiling`
@@ -242,13 +248,15 @@ def _run(args: argparse.Namespace) -> int:
 
     fmt = resolve_format(args.report, os.environ, sys.stdout.isatty())
     palette = palette_for(resolve_colour(args.color, os.environ, sys.stdout.isatty()))
-    stdout_fd: int | None = None
-    if sys.stdout.isatty():
-        try:
-            stdout_fd = sys.stdout.fileno()
-        except (OSError, ValueError, io.UnsupportedOperation):
-            stdout_fd = None
-    width = resolve_width(args.width, os.environ, stdout_fd)
+    width = resolve_width(args.width, os.environ, _measurable_fd(sys.stdout))
+    # The live line goes to stderr, so it is measured against stderr. `width`
+    # above cannot stand in: under `moonbuggy > report.txt` it was measured
+    # from a redirected stdout and falls back to 80 while stderr is 40 columns
+    # wide, and a progress line wider than the real terminal wraps -- at which
+    # point ERASE clears the last physical row of a two-row line and the
+    # corruption is the unrecoverable kind the one-row design exists to
+    # prevent.
+    stderr_fd = _measurable_fd(sys.stderr)
     # Progress is a separate decision from format: the report is the payload
     # and goes to stdout, progress is ephemeral and goes to stderr, so a human
     # redirecting the report still sees the run move.
@@ -318,30 +326,57 @@ def _run(args: argparse.Namespace) -> int:
         progress.log("moonbuggy: running coverage pass...")
 
     jsonl_path = output_dir / "results.jsonl"
+    # Outside the try so the `finally` can name it however far the run got.
+    counts_so_far: Counter[str] = Counter()
 
     # Records are streamed to disk as each mutant is settled, so a run killed
     # mid-flight leaves whole, parseable lines for everything it did finish
     # (criterion M1.4.13) rather than an empty file or a truncated one.
     try:
         with StreamingJSONL(jsonl_path) as stream:
-            counts_so_far: Counter[str] = Counter()
+            last_milestone = 0.0
 
             def _settled(result: Result) -> None:
+                nonlocal last_milestone
                 stream.write(result)
                 counts_so_far[result.status] += 1
                 done = sum(counts_so_far.values())
-                line = f"moonbuggy  {done}/{len(mutants)}  " + "  ".join(
-                    f"{status.lower()} {counts_so_far[status]}"
-                    for status in ("KILLED", "SURVIVED", "TIMEOUT")
-                    if counts_so_far[status]
-                )
-                progress.tick(line[: width - 1])
-                if result.status == "SURVIVED":
-                    # Survivors are rare and are the whole point, so they
-                    # scroll into the scrollback as they land. Killed mutants
-                    # never do.
+                elapsed = time.perf_counter() - started
+                if progress.enabled:
+                    # Re-measured on every repaint rather than through
+                    # SIGWINCH, which does not exist on Windows. `--width` is
+                    # deliberately not passed: it is a REPORT width, there so
+                    # a report is reproducible, and honouring it here would
+                    # let `--width 100` wrap the live line on an 80-column
+                    # terminal.
+                    region_width = resolve_width(None, os.environ, stderr_fd)
+                    line = (
+                        f"moonbuggy  {done}/{len(mutants)}  "
+                        + "  ".join(
+                            f"{status.lower()} {counts_so_far[status]}"
+                            for status in ("KILLED", "SURVIVED", "TIMEOUT")
+                            if counts_so_far[status]
+                        )
+                        + f"  {_clock(elapsed)}"
+                    )
+                    progress.tick(line[: region_width - 1])
+                    if result.status == "SURVIVED":
+                        # Survivors are rare and are the whole point, so they
+                        # scroll into the scrollback as they land. Killed
+                        # mutants never do. Guarded on the region, because a
+                        # disabled region still commits what it is given --
+                        # and a bare `SURVIVED  path:line` on the agent path
+                        # is a line that opens with a contract keyword and
+                        # carries none of its key=value tokens.
+                        progress.log(
+                            f"SURVIVED  {result.mutant.module}:{result.mutant.line}"
+                        )
+                elif not args.quiet and elapsed - last_milestone >= MILESTONE_INTERVAL:
+                    # No live region to watch, so progress arrives as committed
+                    # lines instead. Paced, because they are permanent.
+                    last_milestone = elapsed
                     progress.log(
-                        f"SURVIVED  {result.mutant.module}:{result.mutant.line}"
+                        _settled_line(done, len(mutants), counts_so_far, elapsed)
                     )
 
             if args.workers:
@@ -382,7 +417,21 @@ def _run(args: argparse.Namespace) -> int:
         # `finally` is the only teardown that runs -- the live line must be
         # erased before the report prints, whether or not an exception
         # unwinds through here.
-        progress.close()
+        #
+        # One durable `\n`-terminated line goes with it, so the scrollback
+        # keeps a record of how the run ended once the live line is gone.
+        # Suppressed under --quiet, whose contract is the summary and nothing
+        # else.
+        progress.close(
+            None
+            if args.quiet
+            else _settled_line(
+                sum(counts_so_far.values()),
+                len(mutants),
+                counts_so_far,
+                time.perf_counter() - started,
+            )
+        )
 
     with profiler.span("reporting"):
         # Rewritten in canonical mutant order. The streamed file is valid at
@@ -397,7 +446,13 @@ def _run(args: argparse.Namespace) -> int:
         text_path.write_text(plaintext_from_records(records) + "\n", encoding="utf-8")
 
         if fmt == "human":
-            if not args.quiet:
+            if args.quiet:
+                # --quiet in human mode is the footer, not silence. The agent
+                # path still prints its stderr summary under --quiet, so
+                # without this quiet-human would be the only mode that reports
+                # nothing at all.
+                print(render_footer(summarise(records), time.perf_counter() - started))
+            else:
                 print(
                     render_report(
                         records,
@@ -433,6 +488,41 @@ def _run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
     return 1 if counts["SURVIVED"] else 0
+
+
+def _measurable_fd(stream: IO[str]) -> int | None:
+    # Only a terminal has a size to ask for, and only a real file object has an
+    # fd to ask about -- `main`'s docstring supports being called in-process
+    # with StringIO in place of either stream. None means "no measurement",
+    # which `resolve_width` distinguishes from a measured 80.
+    if not stream.isatty():
+        return None
+    try:
+        return stream.fileno()
+    except (OSError, ValueError, io.UnsupportedOperation):
+        return None
+
+
+def _clock(seconds: float) -> str:
+    # M:SS, as the spec's progress and milestone lines show it.
+    minutes, remainder = divmod(int(seconds), 60)
+    return f"{minutes}:{remainder:02d}"
+
+
+def _settled_line(done: int, total: int, counts: Counter[str], elapsed: float) -> str:
+    # The greppable, committed form of progress: one per MILESTONE_INTERVAL
+    # when there is no live region, and once more on close so the scrollback
+    # keeps a record of how the run ended.
+    tally = ", ".join(
+        f"{counts[status]} {status.lower()}"
+        for status in ("KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED")
+        if counts[status]
+    )
+    return (
+        f"moonbuggy: {done}/{total} settled"
+        + (f" -- {tally}" if tally else "")
+        + f", {_clock(elapsed)}"
+    )
 
 
 def _display_path(path: Path, project_dir: Path) -> str:

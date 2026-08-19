@@ -6,13 +6,19 @@ that moonbuggy works on the one layout it was developed against; criterion H2
 asks whether it works on a project it has never seen.
 """
 
+import builtins
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
+from moonbuggy import terminal
 from moonbuggy.cli import main
+
+GOLDEN_DIR = Path(__file__).parent / "fixtures" / "golden"
+SAMPLE_PROJECT = "tests/fixtures/sample_project"
 
 pytestmark = pytest.mark.slow
 
@@ -314,6 +320,123 @@ def test_agent_report_is_the_default_off_a_tty(tmp_path, capsys):
     )
     out = capsys.readouterr().out
     assert "nearest_test=" in out  # the key=value agent format
+
+
+def test_quiet_in_human_mode_prints_the_footer_and_nothing_else(tmp_path, capsys):
+    """--quiet in human mode means the footer, not silence.
+
+    The agent path still prints its stderr summary under --quiet, so without
+    the footer here quiet-human would be the only mode that reports nothing at
+    all -- a run that produced zero bytes and an exit code.
+    """
+    code = main(
+        [
+            "--project",
+            SAMPLE_PROJECT,
+            "--output-dir",
+            str(tmp_path),
+            "--report",
+            "human",
+            "--quiet",
+        ]
+    )
+    lines = capsys.readouterr().out.splitlines()
+
+    assert code == 1
+    assert len(lines) == 3
+    # The denominator is the point of the score, and it is here in full.
+    assert lines[0].endswith("-- 15/21 killed, 71%")
+    assert lines[1] == "Full records: .moonbuggy/results.jsonl"
+    assert lines[2] == "exit 1 -- survivors"
+
+
+def test_a_non_tty_run_puts_no_bare_survived_line_on_stderr(tmp_path, capsys):
+    """Survivor scrollback belongs to the live region, and only to it.
+
+    A disabled region still commits whatever `log` is given, so an unguarded
+    survivor message emitted `SURVIVED  path:line` on a piped run -- a line
+    opening with a frozen contract keyword and carrying none of its key=value
+    tokens, which `moonbuggy 2>&1 | grep SURVIVED` would return as a
+    malformed duplicate.
+    """
+    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+    err = capsys.readouterr().err
+
+    assert [line for line in err.splitlines() if line.startswith("SURVIVED")] == []
+
+
+def test_a_non_tty_run_still_leaves_a_durable_final_line(tmp_path, capsys):
+    # There is no live region to watch, so how the run ended has to be
+    # committed rather than drawn.
+    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+    err = capsys.readouterr().err
+
+    assert any(
+        line.startswith("moonbuggy: 22/22 settled -- ") for line in err.splitlines()
+    )
+
+
+def test_no_bare_print_runs_while_the_live_region_is_open(tmp_path, monkeypatch):
+    """The single-writer invariant, as a mechanism rather than as care.
+
+    While the region is open, exactly one object writes to the terminal and
+    everything else routes through `log`. A bare `print` in between would
+    scroll straight through the live line and leave a fragment of it behind.
+    """
+    state = {"open": False}
+    escaped: list[str] = []
+    real_print = builtins.print
+    real_init = terminal.LiveRegion.__init__
+    real_close = terminal.LiveRegion.close
+
+    def watching_print(*args, **kwargs):
+        if state["open"]:
+            escaped.append(" ".join(str(arg) for arg in args))
+        real_print(*args, **kwargs)
+
+    def opening_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        state["open"] = True
+
+    def closing_close(self, final=None):
+        state["open"] = False
+        real_close(self, final)
+
+    monkeypatch.setattr(terminal.LiveRegion, "__init__", opening_init)
+    monkeypatch.setattr(terminal.LiveRegion, "close", closing_close)
+    monkeypatch.setattr(builtins, "print", watching_print)
+
+    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+
+    assert escaped == []
+
+
+def test_the_agent_artifacts_are_unchanged_byte_for_byte(tmp_path):
+    """Constraint 1, pinned against a real run rather than a synthetic record.
+
+    `results.txt` is compared whole. `results.jsonl` carries a wall-clock
+    `duration` per mutant, which is the one field a rerun cannot reproduce, so
+    it is normalised to 0.0 and every other byte of every line is compared.
+    """
+    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+
+    text = (tmp_path / "results.txt").read_text(encoding="utf-8")
+    assert text == (GOLDEN_DIR / "sample_project.results.txt").read_text(
+        encoding="utf-8"
+    )
+
+    produced = [
+        json.dumps({**json.loads(line), "duration": 0.0}, sort_keys=True)
+        for line in (tmp_path / "results.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    expected = (
+        (GOLDEN_DIR / "sample_project.results.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    assert produced == expected
 
 
 def _records(project):
