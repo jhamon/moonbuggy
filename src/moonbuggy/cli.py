@@ -429,10 +429,24 @@ def _run(args: argparse.Namespace) -> int:
             "moonbuggy: "
             + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
             + f"  cached={sum(1 for r in results if r.from_cache)}"
-            + f"  -> {jsonl_path.relative_to(project_dir)}",
+            + f"  -> {_display_path(jsonl_path, project_dir)}",
             file=sys.stderr,
         )
     return 1 if counts["SURVIVED"] else 0
+
+
+def _display_path(path: Path, project_dir: Path) -> str:
+    # `--output-dir` may be an absolute path, in which case
+    # `project_dir / args.output_dir` silently discards `project_dir` (an
+    # absolute right operand replaces the left one under `/`), so `path` ends
+    # up outside `project_dir` and `relative_to` raises. That is an
+    # anticipated shape of input, not a crash-worthy one (criterion H5): a
+    # user running `moonbuggy --output-dir /tmp/whatever` still gets a usable
+    # line, just the absolute path instead of a shortened relative one.
+    try:
+        return str(path.relative_to(project_dir))
+    except ValueError:
+        return str(path)
 
 
 def _collect_mutants(
