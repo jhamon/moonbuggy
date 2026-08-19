@@ -5,7 +5,11 @@ Keeping them here, behind pure functions, is what lets humanreport.py be
 tested as string-in string-out with no pty.
 """
 
+import io
+import itertools
+
 from moonbuggy.terminal import (
+    LiveRegion,
     char_width,
     display_width,
     palette_for,
@@ -166,3 +170,71 @@ def test_palette_avoids_red_and_green():
     # and a pair of mid-luminance colours that also fails in greyscale.
     eight = palette_for(8)
     assert "31m" not in eight.minus and "32m" not in eight.plus
+
+
+def region(enabled=True, times=None):
+    """A LiveRegion over a buffer, with a clock that never blocks the test."""
+    clock = itertools.count(0, 10).__next__ if times is None else iter(times).__next__
+    stream = io.StringIO()
+    return stream, LiveRegion(stream, enabled=enabled, clock=clock)
+
+
+def test_the_region_erases_before_each_repaint():
+    stream, live = region()
+    live.tick("15/22")
+    live.tick("16/22")
+    # \r plus a full erase, not padding with spaces, so a shrinking line
+    # cannot leave a tail behind.
+    assert stream.getvalue().count("\r\x1b[2K") == 2
+
+
+def test_the_region_never_hides_the_cursor():
+    # os._exit skips atexit, so nothing could reliably restore it after Ctrl-C.
+    stream, live = region()
+    live.tick("15/22")
+    live.close("done")
+    assert "\x1b[?25l" not in stream.getvalue()
+
+
+def test_identical_frames_are_not_rewritten():
+    stream, live = region()
+    live.tick("15/22")
+    live.tick("15/22")
+    assert stream.getvalue().count("15/22") == 1
+
+
+def test_repaints_are_rate_limited():
+    # Two ticks 0.01s apart; only the first is drawn.
+    stream, live = region(times=[0.0, 0.01, 0.02])
+    live.tick("a")
+    live.tick("b")
+    assert "b" not in stream.getvalue()
+
+
+def test_log_interleaves_without_corrupting_the_live_line():
+    stream, live = region()
+    live.tick("15/22")
+    live.log("moonbuggy: skipping broken.py")
+    written = stream.getvalue()
+    # The message is committed with a newline, and the live line comes back.
+    assert "moonbuggy: skipping broken.py\n" in written
+    assert written.rstrip().endswith("15/22")
+
+
+def test_close_commits_exactly_one_durable_line():
+    stream, live = region()
+    live.tick("15/22")
+    live.close("moonbuggy: 22/22 settled")
+    assert stream.getvalue().endswith("moonbuggy: 22/22 settled\n")
+
+
+def test_a_disabled_region_emits_no_escapes_at_all():
+    # Non-TTY, TERM=dumb, CI, or --no-progress.
+    stream, live = region(enabled=False)
+    live.tick("15/22")
+    live.log("a message")
+    live.close("final")
+    written = stream.getvalue()
+    assert "\x1b" not in written and "\r" not in written
+    # log and close still commit; only the animation is suppressed.
+    assert written == "a message\nfinal\n"

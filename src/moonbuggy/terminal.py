@@ -8,8 +8,9 @@ comparison, with no terminal, no pty, and no environment involved.
 
 import os
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import IO
 
 # Tab stops. Eight is what terminals do, and matching them is the whole point:
 # a tab expanded at a different interval renders at a different column than the
@@ -281,3 +282,93 @@ def palette_for(depth: int) -> Palette:
         plus=plus,
         reset="\x1b[0m",
     )
+
+
+# Erase the whole line and return to column 0. Padding with spaces instead
+# would leave a tail behind whenever the new frame is shorter than the old.
+ERASE = "\r\x1b[2K"
+# Ten frames a second. Faster buys nothing a reader can see, and every frame is
+# a write that a terminal recording or a CI log capture keeps forever.
+MIN_INTERVAL = 0.1
+
+
+class LiveRegion:
+    """A single-row progress line that other output can be written around.
+
+    One physical row, deliberately. A multi-row region has to move the cursor
+    up to repaint, and the number of physical rows a logical line occupies
+    changes when the terminal is resized -- at which point the cursor
+    arithmetic is wrong and the corruption is unrecoverable.
+
+    The cursor is never hidden. `run()` exits through `os._exit`, which skips
+    `atexit` by design, so there is no exit path that could reliably show it
+    again; a Ctrl-C would leave the user's shell with an invisible cursor until
+    they ran `reset`. Parking the cursor at column 0 costs nothing.
+
+    While the region is open it is the only thing writing to its stream. Callers
+    route their own messages through `log` so that each one erases the live line
+    first and redraws it afterwards.
+    """
+
+    def __init__(
+        self,
+        stream: IO[str],
+        *,
+        enabled: bool,
+        clock: Callable[[], float],
+    ) -> None:
+        """Initialise the region.
+
+        Args:
+            stream: the stream to write frames to.
+            enabled: whether to emit escapes and repaint at all.
+            clock: a monotonic time source, called to rate-limit repaints.
+        """
+        self.stream = stream
+        self.enabled = enabled
+        self.clock = clock
+        self._current = ""
+        self._last_paint = float("-inf")
+
+    def tick(self, text: str) -> None:
+        """Repaint the live line, if anything has changed and it is time to.
+
+        Args:
+            text: the whole line to show, already fitted to the width.
+        """
+        if not self.enabled or text == self._current:
+            return
+        now = self.clock()
+        if now - self._last_paint < MIN_INTERVAL:
+            return
+        self._last_paint = now
+        self._current = text
+        self.stream.write(ERASE + text)
+        self.stream.flush()
+
+    def log(self, text: str) -> None:
+        """Commit a line of scrolling output above the live line.
+
+        Args:
+            text: the message, without a trailing newline.
+        """
+        if self.enabled:
+            self.stream.write(ERASE)
+        self.stream.write(text + "\n")
+        if self.enabled and self._current:
+            self.stream.write(self._current)
+        self.stream.flush()
+
+    def close(self, final: str | None = None) -> None:
+        """Stop redrawing and leave one durable line in the scrollback.
+
+        Args:
+            final: the line to leave behind, or None to leave nothing.
+        """
+        if self.enabled:
+            self.stream.write(ERASE)
+        self._current = ""
+        self.enabled = False
+        if final is not None:
+            self.stream.write(final + "\n")
+        self.stream.flush()
