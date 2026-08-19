@@ -238,3 +238,20 @@ def test_a_disabled_region_emits_no_escapes_at_all():
     assert "\x1b" not in written and "\r" not in written
     # log and close still commit; only the animation is suppressed.
     assert written == "a message\nfinal\n"
+
+
+def test_close_is_idempotent():
+    stream, live = region()
+    live.tick("15/22")
+    live.close("done")
+    before = stream.getvalue()
+    live.close("done again")
+    assert stream.getvalue() == before
+
+
+def test_close_is_idempotent_when_disabled():
+    stream, live = region(enabled=False)
+    live.close("final")
+    before = stream.getvalue()
+    live.close("final again")
+    assert stream.getvalue() == before

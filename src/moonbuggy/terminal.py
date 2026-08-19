@@ -329,6 +329,7 @@ class LiveRegion:
         self.clock = clock
         self._current = ""
         self._last_paint = float("-inf")
+        self._closed = False
 
     def tick(self, text: str) -> None:
         """Repaint the live line, if anything has changed and it is time to.
@@ -362,13 +363,22 @@ class LiveRegion:
     def close(self, final: str | None = None) -> None:
         """Stop redrawing and leave one durable line in the scrollback.
 
+        Idempotent: a region already closed by an earlier call emits nothing
+        and does not raise, however many more times it is closed or whatever
+        `final` it is given. This matters because teardown tends to happen
+        twice -- once in a `finally` and once on an interrupt path -- and only
+        the first call may commit a line.
+
         Args:
             final: the line to leave behind, or None to leave nothing.
         """
+        if self._closed:
+            return
         if self.enabled:
             self.stream.write(ERASE)
         self._current = ""
         self.enabled = False
+        self._closed = True
         if final is not None:
             self.stream.write(final + "\n")
         self.stream.flush()
