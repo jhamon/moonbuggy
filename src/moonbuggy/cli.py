@@ -10,11 +10,14 @@ drift apart.
 """
 
 import argparse
+import io
 import os
 import sys
 import time
+from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
+from typing import IO
 
 from . import __version__, profiling
 from .baseline import BaselineError
@@ -27,6 +30,7 @@ from .discover import (
     looks_like_pytest_project,
 )
 from .generate import GenerationError, generate_mutants
+from .humanreport import render_footer, render_report
 from .mutant import Mutant
 from .report import (
     StreamingJSONL,
@@ -37,10 +41,23 @@ from .report import (
     summarise,
     write_jsonl,
 )
-from .runner import run_mutants, run_session
+from .runner import Result, run_mutants, run_session
 from .srcio import SourceError, read_source
+from .terminal import (
+    LiveRegion,
+    is_ci,
+    palette_for,
+    resolve_colour,
+    resolve_format,
+    resolve_width,
+)
 
 DEFAULT_OUTPUT_DIR = ".moonbuggy"
+
+# How often a run with no live region commits a progress line. Those lines go
+# into a log or a CI transcript and stay there, so they are paced for someone
+# reading the file afterwards rather than for someone watching a terminal.
+MILESTONE_INTERVAL = 10.0
 
 # The end of moonbuggy's import chain, as a timestamp rather than a span: by
 # the time anything here can run, the chain has already happened. `profiling`
@@ -51,6 +68,26 @@ DEFAULT_OUTPUT_DIR = ".moonbuggy"
 _IMPORTS_DONE = time.perf_counter()
 
 
+def _harden_streams() -> None:
+    """Make stdout/stderr degrade instead of raising on unencodable output.
+
+    A source file may legally be latin-1 or cp1251 (srcio honours PEP 263),
+    so a mutated line can hold characters stdout cannot encode. With the
+    default errors="strict" that is a UnicodeEncodeError raised from inside
+    the report, past main's handler, as a traceback -- which criterion H5
+    forbids -- and past run()'s explicit flush, losing the buffered report.
+    backslashreplace degrades the character and keeps the run.
+
+    `getattr` rather than a direct call: an in-process caller may have
+    replaced the streams with an object that has no `reconfigure`, and
+    `main`'s docstring says calling it in-process is supported.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="backslashreplace")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run moonbuggy.
 
@@ -59,8 +96,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         The process exit code: 0 for a clean run, 1 when there are survivors,
-        2 when the run could not happen at all.
+        2 when the run could not happen at all, 130 when interrupted.
     """
+    _harden_streams()
     profiling.active().add("import chain", _IMPORTS_DONE - profiling.active().started)
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -68,6 +106,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "show":
             return _show(args)
         return _run(args)
+    except KeyboardInterrupt:
+        # An anticipated ending, not a crash. 130 is the shell convention for
+        # SIGINT. The results file is valid at every instant (criterion
+        # M1.4.13), so whatever finished is already usable.
+        print(
+            "\nmoonbuggy: interrupted. Partial results in "
+            f"{args.output_dir}/results.jsonl",
+            file=sys.stderr,
+        )
+        return 130
     except (LayoutError, CoveragePassError, BaselineError, SourceError) as error:
         # Criteria H5 and M1.4.12: an actionable message, never a traceback.
         # Every failure moonbuggy can anticipate is funnelled through here, so
@@ -166,11 +214,74 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "a test whose outcome varies makes every mutant it covers "
         "SUSPICIOUS (default: 1, 0 disables)",
     )
+    parser.add_argument(
+        "--report",
+        choices=["human", "agent"],
+        default=None,
+        help="output format: 'human' for a readable report with diffs, "
+        "'agent' for one grep-friendly line per mutant "
+        "(default: human at a terminal, agent when piped; "
+        "MOONBUGGY_REPORT overrides)",
+    )
+    parser.add_argument(
+        "--color",
+        choices=["auto", "always", "never"],
+        default=None,
+        help="colour in the human report (default: auto; NO_COLOR is honoured)",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="wrap the human report to this many columns (default: detected)",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="do not draw the live progress line",
+    )
 
 
 def _run(args: argparse.Namespace) -> int:
     project_dir = Path(args.project).resolve()
     profiler = profiling.active()
+    started = time.perf_counter()
+
+    fmt = resolve_format(args.report, os.environ, sys.stdout.isatty())
+    palette = palette_for(resolve_colour(args.color, os.environ, sys.stdout.isatty()))
+    width = resolve_width(args.width, os.environ, _measurable_fd(sys.stdout))
+    # The live line goes to stderr, so it is measured against stderr. `width`
+    # above cannot stand in: under `moonbuggy > report.txt` it was measured
+    # from a redirected stdout and falls back to 80 while stderr is 40 columns
+    # wide, and a progress line wider than the real terminal wraps -- at which
+    # point ERASE clears the last physical row of a two-row line and the
+    # corruption is the unrecoverable kind the one-row design exists to
+    # prevent.
+    stderr_fd = _measurable_fd(sys.stderr)
+    # Progress belongs to the human report. The spec's Progress section sits
+    # inside the human-report design, and an agent has no use for narration it
+    # would then have to filter out -- so agent mode's stderr stays exactly
+    # what it was before this branch: the two preamble lines and the summary.
+    # Gating on the format rather than on stderr's TTY also keeps
+    # `--report agent` quiet at a terminal, which is the conservative
+    # direction for a contract we have promised not to move.
+    #
+    # Which stream is a terminal remains a separate question from that: the
+    # report is the payload and goes to stdout, the live line is ephemeral and
+    # goes to stderr, so a human redirecting the report still sees the run
+    # move.
+    narrate = fmt == "human"
+    progress = LiveRegion(
+        sys.stderr,
+        enabled=(
+            narrate
+            and not args.no_progress
+            and sys.stderr.isatty()
+            and os.environ.get("TERM", "dumb") != "dumb"
+            and not is_ci(os.environ)
+        ),
+        clock=time.perf_counter,
+    )
 
     with profiler.span("discovery"):
         recognised = looks_like_pytest_project(project_dir)
@@ -201,7 +312,9 @@ def _run(args: argparse.Namespace) -> int:
 
     wanted = set(args.operators.split(",")) if args.operators else None
     with profiler.span("generation"):
-        mutants, unreadable = _collect_mutants(project_dir, source_files, wanted)
+        mutants, unreadable = _collect_mutants(
+            project_dir, source_files, wanted, progress
+        )
 
     if not mutants:
         if unreadable:
@@ -219,51 +332,126 @@ def _run(args: argparse.Namespace) -> int:
         return 2
 
     if not args.quiet:
-        print(
-            f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files",
-            file=sys.stderr,
+        progress.log(
+            f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files"
         )
-        print("moonbuggy: running coverage pass...", file=sys.stderr)
+        progress.log("moonbuggy: running coverage pass...")
 
     jsonl_path = output_dir / "results.jsonl"
+    # Outside the try so the `finally` can name it however far the run got.
+    counts_so_far: Counter[str] = Counter()
 
     # Records are streamed to disk as each mutant is settled, so a run killed
     # mid-flight leaves whole, parseable lines for everything it did finish
     # (criterion M1.4.13) rather than an empty file or a truncated one.
-    with StreamingJSONL(jsonl_path) as stream:
-        if args.workers:
-            # xdist needs real subprocesses, so the warm single-pass session
-            # does not apply; fall back to the separate baseline pass and cold
-            # forks.
-            linemap, flaky = run_baseline_pass(
-                project_dir,
-                source_dir,
-                args.flaky_probe,
-                extra_args=args.pytest_arg,
+    try:
+        with StreamingJSONL(jsonl_path) as stream:
+            last_milestone = 0.0
+
+            def _settled(result: Result) -> None:
+                nonlocal last_milestone
+                stream.write(result)
+                counts_so_far[result.status] += 1
+                done = sum(counts_so_far.values())
+                elapsed = time.perf_counter() - started
+                if progress.enabled:
+                    # Re-measured on every repaint rather than through
+                    # SIGWINCH, which does not exist on Windows. `--width` is
+                    # deliberately not passed: it is a REPORT width, there so
+                    # a report is reproducible, and honouring it here would
+                    # let `--width 100` wrap the live line on an 80-column
+                    # terminal.
+                    region_width = resolve_width(None, os.environ, stderr_fd)
+                    line = (
+                        f"moonbuggy  {done}/{len(mutants)}  "
+                        + "  ".join(
+                            f"{status.lower()} {counts_so_far[status]}"
+                            for status in ("KILLED", "SURVIVED", "TIMEOUT")
+                            if counts_so_far[status]
+                        )
+                        + f"  {_clock(elapsed)}"
+                    )
+                    progress.tick(line[: region_width - 1])
+                    if result.status == "SURVIVED":
+                        # Survivors are rare and are the whole point, so they
+                        # scroll into the scrollback as they land. Killed
+                        # mutants never do. Guarded on the region, because a
+                        # disabled region still commits what it is given --
+                        # and a bare `SURVIVED  path:line` on the agent path
+                        # is a line that opens with a contract keyword and
+                        # carries none of its key=value tokens.
+                        progress.log(
+                            f"SURVIVED  {result.mutant.module}:{result.mutant.line}"
+                        )
+                elif (
+                    narrate
+                    and not args.quiet
+                    # The last result's milestone would be word for word the
+                    # durable line `close` is about to commit, so the run
+                    # would end by saying the same thing twice.
+                    and done < len(mutants)
+                    and elapsed - last_milestone >= MILESTONE_INTERVAL
+                ):
+                    # No live region to watch, so progress arrives as committed
+                    # lines instead. Paced, because they are permanent.
+                    last_milestone = elapsed
+                    progress.log(
+                        _settled_line(done, len(mutants), counts_so_far, elapsed)
+                    )
+
+            if args.workers:
+                # xdist needs real subprocesses, so the warm single-pass
+                # session does not apply; fall back to the separate baseline
+                # pass and cold forks.
+                linemap, flaky = run_baseline_pass(
+                    project_dir,
+                    source_dir,
+                    args.flaky_probe,
+                    extra_args=args.pytest_arg,
+                )
+                results = run_mutants(
+                    project_dir,
+                    mutants,
+                    linemap,
+                    timeout=args.timeout,
+                    xdist_workers=args.workers,
+                    cache=cache,
+                    jobs=args.jobs or None,
+                    flaky=flaky,
+                    on_result=_settled,
+                )
+            else:
+                _, results = run_session(
+                    project_dir,
+                    mutants,
+                    source_dir,
+                    timeout=args.timeout,
+                    cache=cache,
+                    jobs=args.jobs or None,
+                    probes=args.flaky_probe,
+                    on_result=_settled,
+                    extra_args=args.pytest_arg,
+                )
+    finally:
+        # `run()` exits via `os._exit`, which skips `atexit`, so this
+        # `finally` is the only teardown that runs -- the live line must be
+        # erased before the report prints, whether or not an exception
+        # unwinds through here.
+        #
+        # One durable `\n`-terminated line goes with it, so the scrollback
+        # keeps a record of how the run ended once the live line is gone.
+        # Suppressed under --quiet, whose contract is the summary and nothing
+        # else.
+        progress.close(
+            None
+            if not narrate or args.quiet
+            else _settled_line(
+                sum(counts_so_far.values()),
+                len(mutants),
+                counts_so_far,
+                time.perf_counter() - started,
             )
-            results = run_mutants(
-                project_dir,
-                mutants,
-                linemap,
-                timeout=args.timeout,
-                xdist_workers=args.workers,
-                cache=cache,
-                jobs=args.jobs or None,
-                flaky=flaky,
-                on_result=stream.write,
-            )
-        else:
-            _, results = run_session(
-                project_dir,
-                mutants,
-                source_dir,
-                timeout=args.timeout,
-                cache=cache,
-                jobs=args.jobs or None,
-                probes=args.flaky_probe,
-                on_result=stream.write,
-                extra_args=args.pytest_arg,
-            )
+        )
 
     with profiler.span("reporting"):
         # Rewritten in canonical mutant order. The streamed file is valid at
@@ -275,9 +463,34 @@ def _run(args: argparse.Namespace) -> int:
         # results, so the two artifacts cannot disagree (criterion E3).
         records = read_jsonl(jsonl_path)
         text_path = output_dir / "results.txt"
-        text_path.write_text(plaintext_from_records(records) + "\n")
+        text_path.write_text(plaintext_from_records(records) + "\n", encoding="utf-8")
 
-        if not args.quiet:
+        if fmt == "human":
+            if args.quiet:
+                # --quiet in human mode is the footer, not silence. The agent
+                # path still prints its stderr summary under --quiet, so
+                # without this quiet-human would be the only mode that reports
+                # nothing at all.
+                print(
+                    render_footer(
+                        summarise(records),
+                        time.perf_counter() - started,
+                        _display_path(jsonl_path, project_dir),
+                    )
+                )
+            else:
+                print(
+                    render_report(
+                        records,
+                        palette=palette,
+                        files=len(source_files),
+                        elapsed=time.perf_counter() - started,
+                        timeout=args.timeout,
+                        artifact=_display_path(jsonl_path, project_dir),
+                        width=width,
+                    )
+                )
+        elif not args.quiet:
             for record in records:
                 print(render_line(record))
 
@@ -290,18 +503,74 @@ def _run(args: argparse.Namespace) -> int:
     profiler.write()
 
     counts = summarise(records)
-    print(
-        "moonbuggy: "
-        + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
-        + f"  cached={sum(1 for r in results if r.from_cache)}"
-        + f"  -> {jsonl_path.relative_to(project_dir)}",
-        file=sys.stderr,
-    )
+    # The report's own footer already summarises a human run, so this line
+    # would be redundant there. In agent mode it stays exactly as it always
+    # was -- Task 11's golden test pins it byte for byte.
+    if fmt == "agent":
+        print(
+            "moonbuggy: "
+            + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
+            + f"  cached={sum(1 for r in results if r.from_cache)}"
+            + f"  -> {_display_path(jsonl_path, project_dir)}",
+            file=sys.stderr,
+        )
     return 1 if counts["SURVIVED"] else 0
 
 
+def _measurable_fd(stream: IO[str]) -> int | None:
+    # Only a terminal has a size to ask for, and only a real file object has an
+    # fd to ask about -- `main`'s docstring supports being called in-process
+    # with StringIO in place of either stream. None means "no measurement",
+    # which `resolve_width` distinguishes from a measured 80.
+    if not stream.isatty():
+        return None
+    try:
+        return stream.fileno()
+    except (OSError, ValueError, io.UnsupportedOperation):
+        return None
+
+
+def _clock(seconds: float) -> str:
+    # M:SS, as the spec's progress and milestone lines show it.
+    minutes, remainder = divmod(int(seconds), 60)
+    return f"{minutes}:{remainder:02d}"
+
+
+def _settled_line(done: int, total: int, counts: Counter[str], elapsed: float) -> str:
+    # The greppable, committed form of progress: one per MILESTONE_INTERVAL
+    # when there is no live region, and once more on close so the scrollback
+    # keeps a record of how the run ended.
+    tally = ", ".join(
+        f"{counts[status]} {status.lower()}"
+        for status in ("KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED")
+        if counts[status]
+    )
+    return (
+        f"moonbuggy: {done}/{total} settled"
+        + (f" -- {tally}" if tally else "")
+        + f", {_clock(elapsed)}"
+    )
+
+
+def _display_path(path: Path, project_dir: Path) -> str:
+    # `--output-dir` may be an absolute path, in which case
+    # `project_dir / args.output_dir` silently discards `project_dir` (an
+    # absolute right operand replaces the left one under `/`), so `path` ends
+    # up outside `project_dir` and `relative_to` raises. That is an
+    # anticipated shape of input, not a crash-worthy one (criterion H5): a
+    # user running `moonbuggy --output-dir /tmp/whatever` still gets a usable
+    # line, just the absolute path instead of a shortened relative one.
+    try:
+        return str(path.relative_to(project_dir))
+    except ValueError:
+        return str(path)
+
+
 def _collect_mutants(
-    project_dir: Path, source_files: list[str], wanted: set[str] | None
+    project_dir: Path,
+    source_files: list[str],
+    wanted: set[str] | None,
+    progress: LiveRegion,
 ) -> tuple[list[Mutant], list[str]]:
     """Generate mutants for every readable source file.
 
@@ -315,6 +584,9 @@ def _collect_mutants(
         project_dir: the project root.
         source_files: paths relative to the project root.
         wanted: a set of operator names to keep, or None for all.
+        progress: the live progress region, so these messages go through the
+            same single writer as everything else printed to stderr while it
+            is open.
 
     Returns:
         ``(mutants, unreadable)`` -- the mutants found, and the relative paths that
@@ -342,15 +614,14 @@ def _collect_mutants(
                 on_skip=_note_skip,
             )
         except (SourceError, GenerationError) as error:
-            print(f"moonbuggy: skipping {relative}: {error}", file=sys.stderr)
+            progress.log(f"moonbuggy: skipping {relative}: {error}")
             unreadable.append(relative)
             continue
         if skipped:
-            print(
+            progress.log(
                 f"moonbuggy: {relative}: {len(skipped)} site(s) too deeply nested "
                 f"to mutate, first at line {min(skipped)}. Those lines are not "
-                "covered by this run.",
-                file=sys.stderr,
+                "covered by this run."
             )
         mutants.extend(m for m in found if wanted is None or m.operator in wanted)
     return mutants, unreadable

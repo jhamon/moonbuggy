@@ -10,10 +10,13 @@ Every run writes two files into `.moonbuggy/`:
 
 `results.txt`
 : A plaintext view, **derived from the JSONL** rather than written alongside it,
-  so the two cannot drift apart. The same content is printed to stdout.
+  so the two cannot drift apart.
 
-The plaintext is also the format printed to your terminal, so what you grep in a
-file is exactly what you saw scroll past.
+The plaintext is also what moonbuggy prints to stdout whenever the output is
+piped, redirected, or pinned to the agent format, so what you grep in a file is
+exactly what you saw scroll past. At an interactive terminal stdout carries the
+human report instead — the same findings, rendered to be read, described under
+*The human report* below. Both files are written either way.
 
 ## Statuses
 
@@ -67,6 +70,114 @@ missing field.
 `grep`, `awk` and `wc -l` usable; a multi-line record would break all three.
 Retrieve a diff with `moonbuggy show <id>`.
 
+## The human report
+
+The plaintext line above is what you get when output is piped, redirected, or
+`MOONBUGGY_REPORT=agent` is set. At a terminal, with none of those in play,
+moonbuggy prints something meant to be read instead: survivors grouped by
+`file:line`, each with the code delta and a caret under exactly what changed.
+
+Format selection checks four things in order: the `--report` flag, then
+`MOONBUGGY_REPORT`, then whether `CI` is set in the environment (agent format
+— a CI log is rarely a place for a human report), then whether stdout is a
+terminal. In practice the `CI` tier rarely changes the outcome, since a CI
+run's stdout is usually not a terminal anyway and would land on agent format
+regardless; it exists for the harnesses where that assumption does not hold.
+
+This is the literal stdout of one command against
+`tests/fixtures/sample_project`, `--report human` forcing the format
+regardless of terminal detection and `2>/dev/null` dropping stderr so only the
+report remains:
+
+```{code-block} console
+$ moonbuggy --project tests/fixtures/sample_project --report human 2>/dev/null
+```
+
+```{code-block} text
+moonbuggy  22 mutants across 5 files
+
+sample/inventory.py:9
+  SURVIVED  comparison_swap
+    - return stock > 0 and not discontinued
+    + return stock >= 0 and not discontinued
+                   ^^
+  SURVIVED  constant_int
+    + return stock > 1 and not discontinued
+                     ^
+  2 tests run this line; first is
+  tests/test_inventory.py::test_discontinued_item_is_not_available
+
+sample/inventory.py:13
+  SURVIVED  comparison_swap
+    - if stock < target:
+    + if stock <= target:
+               ^^
+  1 test runs this line; first is
+  tests/test_inventory.py::test_restock_fills_to_target
+
+sample/inventory.py:15
+  SURVIVED  constant_int
+    - return 0
+    + return 1
+             ^
+  no test runs this line at all
+
+sample/loops.py:10
+  SURVIVED  comparison_swap
+    - while n > 0:
+    + while n >= 0:
+              ^^
+  2 tests run this line; first is
+  tests/test_loops.py::test_countdown_of_zero_is_zero
+
+Problems with the run
+
+sample/loops.py:12
+  TIMEOUT  arithmetic_swap  (timed out after 30s)
+    - n -= 1
+    + n += 1
+        ^^
+
+5 survived, 1 timeout, 15 killed, 1 skipped in 30.2s -- 15/21 killed, 71%
+Full records: .moonbuggy/results.jsonl
+exit 1 -- survivors
+```
+
+That is exactly what lands in a file from `moonbuggy --report human >
+report.txt`, and nothing more. Progress goes to stderr separately, so it is
+not in the block above: while a run is in flight, a terminal shows a single
+counter line that is redrawn in place as mutants finish (there is no static
+text to show for it — depicting a frame of it here would misrepresent
+something that never sits still), and each `SURVIVED` mutant scrolls past
+underneath it as it is found, so a reader watching live sees a finding the
+moment it lands rather than only at the end.
+
+The location prints once per `file:line` group, with every mutant that lands
+on it nested underneath — adjacent survivors that one new test could kill
+together stay together, and `nearest_test` is shown once rather than repeated
+per mutant. `KILLED` and `SKIPPED` mutants do not get a block; they only move
+the footer counts. `TIMEOUT` and `SUSPICIOUS` mutants move below the survivors
+under a `Problems with the run` heading — a timeout is treated as killed-ish
+elsewhere in this doc, so mixing it in with survivors would misrepresent it as
+a finding. A run with many `SUSPICIOUS` mutants collapses them to a single
+line rather than one block each, because that many is almost always one root
+cause and not eighty-four separate ones.
+
+Flags that shape this view: `--color auto|always|never` (colour is never the
+only carrier of meaning — the caret ruler works with `NO_COLOR` set, piped
+through `less` without `-R`, or read by someone who can't distinguish red from
+green), `--width N` to wrap at a fixed column count instead of the detected
+terminal width, and `--no-progress` to suppress the live line drawn on stderr
+while mutants are still running.
+
+**None of this layout is a contract.** The grouping, the wording of the footer
+sentence, the exact indentation, the `Problems with the run` heading — any of
+it may change between releases as the report is refined. The only thing this
+page guarantees byte for byte is the plaintext line format above, because a
+golden test pins it. If you are scripting against moonbuggy's output, script
+against `results.txt` or `results.jsonl`, never against what prints to a
+terminal.
+
 ## The JSONL schema
 
 Every line of `results.jsonl` is one object with these keys. Keys are sorted, so
@@ -85,7 +196,14 @@ lines are stable byte-for-byte for unchanged input.
 | `duration` | number | seconds spent running this mutant's tests |
 | `module_level` | boolean | true when the line runs at import time, which widens selection to the whole suite |
 | `suppressed` | boolean | true when the line carries the skip marker |
+| `original` | string | the source line before mutation, stripped of surrounding whitespace |
+| `mutated` | string | the same line after mutation, stripped the same way |
 | `diff` | string | two lines: `- original` then `+ mutated` |
+
+`original` and `mutated` are the two operands `diff` is assembled from. They
+are carried separately so a reader that wants the delta never has to parse a
+rendered diff back apart — which is what the human report would otherwise have
+to do to itself.
 
 The `id` is worth understanding because it is the join key for anything that
 tracks findings over time. It ends in an occurrence index because one line can

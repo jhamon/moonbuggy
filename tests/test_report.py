@@ -159,3 +159,26 @@ def test_survived_without_covering_tests_reports_no_nearest_test():
     line = render_line(record_for(make("SURVIVED", nearest=None)))
 
     assert "nearest_test=-" in line
+
+
+def test_record_carries_the_operands_separately():
+    """The human reporter needs the two lines, not a pre-rendered diff string."""
+    result = make("SURVIVED")
+    record = record_for(result)
+    assert record["original"] == "return stock > 0 and not discontinued"
+    assert record["mutated"] == "return stock >= 0 and not discontinued"
+
+
+def test_diff_stays_derived_from_the_operands():
+    """The diff string must not drift from the fields it is built out of."""
+    record = record_for(make("SURVIVED"))
+    assert record["diff"] == f"- {record['original']}\n+ {record['mutated']}"
+
+
+def test_jsonl_is_written_as_utf8_regardless_of_locale(tmp_path):
+    """results.jsonl must not depend on the machine's locale encoding."""
+    path = tmp_path / "results.jsonl"
+    write_jsonl([make("SURVIVED", nearest="tests/t.py::test_café")], path)
+    # Decodes as UTF-8 and no other way round-trips.
+    assert read_jsonl(path)[0]["nearest_test"] == "tests/t.py::test_café"
+    path.read_bytes().decode("utf-8")

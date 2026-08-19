@@ -45,6 +45,8 @@ class Record(TypedDict):
     duration: float
     module_level: bool
     suppressed: bool
+    original: str
+    mutated: str
     diff: str
 
 
@@ -67,6 +69,11 @@ def record_for(result: Result) -> Record:
         "duration": round(result.duration, 4),
         "module_level": mutant.module_level,
         "suppressed": mutant.suppressed,
+        # The operands, not just the rendered diff. The human reporter computes
+        # a changed span from these; deriving them by splitting `diff` would be
+        # a reporter parsing its own output format.
+        "original": mutant.original,
+        "mutated": mutant.mutated,
         "diff": f"- {mutant.original}\n+ {mutant.mutated}",
     }
 
@@ -78,7 +85,7 @@ def write_jsonl(results: Iterable[Result], path: str | os.PathLike[str]) -> None
     lines behind (criterion E2). A half-written final record would break every
     downstream reader, which matters more here than the cost of the flush.
     """
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8") as handle:
         for result in results:
             handle.write(json.dumps(record_for(result), sort_keys=True) + "\n")
             handle.flush()
@@ -104,7 +111,7 @@ class StreamingJSONL:
         self.written = 0
 
     def __enter__(self) -> "StreamingJSONL":
-        self._handle = open(self.path, "w")
+        self._handle = open(self.path, "w", encoding="utf-8")
         return self
 
     def write(self, result: Result) -> None:
@@ -131,7 +138,7 @@ class StreamingJSONL:
 
 def read_jsonl(path: str | os.PathLike[str]) -> list[Record]:
     """Read every record back from a JSONL file, in file order."""
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
 
 

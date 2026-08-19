@@ -83,6 +83,24 @@ awk-friendly. To see a mutant in full:
 moonbuggy show 'shipping.py:5:comparison_swap:0'
 ```
 
+That is the format you get when output is piped or redirected. At a terminal
+you get a human report instead: survivors grouped by file and line, each with
+the code delta and a caret under exactly what changed.
+
+```bash
+moonbuggy --report human
+```
+
+Format selection checks, in order: the `--report` flag, then
+`MOONBUGGY_REPORT`, then whether `CI` is set in the environment (agent format,
+since a CI run is rarely a place for a human report), then whether stdout is a
+terminal. `CI` counts as set for anything but an empty string, `0` or
+`false`, so the usual `CI=false` escape hatch works here too. Set
+`MOONBUGGY_REPORT=agent` to pin the grep-friendly format
+everywhere, including at a terminal — worth doing in an agent harness that
+allocates a pty, where terminal detection would otherwise pick the human
+report.
+
 ### Suppressing an equivalent mutant
 
 Some mutants cannot be killed by any test because the mutated program is
@@ -112,6 +130,13 @@ Nothing below is required.
 --no-cache           ignore and do not update the cache
 --clear-cache        delete the cache, then run
 --quiet              summary line only
+--report MODE        'human' for a readable report with diffs, 'agent' for
+                     one grep-friendly line per mutant (default: human at a
+                     terminal, agent when piped; MOONBUGGY_REPORT overrides)
+--color WHEN         auto, always, or never (default: auto; NO_COLOR is
+                     honoured)
+--width N            wrap the human report to N columns (default: detected)
+--no-progress        do not draw the live progress line
 ```
 
 ## Development
@@ -125,6 +150,7 @@ python -m venv .venv && .venv/bin/pip install -e '.[dev,bench]'
 | `make test` | fast unit suite |
 | `make check-oracle` | every mutant against the hand-written oracle |
 | `make check-spike` | in-memory mutation, assert rewriting, xdist |
+| `make check-cli` | end-to-end CLI runs against real pytest subprocesses |
 | `make check-mutmut` | advisory cross-check of the oracle against mutmut |
 | `make bench` | moonbuggy vs mutmut vs naive |
 | `make check-fresh-install` | clean install, zero-config run |

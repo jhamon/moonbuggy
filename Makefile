@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install check-all
+.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties check-cli bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -106,6 +106,13 @@ check-properties:
 check-robustness:
 	$(PYTHON) -m pytest -m slow tests/test_robustness.py -v
 
+## The CLI's end-to-end tests: real subprocess pytest runs per mutant against
+## an unseen throwaway project and the shared sample_project fixture. Slow,
+## so it is gated the same way as check-oracle/check-spike/check-properties/
+## check-robustness rather than run by the default `test` target.
+check-cli:
+	$(PYTHON) -m pytest -m slow tests/test_cli.py -v
+
 ## Criteria H1/H2: clean install, then bare `moonbuggy` on an unseen project.
 check-fresh-install:
 	./scripts/check_fresh_install.sh
@@ -115,7 +122,7 @@ check-fresh-install:
 check-mutmut:
 	$(PYTHON) scripts/check_mutmut_differential.py
 
-check-all: lint format-check typecheck test check-oracle check-spike check-properties check-robustness check-mutmut check-fresh-install
+check-all: lint format-check typecheck test check-oracle check-spike check-properties check-robustness check-cli check-mutmut check-fresh-install
 
 ## Criterion B3: coverage mechanism benchmark.
 ## Prints wall-clock and map content for each candidate. See docs/development/spike-b-findings.md.

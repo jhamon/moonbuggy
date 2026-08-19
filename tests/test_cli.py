@@ -6,11 +6,19 @@ that moonbuggy works on the one layout it was developed against; criterion H2
 asks whether it works on a project it has never seen.
 """
 
+import builtins
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
+
+from moonbuggy import terminal
+from moonbuggy.cli import main
+
+GOLDEN_DIR = Path(__file__).parent / "fixtures" / "golden"
+SAMPLE_PROJECT = "tests/fixtures/sample_project"
 
 pytestmark = pytest.mark.slow
 
@@ -281,6 +289,217 @@ def test_exclude_filters_files(throwaway):
 
     assert "helper.py" in with_helper
     assert "helper.py" not in without
+
+
+def test_human_footer_names_a_non_default_output_dir(throwaway, capsys):
+    """The human footer's artifact path must track `--output-dir`.
+
+    Reproduces the reported bug: `render_footer` used to hardcode
+    `.moonbuggy/results.jsonl`, so a run with a non-default `--output-dir`
+    printed a footer naming a path that was never written. This runs through
+    `main` in-process (rather than the `moonbuggy` subprocess helper) so it
+    can capture stdout with `capsys`, and asserts the human footer names
+    exactly `custom-out/results.jsonl` -- the same relative path the
+    agent-mode summary would use for this run, via the same `_display_path`
+    call.
+    """
+    code = main(
+        [
+            "--project",
+            str(throwaway),
+            "--output-dir",
+            "custom-out",
+            "--report",
+            "human",
+            "--quiet",
+        ]
+    )
+    lines = capsys.readouterr().out.splitlines()
+
+    assert code in (0, 1)
+    assert (throwaway / "custom-out" / "results.jsonl").exists()
+    assert lines[1] == "Full records: custom-out/results.jsonl"
+
+
+def test_human_report_renders_on_a_non_tty(tmp_path, capsys):
+    """A human redirecting to a file still wants the human format.
+
+    Without this, `moonbuggy | less` silently gets the agent format -- which
+    is the trap TTY detection alone walks into. These run the real mutation
+    engine against the shared fixture, so they belong in this slow, e2e
+    module rather than test_cli_unit.py.
+    """
+    project = "tests/fixtures/sample_project"
+    code = main(
+        ["--project", project, "--output-dir", str(tmp_path), "--report", "human"]
+    )
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "SURVIVED  comparison_swap" in out
+    assert "\x1b" not in out  # no escapes on a non-tty
+
+
+def test_agent_report_is_the_default_off_a_tty(tmp_path, capsys):
+    main(
+        [
+            "--project",
+            "tests/fixtures/sample_project",
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "nearest_test=" in out  # the key=value agent format
+
+
+def test_quiet_in_human_mode_prints_the_footer_and_nothing_else(tmp_path, capsys):
+    """--quiet in human mode means the footer, not silence.
+
+    The agent path still prints its stderr summary under --quiet, so without
+    the footer here quiet-human would be the only mode that reports nothing at
+    all -- a run that produced zero bytes and an exit code.
+    """
+    code = main(
+        [
+            "--project",
+            SAMPLE_PROJECT,
+            "--output-dir",
+            str(tmp_path),
+            "--report",
+            "human",
+            "--quiet",
+        ]
+    )
+    lines = capsys.readouterr().out.splitlines()
+
+    assert code == 1
+    assert len(lines) == 3
+    # The denominator is the point of the score, and it is here in full.
+    assert lines[0].endswith("-- 15/21 killed, 71%")
+    # tmp_path is absolute, so it discards project_dir under `/` (H5) and the
+    # footer names the absolute path rather than a shortened relative one --
+    # the same path the agent-mode summary would name for this run.
+    assert lines[1] == f"Full records: {tmp_path / 'results.jsonl'}"
+    assert lines[2] == "exit 1 -- survivors"
+
+
+def test_a_non_tty_run_puts_no_bare_survived_line_on_stderr(tmp_path, capsys):
+    """Survivor scrollback belongs to the live region, and only to it.
+
+    A disabled region still commits whatever `log` is given, so an unguarded
+    survivor message emitted `SURVIVED  path:line` on a piped run -- a line
+    opening with a frozen contract keyword and carrying none of its key=value
+    tokens, which `moonbuggy 2>&1 | grep SURVIVED` would return as a
+    malformed duplicate.
+    """
+    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+    err = capsys.readouterr().err
+
+    assert [line for line in err.splitlines() if line.startswith("SURVIVED")] == []
+
+
+def test_human_mode_off_a_tty_leaves_exactly_one_durable_final_line(tmp_path, capsys):
+    """There is no live region to watch, so the ending is committed, once.
+
+    Twice was the bug: the last result's milestone line and the durable line
+    `close` commits carry word-for-word the same text, so a run long enough to
+    reach a milestone ended by saying the same thing twice.
+    """
+    main(
+        [
+            "--project",
+            SAMPLE_PROJECT,
+            "--output-dir",
+            str(tmp_path),
+            "--report",
+            "human",
+        ]
+    )
+    err = capsys.readouterr().err
+
+    settled = [line for line in err.splitlines() if " settled" in line]
+    assert len(settled) == 1
+    assert settled[0].startswith("moonbuggy: 22/22 settled -- ")
+
+
+def test_agent_mode_stderr_gains_no_progress_narration(tmp_path, capsys):
+    """Progress belongs to the human report, and only to it.
+
+    The agent format is frozen, and that includes what a plain `moonbuggy`
+    run puts on stderr: the two preamble lines and the summary. An agent has
+    no use for narration it would then have to filter out.
+    """
+    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+    err = capsys.readouterr().err.splitlines()
+
+    assert [line for line in err if "settled" in line] == []
+    assert err[0] == "moonbuggy: 22 mutants across 5 files"
+    assert err[1] == "moonbuggy: running coverage pass..."
+    assert len(err) == 3
+    assert err[2].startswith("moonbuggy: KILLED=")
+
+
+def test_no_bare_print_runs_while_the_live_region_is_open(tmp_path, monkeypatch):
+    """The single-writer invariant, as a mechanism rather than as care.
+
+    While the region is open, exactly one object writes to the terminal and
+    everything else routes through `log`. A bare `print` in between would
+    scroll straight through the live line and leave a fragment of it behind.
+    """
+    state = {"open": False}
+    escaped: list[str] = []
+    real_print = builtins.print
+    real_init = terminal.LiveRegion.__init__
+    real_close = terminal.LiveRegion.close
+
+    def watching_print(*args, **kwargs):
+        if state["open"]:
+            escaped.append(" ".join(str(arg) for arg in args))
+        real_print(*args, **kwargs)
+
+    def opening_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        state["open"] = True
+
+    def closing_close(self, final=None):
+        state["open"] = False
+        real_close(self, final)
+
+    monkeypatch.setattr(terminal.LiveRegion, "__init__", opening_init)
+    monkeypatch.setattr(terminal.LiveRegion, "close", closing_close)
+    monkeypatch.setattr(builtins, "print", watching_print)
+
+    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+
+    assert escaped == []
+
+
+def test_the_agent_artifacts_are_unchanged_byte_for_byte(tmp_path):
+    """Constraint 1, pinned against a real run rather than a synthetic record.
+
+    `results.txt` is compared whole. `results.jsonl` carries a wall-clock
+    `duration` per mutant, which is the one field a rerun cannot reproduce, so
+    it is normalised to 0.0 and every other byte of every line is compared.
+    """
+    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+
+    text = (tmp_path / "results.txt").read_text(encoding="utf-8")
+    assert text == (GOLDEN_DIR / "sample_project.results.txt").read_text(
+        encoding="utf-8"
+    )
+
+    produced = [
+        json.dumps({**json.loads(line), "duration": 0.0}, sort_keys=True)
+        for line in (tmp_path / "results.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    expected = (
+        (GOLDEN_DIR / "sample_project.results.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    assert produced == expected
 
 
 def _records(project):
