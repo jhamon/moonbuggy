@@ -68,8 +68,9 @@ def test_span_survives_an_overlapping_prefix_and_suffix():
 
 
 def test_span_is_never_empty():
-    start, end = changed_span("a", "a")
-    assert end >= start
+    # Two identical lines still have to produce a caret somewhere rather than a
+    # zero-length span, so the ruler is never a blank line.
+    assert changed_span("a", "a") == (0, 1)
 
 
 def test_ruler_sits_under_the_span():
@@ -221,9 +222,11 @@ def test_groups_are_ordered_by_file_then_line():
     assert report.index("a.py:2") < report.index("a.py:9") < report.index("b.py:1")
 
 
-def test_no_line_exceeds_the_report_width():
+def test_a_long_source_line_is_fitted_to_the_report_width():
     # A source line far past the budget is the real regression guard: before
-    # `width` existed there was no wrapping logic at all to pin down.
+    # `width` existed there was no windowing logic at all to pin down. Only the
+    # diff lines are fitted -- a deep path:line header and the footer's score
+    # are worth more whole than short, so they soft wrap.
     long_line = "x = " + "a" * 300
     report = render_report(
         [rec(original=long_line, mutated=long_line + "1")],
@@ -233,9 +236,25 @@ def test_no_line_exceeds_the_report_width():
         timeout=30.0,
         width=72,
     )
-    # The node id is the one deliberate exception; it is a paste target.
-    body = [line for line in report.splitlines() if "::" not in line]
-    assert max(len(line) for line in body) <= 72
+    lines = report.splitlines()
+    diff_lines = [line for line in lines if line.lstrip()[:2] in {"- ", "+ "}]
+    assert len(diff_lines) == 2
+    assert max(len(line) for line in diff_lines) <= 72
+
+
+def test_a_deep_path_keeps_its_line_number_at_a_narrow_width():
+    # `path:line` is the token a terminal makes clickable and `$EDITOR +N`
+    # consumes. Truncating it costs the reader the only thing the header is for.
+    deep = "src/company/services/billing/adapters/legacy_gateway.py"
+    report = render_report(
+        [rec(file=deep, line=417)],
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        width=40,
+    )
+    assert f"{deep}:417" in report.splitlines()
 
 
 def test_a_short_line_is_returned_unchanged():
@@ -258,21 +277,19 @@ def test_the_window_never_exceeds_its_budget():
     assert len(got) <= 40
 
 
-def test_deep_indentation_is_dedented():
-    deep = " " * 20 + "return stock > 0"
-    mutated = " " * 20 + "return stock >= 0"
-    lines = render_group(
-        [rec(original=deep, mutated=mutated)], PLAIN, timeout=30.0, width=80
-    )
-    assert "    - return stock > 0" in lines
-
-
-def test_a_narrow_terminal_still_renders():
+def test_a_narrow_terminal_keeps_the_location_and_the_score_whole():
+    # Width fits the diff windows, and nothing else. A clipped header loses the
+    # line number that makes `path:line` actionable, and a clipped footer loses
+    # the denominator that makes the score mean anything -- so both soft wrap.
     report = render_report(
         [rec()], palette=PLAIN, files=1, elapsed=1.0, timeout=30.0, width=40
     )
-    body = [line for line in report.splitlines() if "::" not in line]
-    assert max(len(line) for line in body) <= 40
+    lines = report.splitlines()
+    assert "sample/inventory.py:9" in lines
+    assert "1 survived, 0 killed in 1.0s -- 0/1 killed, 0%" in lines
+    diff_lines = [line for line in lines if line.lstrip()[:2] in {"- ", "+ "}]
+    assert diff_lines
+    assert max(len(line) for line in diff_lines) <= 40
 
 
 def test_window_never_exceeds_its_budget_with_wide_characters():
@@ -294,12 +311,11 @@ def test_a_narrow_coloured_terminal_never_leaks_the_reset():
     report = render_report(
         [rec()], palette=palette_for(8), files=1, elapsed=1.0, timeout=30.0, width=40
     )
-    for line in report.splitlines():
-        if "::" in line:
-            continue
+    coloured = [line for line in report.splitlines() if "\x1b" in line]
+    assert coloured
+    for line in coloured:
         assert visible_width(line) <= 40
-        if "\x1b" in line:
-            assert line.endswith("\x1b[0m")
+        assert line.endswith("\x1b[0m")
 
 
 def test_the_minus_line_windows_around_the_same_span_as_the_plus_line():

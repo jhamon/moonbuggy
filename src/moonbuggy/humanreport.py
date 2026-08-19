@@ -14,7 +14,6 @@ from collections.abc import Mapping, Sequence
 from .report import Record, summarise
 from .terminal import (
     FALLBACK_WIDTH,
-    TAB_WIDTH,
     Palette,
     char_width,
     display_width,
@@ -60,7 +59,7 @@ def changed_span(original: str, mutated: str) -> tuple[int, int]:
         end += 1
     # A boundary may have landed between a base character and its combining
     # mark, which would render the highlight starting on an orphaned diacritic.
-    while end < len(mutated) and display_width(mutated[end]) == 0:
+    while end < len(mutated) and char_width(mutated[end]) == 0:
         end += 1
     return start, max(start, end)
 
@@ -166,24 +165,6 @@ def window(text: str, start: int, end: int, budget: int) -> tuple[str, int, int]
     )
 
 
-def _shared_indent(a: str, b: str) -> int:
-    """How many leading whitespace characters two lines share.
-
-    Args:
-        a: the first line.
-        b: the second line.
-
-    Returns:
-        The count of leading characters that are whitespace and identical in
-        both lines.
-    """
-    limit = min(len(a), len(b))
-    count = 0
-    while count < limit and a[count] == b[count] and a[count].isspace():
-        count += 1
-    return count
-
-
 def _clip(line: str, width: int) -> str:
     """Fit a line with no highlighted span into a width, node ids exempt.
 
@@ -279,32 +260,22 @@ def render_group(
             own, so this must come from the caller's `--timeout` rather than a
             hardcoded constant, or the note would print a number the run never
             used.
-        width: how many columns the report may use. Source lines that are
-            indented past `terminal.TAB_WIDTH` cells are dedented, and every
-            code line is windowed to fit.
+        width: how many columns the report may use. Every code line is
+            windowed to fit it.
 
     Returns:
         The group's lines, without a trailing blank.
     """
     first = records[0]
     lines = [f"{first['file']}:{first['line']}"]
+    # No dedent pass: `generate.py` stores `original` and `mutated` already
+    # `.strip()`ed, so a record's operands never carry leading whitespace and
+    # the deep-indentation case the spec describes cannot reach this module.
     original = sanitise(first["original"]).rstrip()
-    first_mutated = sanitise(first["mutated"]).rstrip()
-    # A statement nested several blocks deep spends most of its width on
-    # indentation the reader already knows -- the group header names the file
-    # and line. Dedenting only past TAB_WIDTH cells leaves ordinary
-    # indentation alone and reclaims width from only the deep case.
-    dedent = _shared_indent(original, first_mutated)
-    if display_width(original[:dedent]) <= TAB_WIDTH:
-        dedent = 0
-    if dedent:
-        original = original[dedent:]
     budget = width - SIGIL_WIDTH
     shown_original = False
     for record in records:
         mutated = sanitise(record["mutated"]).rstrip()
-        if dedent:
-            mutated = mutated[dedent:]
         note = ""
         if record["status"] == "TIMEOUT":
             note = f"  (timed out after {timeout:g}s)"
@@ -367,6 +338,40 @@ def score_text(counts: Mapping[str, int]) -> str:
     return f"{killed}/{runnable} killed, {round(100 * killed / runnable)}%"
 
 
+def render_footer(counts: Mapping[str, int], elapsed: float) -> str:
+    """The report's closing lines: the tally, the artifact, and the exit code.
+
+    Public because `--quiet` in human mode means the footer only, so `cli.py`
+    needs the same three lines without the body above them. `render_report`
+    calls this too, so there is exactly one implementation of them.
+
+    Never clipped to a width. The score has to keep its denominator visible
+    and the artifact path has to stay a whole path, so a narrow terminal soft
+    wraps these rather than losing their tails.
+
+    Args:
+        counts: per-status counts, as `report.summarise` returns.
+        elapsed: the run's wall clock, in seconds.
+
+    Returns:
+        Three newline-separated lines, with no trailing newline.
+    """
+    tally = ", ".join(
+        f"{counts[status]} {status.lower()}"
+        for status in FOOTER_ORDER
+        if counts.get(status) or status in {"SURVIVED", "KILLED"}
+    )
+    return "\n".join(
+        [
+            f"{tally} in {elapsed:.1f}s -- {score_text(counts)}",
+            "Full records: .moonbuggy/results.jsonl",
+            "exit 1 -- survivors"
+            if counts["SURVIVED"]
+            else "exit 0 -- nothing survived",
+        ]
+    )
+
+
 def render_report(
     records: Sequence[Record],
     *,
@@ -387,13 +392,21 @@ def render_report(
             `render_group` so a TIMEOUT record's note names the budget the
             run actually used rather than a hardcoded guess.
         width: how many columns the report may use, forwarded to
-            `render_group` and applied to every header and footer line too.
+            `render_group`. Group headers and the footer are never clipped to
+            it: a `path:line` header must stay one contiguous token that a
+            terminal and `$EDITOR +N` can act on, and the footer's score must
+            keep its denominator, so both soft wrap instead.
 
     Returns:
         The report, newline-separated, with no trailing newline.
     """
     counts = summarise(records)
-    lines = [f"moonbuggy  {len(records)} mutants across {files} files", ""]
+    mutant_noun = "mutant" if len(records) == 1 else "mutants"
+    file_noun = "file" if files == 1 else "files"
+    lines = [
+        f"moonbuggy  {len(records)} {mutant_noun} across {files} {file_noun}",
+        "",
+    ]
 
     survivors = [r for r in records if r["status"] == "SURVIVED"]
     timeouts = [r for r in records if r["status"] == "TIMEOUT"]
@@ -421,17 +434,8 @@ def render_report(
             )
             lines.append("")
 
-    tally = ", ".join(
-        f"{counts[status]} {status.lower()}"
-        for status in FOOTER_ORDER
-        if counts.get(status) or status in {"SURVIVED", "KILLED"}
-    )
-    lines.append(f"{tally} in {elapsed:.1f}s -- {score_text(counts)}")
-    lines.append("Full records: .moonbuggy/results.jsonl")
-    lines.append(
-        "exit 1 -- survivors" if counts["SURVIVED"] else "exit 0 -- nothing survived"
-    )
-    return "\n".join(_clip(line, width) for line in lines)
+    lines.append(render_footer(counts, elapsed))
+    return "\n".join(lines)
 
 
 def _group_by_location(records: Sequence[Record]) -> list[list[Record]]:
