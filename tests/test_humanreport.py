@@ -14,7 +14,7 @@ from moonbuggy.humanreport import (
     score_text,
     window,
 )
-from moonbuggy.terminal import Palette
+from moonbuggy.terminal import Palette, display_width, palette_for, visible_width
 
 PLAIN = Palette()
 
@@ -273,3 +273,47 @@ def test_a_narrow_terminal_still_renders():
     )
     body = [line for line in report.splitlines() if "::" not in line]
     assert max(len(line) for line in body) <= 40
+
+
+def test_window_never_exceeds_its_budget_with_wide_characters():
+    # Character-count slicing halves a CJK run's real width, so the old
+    # implementation returned text nearly 1.5x its budget here.
+    text = "x = " + "中" * 100 + " + CHANGED"
+    start = text.index("CHANGED")
+    got, new_start, new_end = window(text, start, start + 7, 40)
+    assert display_width(got) <= 40
+    assert got[new_start:new_end] == "CHANGED"
+
+
+def test_a_narrow_coloured_terminal_never_leaks_the_reset():
+    # Pins the real invariant: width logic must never measure or slice a
+    # string that already contains escape sequences. _clip used to re-cut a
+    # palette-wrapped code line by raw character count -- which counts each
+    # escape byte as a cell -- severing the trailing reset and leaking colour
+    # into every line printed after it.
+    report = render_report(
+        [rec()], palette=palette_for(8), files=1, elapsed=1.0, timeout=30.0, width=40
+    )
+    for line in report.splitlines():
+        if "::" in line:
+            continue
+        assert visible_width(line) <= 40
+        if "\x1b" in line:
+            assert line.endswith("\x1b[0m")
+
+
+def test_the_minus_line_windows_around_the_same_span_as_the_plus_line():
+    # The "-" line carries no ruler of its own, so it is windowed around the
+    # span computed with changed_span's arguments reversed -- the location in
+    # `original` that differs from `mutated` -- to keep both lines showing
+    # the same visual neighbourhood even when narrow. Padded with real word
+    # boundaries so changed_span's widen-to-token step has somewhere to stop;
+    # an unbroken run would widen to the whole line.
+    pad = "pad " * 40
+    text = pad + "OLD" + " " + pad
+    replacement = pad + "NEW" + " " + pad
+    lines = render_group(
+        [rec(original=text, mutated=replacement)], PLAIN, timeout=30.0, width=40
+    )
+    minus_line = next(line for line in lines if line.lstrip().startswith("- "))
+    assert "OLD" in minus_line

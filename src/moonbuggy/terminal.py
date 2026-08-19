@@ -59,6 +59,37 @@ def display_width(text: str, ambiguous_wide: bool = False) -> int:
     return sum(char_width(char, ambiguous_wide) for char in text)
 
 
+def visible_width(text: str) -> int:
+    """How many terminal cells a string occupies once escapes are ignored.
+
+    `display_width` treats an ESC byte like any other character and counts
+    one cell for it, so a palette-wrapped line measures far wider than what
+    actually reaches the screen -- the escape bytes never occupy a cell at
+    all. This skips every ANSI CSI sequence (`ESC [` through a final byte in
+    `@`..`~`) before measuring what is left.
+
+    Args:
+        text: the string to measure, which may contain ANSI CSI sequences.
+
+    Returns:
+        The total width in cells, excluding any CSI sequence.
+    """
+    width = 0
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == "\x1b" and index + 1 < length and text[index + 1] == "[":
+            end = index + 2
+            while end < length and not ("@" <= text[end] <= "~"):
+                end += 1
+            index = min(end + 1, length)
+            continue
+        width += char_width(char)
+        index += 1
+    return width
+
+
 def sanitise(text: str) -> str:
     """Make one line of arbitrary source safe to print and to measure.
 

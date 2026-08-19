@@ -13,6 +13,7 @@ from moonbuggy.terminal import (
     resolve_format,
     resolve_width,
     sanitise,
+    visible_width,
 )
 
 
@@ -47,6 +48,23 @@ def test_tabs_expand_to_eight_column_stops():
     # A raw tab would expand from the terminal's column, not the file's, so
     # the rendered indent would not match the source's.
     assert sanitise("a\tb") == "a       b"
+
+
+def test_visible_width_of_a_bare_string_matches_display_width():
+    assert visible_width("return 0") == display_width("return 0")
+
+
+def test_visible_width_ignores_a_wrapping_escape_sequence():
+    # display_width would count each byte of "\x1b[36m" and "\x1b[0m" as one
+    # cell, so a palette-wrapped line would measure far wider than what
+    # actually reaches the screen.
+    wrapped = "\x1b[36m- return 0\x1b[0m"
+    assert visible_width(wrapped) == display_width("- return 0")
+
+
+def test_visible_width_skips_two_sequences():
+    text = "\x1b[2m\x1b[36m- return 0\x1b[0m"
+    assert visible_width(text) == display_width("- return 0")
 
 
 def test_escape_sequences_in_source_are_defanged():

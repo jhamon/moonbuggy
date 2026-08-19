@@ -12,7 +12,15 @@ canonical one, for the same reason the plaintext view cannot.
 from collections.abc import Mapping, Sequence
 
 from .report import Record, summarise
-from .terminal import FALLBACK_WIDTH, TAB_WIDTH, Palette, display_width, sanitise
+from .terminal import (
+    FALLBACK_WIDTH,
+    TAB_WIDTH,
+    Palette,
+    char_width,
+    display_width,
+    sanitise,
+    visible_width,
+)
 
 
 def changed_span(original: str, mutated: str) -> tuple[int, int]:
@@ -81,12 +89,53 @@ def ruler(mutated: str, start: int, end: int, indent: int) -> str:
 ELLIPSIS = "..."
 
 
+def _walk(text: str, index: int, cells: int, direction: int) -> int:
+    """Move a character index by at most `cells` display cells.
+
+    Character-count slicing is the wrong measure here on purpose: a run of
+    wide CJK characters is half as long in characters as it is in cells, so
+    walking by character count -- as an earlier version of this function did
+    -- silently lets a windowed line's real width overrun its budget.
+
+    Args:
+        text: the string being walked.
+        index: the character index to start from.
+        cells: the budget of display cells to spend moving.
+        direction: -1 to move left, 1 to move right.
+
+    Returns:
+        The furthest character index reachable from `index` without spending
+        more than `cells` display cells, and without leaving `text`.
+    """
+    spent = 0
+    if direction < 0:
+        while index > 0:
+            width = char_width(text[index - 1])
+            if spent + width > cells:
+                break
+            spent += width
+            index -= 1
+    else:
+        while index < len(text):
+            width = char_width(text[index])
+            if spent + width > cells:
+                break
+            spent += width
+            index += 1
+    return index
+
+
 def window(text: str, start: int, end: int, budget: int) -> tuple[str, int, int]:
     """Cut a long line down to a budget, keeping the changed span visible.
 
     Tail truncation is the specific wrong answer here, because the change may
     be at column 300. Wrapping is worse: a continuation line carries no `-` or
     `+` sigil, so it stops being clear which side of the diff it belongs to.
+
+    The cut points are found by walking display cells, not characters: a run
+    of wide CJK characters is worth two cells apiece, so slicing by character
+    count alone would let the returned text overrun the budget by as much as
+    the widest characters in it.
 
     Args:
         text: the line to fit.
@@ -101,11 +150,11 @@ def window(text: str, start: int, end: int, budget: int) -> tuple[str, int, int]
     if display_width(text) <= budget:
         return text, start, end
     room = budget - 2 * len(ELLIPSIS)
-    span = max(1, end - start)
-    lead = max(0, (room - span) // 2)
-    left = max(0, start - lead)
-    right = min(len(text), left + room)
-    left = max(0, right - room)
+    span_width = max(1, display_width(text[start:end]))
+    lead = max(0, (room - span_width) // 2)
+    left = _walk(text, start, lead, -1)
+    right = _walk(text, left, room, 1)
+    left = _walk(text, right, room, -1)
     cut = text[left:right]
     prefix = ELLIPSIS if left > 0 else ""
     suffix = ELLIPSIS if right < len(text) else ""
@@ -141,15 +190,23 @@ def _clip(line: str, width: int) -> str:
     A node id is a paste target and so is never truncated, however long. It
     is recognised by its `::`, the same marker pytest itself uses.
 
+    Escaped lines are left alone entirely, on top of that: `window` slices by
+    raw character index, which -- unlike `visible_width` -- does not know an
+    ANSI escape sequence from visible text, so cutting one anywhere could
+    sever the trailing reset and leak colour into every line printed after
+    it. `render_group` already windows its plain content before wrapping it
+    in a palette, so a group's code lines never need a second pass here; only
+    plain header and footer text ever reaches this fallback.
+
     Args:
         line: the line to fit.
         width: how many cells are available.
 
     Returns:
-        `line` unchanged if it already fits or holds a node id, otherwise a
-        windowed copy.
+        `line` unchanged if it already fits, holds a node id, or contains an
+        escape sequence; otherwise a windowed copy.
     """
-    if "::" in line or display_width(line) <= width:
+    if "::" in line or "\x1b" in line or visible_width(line) <= width:
         return line
     return window(line, 0, 0, width)[0]
 
