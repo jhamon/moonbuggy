@@ -91,9 +91,13 @@ the code delta and a caret under exactly what changed.
 moonbuggy --report human
 ```
 
-Set `MOONBUGGY_REPORT=agent` to pin the grep-friendly format everywhere,
-including at a terminal — worth doing in an agent harness that allocates a pty,
-where terminal detection would otherwise pick the human report.
+Format selection checks, in order: the `--report` flag, then
+`MOONBUGGY_REPORT`, then whether `CI` is set in the environment (agent format,
+since a CI run is rarely a place for a human report), then whether stdout is a
+terminal. Set `MOONBUGGY_REPORT=agent` to pin the grep-friendly format
+everywhere, including at a terminal — worth doing in an agent harness that
+allocates a pty, where terminal detection would otherwise pick the human
+report.
 
 ### Suppressing an equivalent mutant
 

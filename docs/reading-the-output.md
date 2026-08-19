@@ -74,12 +74,24 @@ The plaintext line above is what you get when output is piped, redirected, or
 moonbuggy prints something meant to be read instead: survivors grouped by
 `file:line`, each with the code delta and a caret under exactly what changed.
 
-This is the real output of `tests/fixtures/sample_project`, run with
-`--report human` to force it regardless of terminal detection:
+Format selection checks four things in order: the `--report` flag, then
+`MOONBUGGY_REPORT`, then whether `CI` is set in the environment (agent format
+— a CI log is rarely a place for a human report), then whether stdout is a
+terminal. In practice the `CI` tier rarely changes the outcome, since a CI
+run's stdout is usually not a terminal anyway and would land on agent format
+regardless; it exists for the harnesses where that assumption does not hold.
+
+This is the literal stdout of one command against
+`tests/fixtures/sample_project`, `--report human` forcing the format
+regardless of terminal detection and `2>/dev/null` dropping stderr so only the
+report remains:
+
+```{code-block} console
+$ moonbuggy --project tests/fixtures/sample_project --report human 2>/dev/null
+```
 
 ```{code-block} text
-moonbuggy: 22 mutants across 5 files
-moonbuggy: running coverage pass...
+moonbuggy  22 mutants across 5 files
 
 sample/inventory.py:9
   SURVIVED  comparison_swap
@@ -127,6 +139,15 @@ sample/loops.py:12
 Full records: .moonbuggy/results.jsonl
 exit 1 -- survivors
 ```
+
+That is exactly what lands in a file from `moonbuggy --report human >
+report.txt`, and nothing more. Progress goes to stderr separately, so it is
+not in the block above: while a run is in flight, a terminal shows a single
+counter line that is redrawn in place as mutants finish (there is no static
+text to show for it — depicting a frame of it here would misrepresent
+something that never sits still), and each `SURVIVED` mutant scrolls past
+underneath it as it is found, so a reader watching live sees a finding the
+moment it lands rather than only at the end.
 
 The location prints once per `file:line` group, with every mutant that lands
 on it nested underneath — adjacent survivors that one new test could kill
