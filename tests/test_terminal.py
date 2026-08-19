@@ -98,6 +98,16 @@ def test_env_var_beats_tty_detection():
 
 def test_ci_means_agent():
     assert resolve_format(None, {"CI": "true"}, True) == "agent"
+    assert resolve_format(None, {"CI": "1"}, True) == "agent"
+
+
+def test_ci_set_to_false_is_not_ci():
+    # `CI=false` and `CI=0` are the standard way to say "pretend this is not
+    # CI". Treating CI as a mere flag would pick agent format for exactly the
+    # person who set the variable to escape it.
+    assert resolve_format(None, {"CI": "false"}, True) == "human"
+    assert resolve_format(None, {"CI": "0"}, True) == "human"
+    assert resolve_format(None, {"CI": ""}, True) == "human"
 
 
 def test_tty_selects_human_and_a_pipe_selects_agent():
@@ -182,9 +192,14 @@ def test_palette_is_empty_without_colour():
 
 def test_palette_avoids_red_and_green():
     # Red/green is the worst pair for the most common colour vision deficiency
-    # and a pair of mid-luminance colours that also fails in greyscale.
-    eight = palette_for(8)
-    assert "31m" not in eight.minus and "32m" not in eight.plus
+    # and a pair of mid-luminance colours that also fails in greyscale. Every
+    # depth has its own way of spelling the pair, so every depth is checked.
+    forbidden = ("31m", "32m", "38;5;9", "38;2;255")
+    for depth in (8, 256, 16777216):
+        palette = palette_for(depth)
+        for sequence in forbidden:
+            assert sequence not in palette.minus, (depth, sequence)
+            assert sequence not in palette.plus, (depth, sequence)
 
 
 def region(enabled=True, times=None):

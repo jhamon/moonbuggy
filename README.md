@@ -94,7 +94,9 @@ moonbuggy --report human
 Format selection checks, in order: the `--report` flag, then
 `MOONBUGGY_REPORT`, then whether `CI` is set in the environment (agent format,
 since a CI run is rarely a place for a human report), then whether stdout is a
-terminal. Set `MOONBUGGY_REPORT=agent` to pin the grep-friendly format
+terminal. `CI` counts as set for anything but an empty string, `0` or
+`false`, so the usual `CI=false` escape hatch works here too. Set
+`MOONBUGGY_REPORT=agent` to pin the grep-friendly format
 everywhere, including at a terminal — worth doing in an agent harness that
 allocates a pty, where terminal detection would otherwise pick the human
 report.

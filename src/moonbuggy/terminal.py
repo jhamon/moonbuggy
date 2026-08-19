@@ -157,9 +157,26 @@ def resolve_format(flag: str | None, env: Mapping[str, str], isatty: bool) -> st
     from_env = env.get("MOONBUGGY_REPORT")
     if from_env in {"human", "agent"}:
         return from_env
-    if env.get("CI"):
+    if is_ci(env):
         return "agent"
     return "human" if isatty else "agent"
+
+
+def is_ci(env: Mapping[str, str]) -> bool:
+    """Whether `CI` says this is a continuous integration run.
+
+    Presence alone is the wrong test. `CI=false` and `CI=0` are the widely
+    used "pretend this is not CI" idiom, so treating the variable as a flag
+    would select the agent format and suppress progress for exactly the
+    person who set it to escape both.
+
+    Args:
+        env: the process environment.
+
+    Returns:
+        True when `CI` is set to anything but an empty string, "0" or "false".
+    """
+    return env.get("CI", "").lower() not in {"", "0", "false"}
 
 
 def resolve_colour(flag: str | None, env: Mapping[str, str], isatty: bool) -> int:

@@ -45,6 +45,7 @@ from .runner import Result, run_mutants, run_session
 from .srcio import SourceError, read_source
 from .terminal import (
     LiveRegion,
+    is_ci,
     palette_for,
     resolve_colour,
     resolve_format,
@@ -266,7 +267,7 @@ def _run(args: argparse.Namespace) -> int:
             not args.no_progress
             and sys.stderr.isatty()
             and os.environ.get("TERM", "dumb") != "dumb"
-            and not os.environ.get("CI")
+            and not is_ci(os.environ)
         ),
         clock=time.perf_counter,
     )

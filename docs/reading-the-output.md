@@ -10,10 +10,13 @@ Every run writes two files into `.moonbuggy/`:
 
 `results.txt`
 : A plaintext view, **derived from the JSONL** rather than written alongside it,
-  so the two cannot drift apart. The same content is printed to stdout.
+  so the two cannot drift apart.
 
-The plaintext is also the format printed to your terminal, so what you grep in a
-file is exactly what you saw scroll past.
+The plaintext is also what moonbuggy prints to stdout whenever the output is
+piped, redirected, or pinned to the agent format, so what you grep in a file is
+exactly what you saw scroll past. At an interactive terminal stdout carries the
+human report instead — the same findings, rendered to be read, described under
+*The human report* below. Both files are written either way.
 
 ## Statuses
 
@@ -193,7 +196,14 @@ lines are stable byte-for-byte for unchanged input.
 | `duration` | number | seconds spent running this mutant's tests |
 | `module_level` | boolean | true when the line runs at import time, which widens selection to the whole suite |
 | `suppressed` | boolean | true when the line carries the skip marker |
+| `original` | string | the source line before mutation, stripped of surrounding whitespace |
+| `mutated` | string | the same line after mutation, stripped the same way |
 | `diff` | string | two lines: `- original` then `+ mutated` |
+
+`original` and `mutated` are the two operands `diff` is assembled from. They
+are carried separately so a reader that wants the delta never has to parse a
+rendered diff back apart — which is what the human report would otherwise have
+to do to itself.
 
 The `id` is worth understanding because it is the join key for anything that
 tracks findings over time. It ends in an occurrence index because one line can
