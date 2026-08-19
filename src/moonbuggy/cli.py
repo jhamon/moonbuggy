@@ -258,13 +258,24 @@ def _run(args: argparse.Namespace) -> int:
     # corruption is the unrecoverable kind the one-row design exists to
     # prevent.
     stderr_fd = _measurable_fd(sys.stderr)
-    # Progress is a separate decision from format: the report is the payload
-    # and goes to stdout, progress is ephemeral and goes to stderr, so a human
-    # redirecting the report still sees the run move.
+    # Progress belongs to the human report. The spec's Progress section sits
+    # inside the human-report design, and an agent has no use for narration it
+    # would then have to filter out -- so agent mode's stderr stays exactly
+    # what it was before this branch: the two preamble lines and the summary.
+    # Gating on the format rather than on stderr's TTY also keeps
+    # `--report agent` quiet at a terminal, which is the conservative
+    # direction for a contract we have promised not to move.
+    #
+    # Which stream is a terminal remains a separate question from that: the
+    # report is the payload and goes to stdout, the live line is ephemeral and
+    # goes to stderr, so a human redirecting the report still sees the run
+    # move.
+    narrate = fmt == "human"
     progress = LiveRegion(
         sys.stderr,
         enabled=(
-            not args.no_progress
+            narrate
+            and not args.no_progress
             and sys.stderr.isatty()
             and os.environ.get("TERM", "dumb") != "dumb"
             and not is_ci(os.environ)
@@ -372,7 +383,15 @@ def _run(args: argparse.Namespace) -> int:
                         progress.log(
                             f"SURVIVED  {result.mutant.module}:{result.mutant.line}"
                         )
-                elif not args.quiet and elapsed - last_milestone >= MILESTONE_INTERVAL:
+                elif (
+                    narrate
+                    and not args.quiet
+                    # The last result's milestone would be word for word the
+                    # durable line `close` is about to commit, so the run
+                    # would end by saying the same thing twice.
+                    and done < len(mutants)
+                    and elapsed - last_milestone >= MILESTONE_INTERVAL
+                ):
                     # No live region to watch, so progress arrives as committed
                     # lines instead. Paced, because they are permanent.
                     last_milestone = elapsed
@@ -425,7 +444,7 @@ def _run(args: argparse.Namespace) -> int:
         # else.
         progress.close(
             None
-            if args.quiet
+            if not narrate or args.quiet
             else _settled_line(
                 sum(counts_so_far.values()),
                 len(mutants),

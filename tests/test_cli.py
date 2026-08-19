@@ -365,15 +365,45 @@ def test_a_non_tty_run_puts_no_bare_survived_line_on_stderr(tmp_path, capsys):
     assert [line for line in err.splitlines() if line.startswith("SURVIVED")] == []
 
 
-def test_a_non_tty_run_still_leaves_a_durable_final_line(tmp_path, capsys):
-    # There is no live region to watch, so how the run ended has to be
-    # committed rather than drawn.
-    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+def test_human_mode_off_a_tty_leaves_exactly_one_durable_final_line(tmp_path, capsys):
+    """There is no live region to watch, so the ending is committed, once.
+
+    Twice was the bug: the last result's milestone line and the durable line
+    `close` commits carry word-for-word the same text, so a run long enough to
+    reach a milestone ended by saying the same thing twice.
+    """
+    main(
+        [
+            "--project",
+            SAMPLE_PROJECT,
+            "--output-dir",
+            str(tmp_path),
+            "--report",
+            "human",
+        ]
+    )
     err = capsys.readouterr().err
 
-    assert any(
-        line.startswith("moonbuggy: 22/22 settled -- ") for line in err.splitlines()
-    )
+    settled = [line for line in err.splitlines() if " settled" in line]
+    assert len(settled) == 1
+    assert settled[0].startswith("moonbuggy: 22/22 settled -- ")
+
+
+def test_agent_mode_stderr_gains_no_progress_narration(tmp_path, capsys):
+    """Progress belongs to the human report, and only to it.
+
+    The agent format is frozen, and that includes what a plain `moonbuggy`
+    run puts on stderr: the two preamble lines and the summary. An agent has
+    no use for narration it would then have to filter out.
+    """
+    main(["--project", SAMPLE_PROJECT, "--output-dir", str(tmp_path)])
+    err = capsys.readouterr().err.splitlines()
+
+    assert [line for line in err if "settled" in line] == []
+    assert err[0] == "moonbuggy: 22 mutants across 5 files"
+    assert err[1] == "moonbuggy: running coverage pass..."
+    assert len(err) == 3
+    assert err[2].startswith("moonbuggy: KILLED=")
 
 
 def test_no_bare_print_runs_while_the_live_region_is_open(tmp_path, monkeypatch):
