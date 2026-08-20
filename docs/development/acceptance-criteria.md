@@ -9,9 +9,9 @@
 | A — fixture and two-source oracle | met | `make check-oracle`, `make check-mutmut` |
 | B — Phase 0 spikes | met | `make check-spike`, `make bench-coverage` |
 | C — mutation engine | met | `make test` |
-| D — execution and correctness | met | `make check-oracle` |
+| D — execution and correctness | met | `make check-oracle`, `make check-fast-path` |
 | E — reporting | met | `make test`, `make check-oracle` |
-| F — results cache | met | `make check-oracle` |
+| F — results cache | met | `make test`, `make check-pytest-args` |
 | G — speed | met | `make bench` |
 | H — packaging and zero-config | met | `make check-fresh-install` |
 
@@ -310,15 +310,18 @@ Anything in §I being absent is not a failure.
 ## Verification
 
 The whole document is intended to be executable as a checklist. Concretely, the repo
-should end up with three evaluator-facing commands:
+should end up with these evaluator-facing commands:
 
-- `make check-oracle` — A4/D5, the correctness gate (serial and xdist).
+- `make check-oracle` — A2/A4, every mutant under plain pytest against the
+  hand-written labels.
+- `make check-fast-path` — D5, the same labels against the in-memory fast
+  path with coverage-guided selection, serial and under xdist.
 - `make bench` — G1–G4, prints the three wall-clock numbers and the mutant counts.
 - `make check-fresh-install` — H1/H2, installs into a clean venv and runs bare
   `moonbuggy` against a throwaway project.
 
 Everything else (C, E, F, and the Phase 0 spikes B1–B2) is covered by the ordinary
-`pytest` suite. An evaluator runs those four commands and reads §J.
+`pytest` suite. An evaluator runs those commands and reads §J.
 
 ## Build order
 
