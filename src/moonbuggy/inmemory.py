@@ -1,5 +1,12 @@
 """In-memory mutation application via a meta path import hook.
 
+This is the **cold** path. The default on POSIX is the warm session, which
+mutates modules that are *already imported* by swapping code objects in place
+(:mod:`moonbuggy.codeswap`); it falls back here for the mutations codeswap
+refuses, and this is also the only mechanism when forking is unavailable or
+xdist workers were asked for. Nothing below is stale -- it is just no longer
+the whole story.
+
 Section 4.2 flags this as the highest-uncertainty piece in the design, with
 three named risks. What the spike found for each:
 
@@ -138,7 +145,10 @@ def install(path: str | os.PathLike[str], line: int, mutated_text: str) -> str:
     """Apply a mutation to `path` for every subsequent import in this process.
 
     Safe to call before the module is imported, which is the normal case:
-    pytest_configure runs before test collection imports anything under test.
+    `pytest_configure` runs before test collection imports anything under test.
+    `runner._apply_in_child` also calls this directly inside a forked child,
+    re-running a mutant the warm path reported UNAPPLIED, and the same
+    before-import guarantee holds there.
 
     Args:
         path: the module file to mutate.

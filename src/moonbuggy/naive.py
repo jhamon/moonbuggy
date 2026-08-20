@@ -33,7 +33,8 @@ from .srcio import detect_encoding, encode_source, read_source, replace_line
 PYTEST_OK = 0
 PYTEST_TESTS_FAILED = 1
 
-# Mirrors report.py's STATUS_KEYWORDS, minus NO_COVERAGE. Not imported from
+# Mirrors report.py's STATUS_KEYWORDS, minus NO_COVERAGE and KILLED_BY_ERROR.
+# Not imported from
 # there because report.py keeps that set untyped as plain strings for the
 # grep-friendly format; this is the one place a mutant's fate is decided, so it
 # is worth a Literal here even though the two are not (yet) the same
@@ -62,7 +63,11 @@ def run_naive(
     timeout: float = 30,
     python: str | None = None,
 ) -> dict[Mutant, Status]:
-    """Run every mutant against the full suite. Returns {Mutant: status}."""
+    """Run every unsuppressed mutant against the full suite.
+
+    A suppressed mutant is settled SKIPPED without being run. Returns
+    {Mutant: status}.
+    """
     python = python or sys.executable
     results: dict[Mutant, Status] = {}
     for mutant in mutants:

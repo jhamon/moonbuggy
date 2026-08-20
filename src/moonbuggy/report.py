@@ -5,8 +5,11 @@ reading a dashboard, which makes the format the feature:
 
 - A fixed leading status keyword, so `grep SURVIVED` works with zero knowledge
   of the schema. The keyword is padded to a fixed-width column for the eye's
-  benefit; a keyword longer than the column overflows it rather than widening
-  it, so a line's tokens keep their positions whatever the status is.
+  benefit; the padding is cosmetic, and a keyword longer than the column
+  overflows it rather than widening it -- `NO_COVERAGE` and `KILLED_BY_ERROR`
+  both do. What a line guarantees is therefore the *order* of its fields under
+  whitespace splitting (field 0 is the status, field 1 is `file:line`, and so
+  on), never a column offset. Split, do not slice.
 - key=value tokens rather than prose, so naive whitespace splitting parses it.
 - Exactly one line per mutant, so grep and awk stay usable. The diff is
   deliberately NOT inlined -- `moonbuggy show <id>` retrieves it. This settles
@@ -56,9 +59,9 @@ _SCHEMA_2_DEFAULTS: dict[str, object] = {"logging_call": False}
 
 # The whole status vocabulary. Every plaintext line begins with one of these,
 # so adding a keyword is a breaking change for anyone grepping: NO_COVERAGE
-# arrived in 0.1.3 and took the uncovered lines that used to be SURVIVED with
-# it, and KILLED_BY_ERROR arrived next and took the crash-kills that used to
-# be KILLED. `summarise` seeds its counts from here, so a new keyword also
+# arrived after 0.1.2 and took the uncovered lines that used to be SURVIVED
+# with it, and KILLED_BY_ERROR arrived next and took the crash-kills that used
+# to be KILLED. `summarise` seeds its counts from here, so a new keyword also
 # appears in the run's final summary line with a count of zero.
 STATUS_KEYWORDS = {
     "KILLED",
@@ -292,7 +295,20 @@ def _upgraded(record: dict[str, object]) -> Record:
 
 
 def render_line(record: Record) -> str:
-    """One plaintext line for one record. Never contains a newline."""
+    """One plaintext line for one record. Never contains a newline.
+
+    Whitespace-separated, in a fixed field order: status, `file:line`,
+    category, `line=`, `nearest_test=`, `tests_run=`, `id=`. The status is
+    padded to nine columns for the eye only -- `NO_COVERAGE` and
+    `KILLED_BY_ERROR` are longer and push the rest of the line right, so parse
+    by splitting rather than by column.
+
+    Args:
+        record: the record to render.
+
+    Returns:
+        The line.
+    """
     return " ".join(
         [
             f"{record['status']:<9}",
@@ -353,7 +369,12 @@ def run_summary(
             reading the file afterwards need not re-derive the gate's answer.
 
     Returns:
-        The summary.
+        The summary, with twelve keys: `schema` (this document's version),
+        `record_schema` (the version of the records beside it), `moonbuggy`
+        (the version string), `total`, `cached`, `measured`, `elapsed`,
+        `exit_code`, `counts` (one lower-cased key per status keyword),
+        `acceptance`, `scope` and `config` (the three mappings carried through
+        verbatim).
     """
     counts = summarise(records)
     total = sum(counts.values())

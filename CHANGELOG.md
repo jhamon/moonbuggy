@@ -474,6 +474,22 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   misread (`CACHE_VERSION` is bumped), so the first run after upgrading is
   cold.
 
+- Source-module docstrings now match the code they describe. An audit found
+  drift across fourteen modules; the corrections are documentation only, with
+  no behaviour change. The load-bearing ones: `cache.py` claimed its key
+  "covers everything the outcome depends on" and now says what the key
+  genuinely covers plus what it cannot see (`conftest.py`, imported sibling
+  modules, pytest config) — a fixture edit really can serve a stale hit, and
+  the docstring no longer denies it. `mutant.py` justified its shape by two
+  serialisation paths that do not exist. `runner.py` and `codeswap.py` said a
+  refused in-place swap "drops the whole batch to the cold path"; it has
+  re-run just that one mutant since `UNAPPLIED` was introduced. `report.py`
+  promised stable plaintext column offsets that `NO_COVERAGE` and
+  `KILLED_BY_ERROR` overflow, and dated `NO_COVERAGE` to a 0.1.3 that does not
+  exist. `verify.py` named a `no mutate` marker that has never existed (it is
+  `# moonbuggy: skip`) and a `moonbuggy verify` subcommand that was renamed to
+  `run`.
+
 ## [0.1.2] - 2026-08-19
 
 ### Added

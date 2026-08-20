@@ -23,6 +23,13 @@ entry is *stale*, and the mutant is reported as unexplained. Silently
 honouring a stale acceptance is precisely how a real regression sneaks in
 behind a decision somebody made about different code last year.
 
+*Stale* is the label drift gets when the entry's id still names some mutant in
+this run. Edit the line and shift it -- insert something above it -- and the id
+no longer resolves, so the same drift is classified `orphaned` instead (step 4
+below). The safety property is unaffected either way: neither is honoured, and
+the mutant is still reported unexplained. What changes is the reporting, since
+the human report names stale entries and says nothing about orphaned ones.
+
 The fingerprint deliberately covers the mutated **line**, not the whole
 module. A module-wide hash is the stricter reading of drift, and it was
 rejected: it expires every acceptance in a file on any edit to that file,
@@ -45,7 +52,9 @@ would honour a decision about one of them for the other. So the match is:
    fingerprint -> honoured, and reported as relocated (the id shifted);
 3. otherwise, if the id resolves but the fingerprint disagrees -> **stale**;
 4. otherwise -> orphaned: no such mutant in this run, which is the normal state
-   of most entries under `--since` and is not a finding.
+   of most entries under `--since` and is usually not a finding. A heuristic
+   rather than a rule -- drift that also moved the id lands here too, as the
+   drift paragraph above explains.
 
 Ambiguity in step 2 -- two identical candidates, no exact id -- is refused
 rather than guessed. Equivalence is a judgement about a line in its context,

@@ -7,7 +7,7 @@ design promoted it into the MVP rather than deferring it.
 The risk is not a cache miss, it is a stale hit. Serving a SURVIVED after the
 user added the test that kills it hides the gap they just closed and reports it
 as still outstanding -- worse than no cache, because it is confidently wrong.
-The key therefore covers everything the outcome depends on:
+The key therefore covers the inputs a mutation run can be expected to notice:
 
 - the mutant's identity and mutated text,
 - the full source of the module being mutated,
@@ -21,6 +21,32 @@ else in its module -- a helper it calls, an import, a module-level constant --
 and per-function hashing would miss those. Coarse and correct beats precise and
 occasionally stale; if this ever shows up in profiles, it is a safe thing to
 tighten with evidence.
+
+What the key cannot see
+-----------------------
+
+Those four bullets are the whole of `key_for`: the only file bytes that reach
+the digest are the mutated module's and, for each selected node id, the test
+file the node id names. Everything else a verdict depends on is outside the
+key, and editing it yields a stale hit -- the exact failure this module opens by
+warning about. Known gaps, in rough order of how often they bite:
+
+- `conftest.py`. Editing a fixture changes what the selected tests actually do
+  while their own file bytes are unchanged, so the key does not move. This is
+  the most likely stale-hit vector in practice.
+- Any *other* module the mutated module imports. The per-function argument
+  above is about depth within one module; it says nothing about a helper in a
+  sibling module, whose edit is invisible here.
+- pytest configuration (`pytest.ini`, `[tool.pytest.ini_options]`) and
+  installed dependency versions. `run_fingerprint` covers the command line, not
+  the config files or the environment behind it.
+- Which tests *inside* an unchanged file were selected. The key hashes the test
+  file, not the node id list, so a change in selection within one file does not
+  move it.
+
+Widening the key would be a behaviour change with a real cost in cache reuse
+and would need a `CACHE_VERSION` bump; it has not been made. Until it is,
+`--no-cache` is the answer when one of the above has changed.
 """
 
 import hashlib
@@ -89,6 +115,10 @@ def run_fingerprint(
       buy no correctness.
     - `--jobs`: parallelism across mutants. Each mutant still runs alone, in
       its own process, against its own selection.
+    - `--since`: how you reached a mutant cannot change its answer. A scoped
+      run generates a subset of the mutants a full run does, and each one is
+      the same mutation run against the same selection either way, so the two
+      deliberately share a cache. See :mod:`moonbuggy.diffscope`.
 
     Args:
         pytest_args: `--pytest-arg` values, in the order they were given.

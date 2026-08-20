@@ -1,8 +1,14 @@
 """The Mutant record.
 
-Deliberately a plain frozen dataclass with no behaviour: it crosses process
-boundaries (xdist workers) and gets persisted to the results cache, so it stays
-trivially serialisable.
+Deliberately a plain frozen dataclass with no behaviour: it is pickled inside a
+:class:`moonbuggy.forkserver.Job` and sent down a pipe to the warm host, and its
+fields are hashed into every cache key, so it stays trivially serialisable.
+
+Two things that sound like they carry a `Mutant` do not. The cache stores a
+`CacheRecord` of `{status, tests_run, nearest_test}` under a digest of the
+mutant's fields -- nothing ever reconstructs a `Mutant` from disk. And what
+reaches an xdist worker is :class:`moonbuggy.plugin.MutantEnvPayload`, a
+`{path, line, mutated}` JSON blob in an environment variable, not this record.
 """
 
 from dataclasses import dataclass

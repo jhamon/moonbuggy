@@ -136,7 +136,7 @@ def apply_in_place(
     """
     source = mutated_source(path, line, mutated_text)
     # `compile` and `ast.parse` reject a coding declaration inside a str, so a
-    # module with a PEP 263 cookie would raise here and drop the whole batch to
+    # module with a PEP 263 cookie would raise here and send that one mutant to
     # the cold path. Neutralising the cookie keeps every offset intact.
     source = strip_coding_cookie(source)
     tree = ast.parse(source)
@@ -297,7 +297,7 @@ def _swap_code(
     # wrapper's code object is not the one just compiled. Assigning anyway
     # would either raise on a freevars mismatch or -- worse -- succeed and
     # replace the wrapper's body with the wrapped function's. Refusing here
-    # sends the batch to the import-hook path, which handles decorators fine.
+    # sends that mutant to the import-hook path, which handles decorators fine.
     if target.__code__.co_name != new_code.co_name:
         raise SwapFailed(
             f"{'.'.join(qualname)} resolves to {target.__code__.co_name}, "

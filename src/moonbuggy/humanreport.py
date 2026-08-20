@@ -459,7 +459,9 @@ def count_logging_skipped(records: Iterable[Record]) -> int:
 
     Returns:
         The count. Zero under `--include-logging-mutants`, where the same
-        mutants are tagged but run.
+        mutants are tagged but run -- unless the line also carries a
+        `# moonbuggy: skip` marker, which suppresses it whatever the logging
+        policy says.
     """
     return sum(
         1

@@ -88,7 +88,26 @@ def find_source_files(
     include: Sequence[str] = (),
     exclude: Sequence[str] = (),
 ) -> list[str]:
-    """Every mutable file under source_dir, as paths relative to project_dir."""
+    """Every mutable file under source_dir, as paths relative to project_dir.
+
+    "Mutable" means: a `.py` file whose project-relative path has no directory
+    component in `EXCLUDED`, and whose name is neither `test_*.py` nor
+    `conftest.py` nor `setup.py`. Those exclusions are unconditional -- an
+    `include` fragment cannot bring one back.
+
+    Args:
+        source_dir: the directory to walk, recursively.
+        project_dir: the root the returned paths are relative to.
+        include: keep only files whose project-relative path contains one of
+            these. Plain **substring** matches, not globs and not path
+            prefixes: `models` matches `pkg/models.py` and `pkg/models/a.py`
+            alike, and `*.py` matches nothing.
+        exclude: drop any file whose project-relative path contains one of
+            these. Same substring rule, applied after `include`.
+
+    Returns:
+        The project-relative paths, sorted.
+    """
     source_dir = Path(source_dir).resolve()
     project_dir = Path(project_dir).resolve()
 

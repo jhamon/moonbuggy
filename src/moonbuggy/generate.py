@@ -55,7 +55,11 @@ def generate_mutants(
     logging_policy: LoggingPolicy | None = None,
     operators: Collection[str] | None = None,
 ) -> list[Mutant]:
-    """Return every mutant for one module's source, in a stable order.
+    """Return every mutant the selected operators find in one module's source.
+
+    In a stable order. The selection defaults to the `default` tier rather than
+    every registered operator, so this is not every mutation moonbuggy knows
+    how to make -- see the `operators` argument below.
 
     Args:
         source: the module's full source text.

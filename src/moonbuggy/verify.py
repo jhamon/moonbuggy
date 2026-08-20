@@ -3,17 +3,19 @@
 `moonbuggy show <id>` prints a mutant's record and diff but cannot run it, so
 the fix-verify loop -- "I think this test kills that mutant, let me check" --
 had no cheap path and ended in hand-applied mutations and a manual pytest
-invocation. This module is the missing half: the same generation, the same
-coverage-guided selection and the same runner, pointed at one mutant instead of
-all of them.
+invocation. This module is the missing half: the same coverage-guided selection and the
+same runner, pointed at one mutant instead of all of them, and generation
+widened to every operator so an id from a `--operators deep` run still
+resolves.
 
 Three decisions worth stating, because each of them could reasonably have gone
 the other way.
 
-**The cache is written but never read.** The whole point of the command is to
-re-measure, so serving the previous verdict would answer the one question the
-user is asking. Refusing to *store* the fresh verdict would be a different
-mistake: the measurement is a real one, keyed on the same
+**The cache is written but never read** -- except for SKIPPED and SUSPICIOUS,
+which say nothing about the mutation and are not stored (see `_NOT_CACHEABLE`).
+The whole point of the command is to re-measure, so serving the previous verdict
+would answer the one question the user is asking. Refusing to *store* the fresh
+verdict would be a different mistake: the measurement is a real one, keyed on the same
 :func:`~moonbuggy.cache.run_fingerprint` a full run uses, so the next full run
 can honour it instead of paying for it again. That is the payoff of the loop --
 verify a fix here, and the run in CI is already shorter.
@@ -65,9 +67,10 @@ from .runner import Result, check_selection_is_runnable, run_one
 from .srcio import SourceError, read_source
 
 # Statuses that say nothing about this mutation and so are not worth storing:
-# SKIPPED is a fact about the source (a suppression marker), SUSPICIOUS is a
-# fact about the suite (a flaky test in the selection). `_plan` declines to
-# cache both for the same reason.
+# SKIPPED is a fact about the source (a suppression marker) or about the run's
+# policy (a logging call `--include-logging-mutants` was not asked for), and
+# SUSPICIOUS is a fact about the suite (a flaky test in the selection). `_plan`
+# declines to cache both for the same reason.
 _NOT_CACHEABLE = frozenset({"SKIPPED", "SUSPICIOUS"})
 
 
@@ -160,13 +163,16 @@ class Explanation:
     """The mutant, regenerated from the source as it stands now."""
 
     selected: tuple[str, ...]
-    """Every test node id selection would choose, sorted. Empty means no test
-    reaches the line, which is what makes a run report NO_COVERAGE."""
+    """Every test node id selection would choose, sorted. Empty means either
+    that no test reaches the line (a run reports NO_COVERAGE) or that the
+    mutant is suppressed and nothing would run (SKIPPED) -- `selection` says
+    which."""
 
     selection: str
     """How that set was arrived at: `coverage` (tests the instrumented pass
     saw execute the line), `module_level` (an import-time line, which widens to
-    the whole suite) or `suppressed` (a `no mutate` marker, so nothing runs)."""
+    the whole suite) or `suppressed` (a `# moonbuggy: skip` marker, or a mutation
+    inside a logging call the run did not ask for, so nothing runs)."""
 
     flaky: tuple[str, ...] = ()
     """Selected tests that disagreed with themselves between unmutated runs.
@@ -437,7 +443,7 @@ def _mutants_in(
         # Every operator, not the default tier: the caller is holding an id
         # a previous run printed, and that run may have been a `--operators
         # deep` one. Refusing to find a deep-tier mutant here would make
-        # `moonbuggy verify` disagree with the report it was handed.
+        # `moonbuggy run` disagree with the report it was handed.
         found = generate_mutants(
             source,
             module=module,
@@ -479,7 +485,8 @@ def verify(
         python: interpreter for the mutant runs; None uses this one.
         cache: a :class:`~moonbuggy.cache.ResultCache` to *write* fresh
             verdicts into, or None. Never read from -- see the module
-            docstring.
+            docstring. SKIPPED and SUSPICIOUS verdicts are not written
+            (`_NOT_CACHEABLE`); everything else is.
         reasons: accepted-equivalents reasons by mutant id, as
             :meth:`moonbuggy.accepted.Resolution.reasons` returns.
 
