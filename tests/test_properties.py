@@ -29,9 +29,10 @@ from hypothesis.errors import NonInteractiveExampleWarning
 from strategies import module_source
 
 from moonbuggy.generate import generate_mutants
+from moonbuggy.operators import ALL_TIER, tier_members
 from moonbuggy.srcio import replace_line
 
-# 500 examples across seven properties runs about two minutes, which is too
+# 500 examples across six properties runs about two minutes, which is too
 # long for the edit-run-edit loop and exactly right for a gate. Same reasoning
 # as the other slow suites: `make check-properties` owns it.
 pytestmark = pytest.mark.slow
@@ -58,6 +59,12 @@ TRAILING_WHITESPACE_CASE = "def f(x):\n    return x + 1  \n"
 # selecting no tests for it and reporting a false SURVIVED.
 DEFAULT_ARGUMENT_CASE = "def f(p=1 + 2):\n    return p\n"
 
+# A string literal inside a statement `statement_deletion` will delete. Not a
+# bug that was found and fixed -- a case that pins the narrowing below, so the
+# exempted branch of M1.2.2 is exercised on every run rather than only when
+# Hypothesis happens to generate one.
+STRING_IN_A_DELETED_STATEMENT_CASE = 'def f():\n    print("hello")\n    return 1\n'
+
 # The same bug through a decorator: `@_tagged(1 + 1)` also runs at import time.
 DECORATOR_ARGUMENT_CASE = (
     "def _tagged(marker):\n"
@@ -70,6 +77,25 @@ DECORATOR_ARGUMENT_CASE = (
     "def f():\n"
     "    return 1\n"
 )
+
+
+# Every registered operator, not just the `default` tier.
+#
+# `generate_mutants`'s default -- `operators=None` -- is the `default` tier,
+# which is what a bare `moonbuggy` run uses. Passing that default here would
+# quietly exempt the whole `deep` tier from every property below: from PR #30
+# until this suite was widened, `statement_deletion`, `argument_swap`,
+# `default_arg` and `kwarg_drop` had no property coverage at all, while
+# docs/writing-an-operator.md told contributors that a new operator was covered
+# automatically. Asking for `all` by name is what makes that promise true, and
+# it is why `_mutants` exists rather than each test calling `generate_mutants`
+# directly -- one place to get this right.
+EVERY_OPERATOR = tier_members(ALL_TIER)
+
+
+def _mutants(source):
+    """Every mutant of `source`, from every registered operator."""
+    return generate_mutants(source, module="generated.py", operators=EVERY_OPERATOR)
 
 
 def _mutate(source, mutant):
@@ -89,7 +115,7 @@ def _mutate(source, mutant):
 def test_every_mutant_compiles(source):
     """A mutant that does not compile surfaces as SUSPICIOUS and reads as a
     finding. It is not one -- it is moonbuggy producing invalid Python."""
-    for mutant in generate_mutants(source, module="generated.py"):
+    for mutant in _mutants(source):
         mutated = _mutate(source, mutant)
         try:
             ast.parse(mutated)
@@ -104,7 +130,7 @@ def test_every_mutant_compiles(source):
 
 
 # --------------------------------------------------------------------------
-# M1.2.2 -- mutation never changes string or comment content
+# M1.2.2 -- mutation never edits string or comment content
 # --------------------------------------------------------------------------
 
 
@@ -128,23 +154,79 @@ def _comments(source):
     return Counter(token.string for token in tokens if token.type == tokenize.COMMENT)
 
 
+def _deletes_a_whole_statement(mutant):
+    """True when the mutation replaces one entire statement with `pass`.
+
+    Asked of the mutation's *shape*, not of the operator's name. Naming
+    `statement_deletion` here would encode today's registry into the property
+    and would say nothing about why the exemption is legitimate; asking
+    "does the replacement discard the statement?" is the actual condition, and
+    any future operator that deletes a statement gets the same treatment
+    without editing this file.
+
+    A trailing comment survives the splice (`x = "a"  # note` becomes
+    `pass  # note`), so this parses the fragment rather than comparing text.
+    """
+    try:
+        fragment = ast.parse(mutant.mutated)
+    except SyntaxError:
+        # A mutated fragment that is not a standalone statement -- `if not x:`,
+        # for instance. Whatever it is, it is not a deletion.
+        return False
+    return len(fragment.body) == 1 and isinstance(fragment.body[0], ast.Pass)
+
+
 @PROPERTY
 @given(module_source())
+@example(STRING_IN_A_DELETED_STATEMENT_CASE)
 def test_mutation_never_edits_a_string_or_a_comment(source):
     """Criterion C2, generalised past the one hand-written case.
 
     This is the property that justifies the whole AST-based design. A
     text-substitution mutation engine cannot state it, let alone hold it.
+
+    The narrowing, stated rather than left to be inferred. Criterion C2 is
+    "no mutation happens *inside* a string literal": the engine must never
+    write into string or comment text, because a mutant there changes a
+    message or a docstring and not behaviour. That is asserted here for every
+    operator, in both halves:
+
+    * No string or comment content is ever *invented or altered*. Every
+      literal and every comment in the mutated module was already in the
+      original, verbatim. This is the half that is criterion C2, and it is
+      unconditional.
+    * No string content is *removed* either -- except by a mutation that
+      deletes the statement containing it outright, which is a different act
+      from editing within a string. `statement_deletion` replacing
+      `x = "hello"` with `pass` does not edit a string; it removes a
+      statement, and the string goes with it because it was part of the
+      statement. The original phrasing of this property -- an exact multiset
+      equality -- was written when every operator was a token swap, and a
+      token swap cannot remove anything. It does not fit a deletion operator,
+      and holding it against one would be asserting that deletion operators
+      may not exist.
+
+    Comments stay under exact equality for every operator including deletion,
+    because splicing preserves a trailing comment on a deleted line: nothing
+    moonbuggy does should ever remove a comment.
     """
     strings_before = _string_literals(source)
     comments_before = _comments(source)
 
-    for mutant in generate_mutants(source, module="generated.py"):
+    for mutant in _mutants(source):
         mutated = _mutate(source, mutant)
-        assert _string_literals(mutated) == strings_before, (
-            f"mutant {mutant.id} changed a string literal\n"
+        strings_after = _string_literals(mutated)
+
+        assert strings_after <= strings_before, (
+            f"mutant {mutant.id} invented or altered a string literal\n"
             f"- {mutant.original}\n+ {mutant.mutated}"
         )
+        if not _deletes_a_whole_statement(mutant):
+            assert strings_after == strings_before, (
+                f"mutant {mutant.id} removed a string literal without "
+                f"deleting the statement it belonged to\n"
+                f"- {mutant.original}\n+ {mutant.mutated}"
+            )
         assert _comments(mutated) == comments_before, (
             f"mutant {mutant.id} changed a comment\n"
             f"- {mutant.original}\n+ {mutant.mutated}"
@@ -161,8 +243,8 @@ def test_mutation_never_edits_a_string_or_a_comment(source):
 def test_ids_are_stable_across_runs_and_unique_within_a_module(source):
     """The results cache keys on the id, so an id that shifts between runs
     silently serves the wrong cached status for a mutant that never changed."""
-    first = [m.id for m in generate_mutants(source, module="generated.py")]
-    second = [m.id for m in generate_mutants(source, module="generated.py")]
+    first = [m.id for m in _mutants(source)]
+    second = [m.id for m in _mutants(source)]
 
     assert first == second
     assert len(set(first)) == len(first), "duplicate ids: " + ", ".join(
@@ -185,7 +267,7 @@ def test_splicing_round_trips_byte_for_byte(source):
     trailing comment -- is something the mutation edited without meaning to,
     and therefore something a status could be wrong about.
     """
-    for mutant in generate_mutants(source, module="generated.py"):
+    for mutant in _mutants(source):
         mutated = _mutate(source, mutant)
         restored = replace_line(mutated, mutant.line, mutant.original)
         assert restored == source, (
@@ -210,7 +292,7 @@ def test_every_mutant_reports_the_line_it_actually_changed(source):
     location at all because it looks authoritative.
     """
     lines = source.splitlines()
-    for mutant in generate_mutants(source, module="generated.py"):
+    for mutant in _mutants(source):
         assert 1 <= mutant.line <= len(lines)
         assert mutant.original == lines[mutant.line - 1].strip()
 
@@ -303,7 +385,7 @@ def test_scope_classification_matches_an_independent_scope_map(source):
     """
     import_time, known = _import_time_lines(source)
 
-    for mutant in generate_mutants(source, module="generated.py"):
+    for mutant in _mutants(source):
         if mutant.line not in known:
             continue  # Constant-folded away; no code object claims it.
         if mutant.line in import_time:

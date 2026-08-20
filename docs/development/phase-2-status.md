@@ -17,13 +17,13 @@ a reader to discover.
 | # | criterion | status |
 |---|---|---|
 | M1.2.1 | every mutant compiles | met |
-| M1.2.2 | mutation never changes string or comment content | met — multiset of string constants and of comment tokens, before and after |
+| M1.2.2 | mutation never changes string or comment content | met, **scoped** — multiset of string constants and of comment tokens, before and after; string equality is relaxed to "nothing invented, nothing altered" for a mutation that deletes a whole statement. See below |
 | M1.2.3 | ids stable and unique | met |
 | M1.2.4 | splicing round-trips | met — **found a bug**: trailing whitespace was dropped |
 | M1.2.5 | line attribution correct | met — and exactly one line differs |
 | M1.2.6 | scope classification sound | met — **found two bugs**, oracle reads CPython's own line tables |
 | M1.2.7 | ≥500 examples, non-trivial programs | met — 500 per property; a separate test asserts every named feature is reachable |
-| M1.2.8 | failures become regression examples | met — three `@example` cases, each with the bug it found named |
+| M1.2.8 | failures become regression examples | met — three `@example` cases, each with the bug it found named, plus one pinning the M1.2.2 narrowing |
 
 **Bugs found.** `def f(p=1 + 2)` and `@_tagged(1 + 1)` at module level were
 classified as deferred, so selection ran no tests for them and reported false
@@ -35,6 +35,19 @@ correctness.
 **Where this is narrower than the plan.** M1.2.6 asserts one direction only —
 claiming module level when the line is not is merely wasteful, and the property
 lets that pass. Stated in the test's own docstring.
+
+M1.2.2 is the second. The properties ran against the `default` tier only until
+they were widened to `all`; run against `statement_deletion`, the exact
+string-multiset equality fails by construction, because replacing
+`x = "hello"` with `pass` removes a string literal along with the statement it
+belonged to. The criterion the property exists to defend is Phase 1's C2, *no
+mutation applied inside a string literal*, and deleting a statement is not
+editing within a string — so the property was scoped rather than the operator
+changed. It now asserts, for every operator, that no string or comment content
+is ever invented or altered, and separately that no string is removed except by
+a mutation that replaces a whole statement with `pass`. The exemption is keyed
+on the shape of the mutation, not on an operator name. Stated in the test's own
+docstring.
 
 ## M1.3 — Differential against mutmut at scale
 

@@ -148,8 +148,18 @@ required — that is explicitly Phase 3.
 - **C1.** All five MVP operators from §3.2 are implemented: comparison swap, boolean
   swap, arithmetic swap, constant mutation, boundary/off-by-one. Verified by a test
   per operator asserting the exact mutants generated for a small input.
+  *(Since this criterion was written: the registry holds eleven operators across
+  two tiers. "constant mutation" became two of them, `constant_int` and
+  `constant_bool`, and `condition_negation` joined the default tier. The
+  criterion is a Phase-1 record and is met as written; `moonbuggy operators` is
+  the current inventory.)*
 - **C2.** Mutation is AST-based: a test confirms no mutation is applied inside string
   literals or comments, even when their text matches a mutable pattern.
+  *(This is the criterion property M1.2.2 generalises. Note the word `inside`:
+  it is what settled the scoping of M1.2.2 when the property suite was widened
+  to the `deep` tier — `statement_deletion` removes a statement, and any string
+  that was part of it, without ever editing text inside a string. See
+  `docs/development/phase-2-status.md`.)*
 - **C3.** Every mutant carries a stable identifier and precise `file`, `line` location.
   Stable means: re-running on unchanged source yields the same IDs. Verified by
   running twice and diffing IDs.
