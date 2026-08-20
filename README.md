@@ -72,13 +72,18 @@ moonbuggy
 It discovers your source layout, runs one instrumented pass to build a
 line→test map, then runs each mutant against only its covering tests.
 
-Three files land in `.moonbuggy/`:
+Three result files land in `.moonbuggy/`:
 
 | file | role |
 |---|---|
 | `results.jsonl` | canonical, one JSON object per mutant |
 | `results.txt` | plaintext view, derived from the JSONL |
 | `summary.json` | the run itself: counts, totals, wall time, effective config |
+
+Two other things live in the same directory. `cache.json` is written by every
+run that does not pass `--no-cache`, and is disposable. `accepted.toml` appears
+once you run `moonbuggy accept`, and is the opposite — a checked-in record of
+human decisions, which is why the gitignore snippet below un-ignores it.
 
 `moonbuggy --json` prints that summary object to stdout and nothing else, so
 nothing has to be parsed out of the human line:
@@ -88,7 +93,8 @@ $ moonbuggy --json | jq '.counts.survived'
 ```
 
 Exit code is `0` when there are no findings, `1` when there are survivors or
-lines no test reaches, and `2` when the run could not start.
+lines no test reaches, `2` when the run could not start, and `130` when the run
+was interrupted — partial results are already on disk and are valid.
 
 ### Reading the output
 
@@ -232,8 +238,10 @@ without flattering the number. See
 
 ### Accepting one you have already reviewed
 
-A survivor you have reviewed and decided is equivalent goes in a ledger, so
-neither you nor the next reviewer pays for that triage twice:
+A finding you have reviewed and decided is equivalent goes in a ledger, so
+neither you nor the next reviewer pays for that triage twice. Either finding
+status can be accepted — a `NO_COVERAGE` line you have decided is genuinely
+untestable as readily as a `SURVIVED` mutant:
 
 ```bash
 moonbuggy accept 'shipping.py:5:comparison_swap:0' --reason "both branches return the same value for every reachable input"
@@ -321,7 +329,18 @@ run pays for.
 Nothing below is required.
 
 ```
+--project PATH       project root (default: cwd)
+--output-dir DIR     the results directory -- results.jsonl, results.txt and
+                     summary.json (default: .moonbuggy, relative to the
+                     project root)
 --timeout SECONDS    before a mutant is called TIMEOUT (default: 30)
+--pytest-arg ARG     extra argument passed to every pytest run, including the
+                     baseline and each mutant (repeatable). Needed when your
+                     real test command is not bare pytest --
+                     `--pytest-arg=--doctest-modules`, say
+--flaky-probe N      extra unmutated suite runs used to detect flaky tests; a
+                     test whose outcome varies makes every mutant it covers
+                     SUSPICIOUS (default: 1, 0 disables)
 --operators SELECTION
                      which operators to run. A comma-separated list of names
                      is an exact set (comparison_swap,boundary); a tier name

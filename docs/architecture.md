@@ -154,6 +154,12 @@ a fixed leading status keyword, `key=value` tokens, exactly one line per mutant.
 The diff is deliberately not inlined — `moonbuggy show <id>` retrieves it —
 because a multi-line record breaks `grep`, `awk` and `wc -l` at once.
 
+The module also owns the third artifact, `summary.json`: `summarise` and
+`write_summary`, versioned by `SUMMARY_SCHEMA` rather than by the
+`RECORD_SCHEMA` the per-mutant lines carry. The two schemas move independently
+on purpose — a summary is about the run, a record is about a mutant, and
+neither should force a version bump on the other.
+
 ## Where to be careful
 
 | if you are changing… | the invariant you might break |

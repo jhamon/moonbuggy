@@ -252,9 +252,14 @@ have to read.
 ## Recording the decision: the ledger
 
 Suppression is for a line you own and want marked in the source. The other
-half of the problem is the survivor you have reviewed, decided is equivalent,
+half of the problem is the finding you have reviewed, decided is equivalent,
 and do not want to review again next week — and that nobody else on the team
 should have to review either. That decision goes in a ledger:
+
+"Finding" rather than "survivor" throughout this section, and the distinction
+matters: acceptance is keyed on the finding statuses, `SURVIVED` **and**
+`NO_COVERAGE`. A line no test reaches can be accepted exactly as a survivor
+can, and it counts the same way against `--fail-on-unexplained`.
 
 ```{code-block} console
 $ moonbuggy accept 'shipping.py:5:comparison_swap:0' \
@@ -304,8 +309,14 @@ list into their own section, and the summary counts them separately:
 ```
 
 In `results.jsonl` each one carries `"accepted": true` and the reason, so
-`jq 'select(.status=="SURVIVED" and (.accepted|not))'` is the list of survivors
-that still need a human.
+
+```{code-block} console
+$ jq 'select((.status=="SURVIVED" or .status=="NO_COVERAGE") and (.accepted|not))' \
+    .moonbuggy/results.jsonl
+```
+
+is the list of findings that still need a human. Filtering on `SURVIVED` alone
+under-reports it by every uncovered line.
 
 ### Drift: an acceptance expires when the line changes
 
@@ -342,7 +353,7 @@ $ moonbuggy --fail-on-unexplained
 
 Exits `1` only for findings that are neither killed nor accepted. Without the
 flag the exit code is exactly what it has always been — a run whose every
-survivor is accepted still exits `1` — so adding a ledger can never silently
+finding is accepted still exits `1` — so adding a ledger can never silently
 turn a red build green.
 
 ## When you are not sure
