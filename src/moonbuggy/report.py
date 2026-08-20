@@ -19,7 +19,7 @@ takes a record dict rather than a Result.
 
 import json
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from types import TracebackType
 from typing import IO, Literal, TypedDict
 
@@ -38,6 +38,13 @@ STATUS_KEYWORDS = {
     "SUSPICIOUS",
     "SKIPPED",
 }
+
+# The statuses that are findings about the tests rather than facts about the
+# run: something was changed, and nothing noticed. These are the statuses that
+# count toward exit 1, and the ones the accepted-equivalents ledger can speak
+# for. TIMEOUT and SUSPICIOUS are deliberately absent -- neither is a claim
+# that the mutation went unnoticed, so neither is something to accept.
+FINDING_STATUSES = frozenset({"SURVIVED", "NO_COVERAGE"})
 
 # Printed when a field has no value. A literal placeholder rather than an empty
 # string keeps the token count per line constant, so whitespace-splitting
@@ -62,10 +69,25 @@ class Record(TypedDict):
     original: str
     mutated: str
     diff: str
+    accepted: bool
+    accept_reason: str | None
 
 
-def record_for(result: Result) -> Record:
-    """The canonical record for one mutant. This is the JSONL line's content."""
+def record_for(result: Result, reason: str | None = None) -> Record:
+    """The canonical record for one mutant. This is the JSONL line's content.
+
+    Args:
+        result: the mutant's verdict.
+        reason: the accepted-equivalents ledger's reason for this mutant, if a
+            live acceptance covers it. Stamped onto the record rather than kept
+            beside it, because a reader filtering `results.jsonl` for real
+            findings needs the acceptance in the same object as the status --
+            `jq 'select(.status=="SURVIVED" and .accepted|not)'` is the
+            question, and it cannot be asked across two files.
+
+    Returns:
+        The record.
+    """
     mutant = result.mutant
     return {
         "id": mutant.id,
@@ -89,19 +111,35 @@ def record_for(result: Result) -> Record:
         "original": mutant.original,
         "mutated": mutant.mutated,
         "diff": f"- {mutant.original}\n+ {mutant.mutated}",
+        # An accepted mutant is annotated, never hidden: it ran, it has a
+        # verdict, and this says a human has already explained it.
+        "accepted": reason is not None,
+        "accept_reason": reason,
     }
 
 
-def write_jsonl(results: Iterable[Result], path: str | os.PathLike[str]) -> None:
+def write_jsonl(
+    results: Iterable[Result],
+    path: str | os.PathLike[str],
+    reasons: Mapping[str, str] | None = None,
+) -> None:
     """Stream records to disk, one complete line at a time.
 
     Flushed per record so a run killed partway leaves only whole, parseable
     lines behind (criterion E2). A half-written final record would break every
     downstream reader, which matters more here than the cost of the flush.
+
+    Args:
+        results: the verdicts to write, in the order to write them.
+        path: the file to write.
+        reasons: accepted-equivalents reasons by mutant id, as
+            `accepted.Resolution.reasons` returns.
     """
+    reasons = reasons or {}
     with open(path, "w", encoding="utf-8") as handle:
         for result in results:
-            handle.write(json.dumps(record_for(result), sort_keys=True) + "\n")
+            record = record_for(result, reasons.get(result.mutant.id))
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
             handle.flush()
 
 
@@ -119,8 +157,13 @@ class StreamingJSONL:
     order once the run finishes.
     """
 
-    def __init__(self, path: str | os.PathLike[str]) -> None:
+    def __init__(
+        self,
+        path: str | os.PathLike[str],
+        reasons: Mapping[str, str] | None = None,
+    ) -> None:
         self.path = path
+        self.reasons = reasons or {}
         self._handle: IO[str] | None = None
         self.written = 0
 
@@ -134,7 +177,8 @@ class StreamingJSONL:
         # outside that window is a caller bug that already crashed here (with
         # AttributeError) before this annotation.
         assert self._handle is not None, "write() called outside the context manager"
-        self._handle.write(json.dumps(record_for(result), sort_keys=True) + "\n")
+        record = record_for(result, self.reasons.get(result.mutant.id))
+        self._handle.write(json.dumps(record, sort_keys=True) + "\n")
         self._handle.flush()
         self.written += 1
 
