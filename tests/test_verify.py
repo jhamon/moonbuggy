@@ -1,17 +1,25 @@
-"""Fast unit tests for `moonbuggy run <id>`'s parts.
+"""Fast unit tests for `moonbuggy run <id>` and `moonbuggy why <id>`'s parts.
 
 The end-to-end behaviour -- a real coverage pass and a real pytest subprocess
 per mutant -- lives in `test_cli.py` under `pytest.mark.slow`. What is here
-needs no process: id parsing, target resolution, the structured summary, and
-the argument handling that turns a pipeline into a list of ids.
+needs no process: id parsing, target resolution, the structured summaries, the
+prediction `why` makes from them, and the argument handling that turns a
+pipeline into a list of ids.
 """
+
+import json
 
 import pytest
 
 from moonbuggy.cli import _build_parser, _clean_id, _target_ids
 from moonbuggy.mutant import Mutant, make_id, parse_id
 from moonbuggy.runner import Result
-from moonbuggy.verify import Verification, VerifyError, resolve_targets
+from moonbuggy.verify import (
+    Explanation,
+    Verification,
+    VerifyError,
+    resolve_targets,
+)
 
 MODULE = """\
 BULK = 10
@@ -165,3 +173,106 @@ def test_run_honours_the_flags_a_full_run_honours():
     assert args.pytest_arg == ["-W"]
     assert args.timeout == 5.0
     assert args.workers == 2
+
+
+def _explanation(**overrides):
+    mutant = Mutant(
+        id="shipping.py:5:comparison_swap:0",
+        module="shipping.py",
+        line=5,
+        operator="comparison_swap",
+        original="return quantity >= BULK",
+        mutated="return quantity > BULK",
+    )
+    fields = {
+        "mutant": mutant,
+        "selected": ("t.py::a", "t.py::b"),
+        "selection": "coverage",
+        "cache_key": "deadbeef",
+        "fingerprint_inputs": {"pytest_args": [], "timeout": 30.0, "python": "py"},
+    }
+    fields.update(overrides)
+    return Explanation(**fields)
+
+
+def test_explanation_summary_is_json_serialisable_data():
+    summary = _explanation().summary()
+
+    assert json.loads(json.dumps(summary)) == summary
+    assert summary["id"] == "shipping.py:5:comparison_swap:0"
+    assert summary["selection"] == "coverage"
+    assert summary["selected"] == ["t.py::a", "t.py::b"]
+    # The same name the result line uses, which is the token being explained.
+    assert summary["tests_run"] == 2
+    assert summary["cache_hit"] is False
+    assert summary["run_inputs"]["timeout"] == 30.0
+
+
+def test_an_empty_selection_predicts_no_coverage():
+    explanation = _explanation(selected=())
+
+    assert explanation.next_run == "no_coverage"
+    assert explanation.summary()["tests_run"] == 0
+
+
+def test_a_cache_hit_predicts_a_replay_rather_than_a_measurement():
+    explanation = _explanation(
+        cached={"status": "SURVIVED", "tests_run": 2, "nearest_test": None}
+    )
+
+    assert explanation.next_run == "cache"
+    assert explanation.summary()["cached_status"] == "SURVIVED"
+
+
+def test_the_prediction_follows_the_planner_s_order_of_decisions():
+    # `runner._plan` settles suppressed and flaky mutants BEFORE it looks in
+    # the cache, so a hit does not describe what would happen to either.
+    hit = {"status": "SURVIVED", "tests_run": 2, "nearest_test": None}
+    suppressed = Mutant(
+        id="s.py:1:constant_int:0",
+        module="s.py",
+        line=1,
+        operator="constant_int",
+        original="x = 1",
+        mutated="x = 2",
+        suppressed=True,
+    )
+
+    assert _explanation(mutant=suppressed, cached=hit).next_run == "skipped"
+    assert _explanation(flaky=("t.py::a",), cached=hit).next_run == "suspicious"
+
+
+def test_cache_covers_names_the_module_and_every_selected_test_file():
+    explanation = _explanation(selected=("b.py::two", "a.py::one", "a.py::three"))
+
+    # What the reader has to edit to invalidate a stale hit -- deduplicated,
+    # because two node ids in one file are one file.
+    assert explanation.cache_covers == ("a.py", "b.py", "shipping.py")
+
+
+def test_a_module_level_mutant_says_the_whole_suite_was_selected():
+    module_level = Mutant(
+        id="s.py:1:constant_int:0",
+        module="s.py",
+        line=1,
+        operator="constant_int",
+        original="BULK = 10",
+        mutated="BULK = 11",
+        module_level=True,
+    )
+    explanation = _explanation(mutant=module_level, selection="module_level")
+
+    assert explanation.summary()["selection"] == "module_level"
+    assert explanation.next_run == "measure"
+
+
+def test_why_is_a_subcommand_taking_the_same_ids_run_takes():
+    parser = _build_parser()
+    args = parser.parse_args(["why", "a:1:op:0", "--json"])
+
+    assert args.command == "why"
+    assert args.mutant_id == ["a:1:op:0"]
+    assert args.json is True
+    # No probe by default: `why` answers without measuring, and a probe is a
+    # measurement.
+    assert args.flaky_probe == 0

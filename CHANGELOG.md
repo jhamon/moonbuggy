@@ -8,6 +8,29 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `moonbuggy why <id>`: explain how a mutant is handled, without running it.
+  Two very different problems look identical from a result line — selection
+  never picked up your new test, or the verdict came from the cache and nothing
+  ran — and telling them apart used to mean reading moonbuggy's source or
+  spending minutes on a controlled experiment. `why` prints the file, line and
+  diff `show` gives, plus **which tests selection chooses and where that set
+  came from**, the count behind the `tests_run=` token, and **whether the
+  results cache already holds a verdict for those exact inputs** — with the
+  key, the files whose contents go into it, and the `--pytest-arg`/`--timeout`/
+  interpreter that make up the rest of it. When nothing is selected it says so
+  outright and says that means no test reaches the line, which is what makes a
+  run report `NO_COVERAGE`.
+
+- `moonbuggy why` **reads the cache and never writes to it**, and never runs
+  the mutant: re-measuring is `moonbuggy run`'s job, and a `why` that measured
+  would be a slower `run` rather than a different command. It costs one
+  coverage pass, serving every id named in the invocation, and always exits `0`
+  — an explanation is not a finding, so a `why` in a CI script cannot fail the
+  build. `--json` emits one object per mutant in the JSONL shape
+  `results.jsonl` uses, including a `next_run` prediction (`skipped`,
+  `suspicious`, `cache`, `no_coverage` or `measure`) that follows the planner's
+  own order of decisions.
+
 - `moonbuggy run <id>`: re-run one mutant, or several, without a full run.
   `moonbuggy show <id>` could print a mutant but not execute it, so checking
   whether a new test kills a survivor meant hand-applying the mutation and

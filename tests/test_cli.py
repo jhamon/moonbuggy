@@ -901,3 +901,127 @@ def test_run_reports_an_unknown_id_clearly(throwaway):
     proc = moonbuggy("run", "no-such-mutant", cwd=throwaway, expect=2)
 
     assert "is not a mutant id" in proc.stderr
+
+
+def test_why_names_the_selected_tests_without_running_the_mutant(throwaway):
+    """The selection half: which tests, how many, and where the set came from.
+
+    `moonbuggy show` cannot say any of it, and `moonbuggy run` can only say it
+    by spending a process per mutant. This spends none.
+    """
+    moonbuggy(cwd=throwaway)
+    killed_id = next(
+        json.loads(line)["id"]
+        for line in (throwaway / ".moonbuggy" / "results.jsonl")
+        .read_text()
+        .splitlines()
+        if json.loads(line)["status"] == "KILLED"
+    )
+
+    proc = moonbuggy("why", killed_id, cwd=throwaway, expect=0)
+
+    assert f"id           {killed_id}" in proc.stdout
+    assert "the coverage pass saw" in proc.stdout
+    assert "selected     test_calc.py::" in proc.stdout
+    assert "tests_run    " in proc.stdout
+    # `show`'s diff, since the reader should not need both commands.
+    assert "  - " in proc.stdout and "  + " in proc.stdout
+    # And no verdict, because nothing was measured.
+    assert "status" not in proc.stdout
+
+
+def test_why_says_a_cache_hit_would_be_replayed(throwaway):
+    """The other half, and the reason the issue exists.
+
+    "My new test is being ignored" and "I am being served a stale verdict"
+    look identical from a result line. After a full run the cache holds an
+    entry for every mutant, and `why` says so in as many words.
+    """
+    moonbuggy(cwd=throwaway)
+    survivor_id = next(
+        json.loads(line)["id"]
+        for line in (throwaway / ".moonbuggy" / "results.jsonl")
+        .read_text()
+        .splitlines()
+        if json.loads(line)["status"] == "SURVIVED"
+    )
+
+    proc = moonbuggy("why", survivor_id, cwd=throwaway, expect=0)
+
+    assert "cache        hit -- the next run replays SURVIVED" in proc.stdout
+    assert "cache_key    " in proc.stdout
+    # The files whose contents the key covers, so a reader knows what to edit
+    # to invalidate it.
+    assert "cache_covers calc.py" in proc.stdout
+    assert "last_run     SURVIVED" in proc.stdout
+
+
+def test_why_says_a_miss_after_the_test_file_changes(throwaway):
+    """Editing a selected test file changes the key, so the hit disappears.
+
+    This is the answer to "is my new test being ignored?": if the file it
+    lives in is in `cache_covers`, the stale verdict cannot survive the edit.
+    """
+    moonbuggy(cwd=throwaway)
+    survivor_id = next(
+        json.loads(line)["id"]
+        for line in (throwaway / ".moonbuggy" / "results.jsonl")
+        .read_text()
+        .splitlines()
+        if json.loads(line)["status"] == "SURVIVED"
+    )
+    assert "cache        hit" in moonbuggy("why", survivor_id, cwd=throwaway).stdout
+
+    tests = throwaway / "test_calc.py"
+    tests.write_text(tests.read_text() + "\n\ndef test_added():\n    assert True\n")
+    proc = moonbuggy("why", survivor_id, cwd=throwaway, expect=0)
+
+    assert "cache        miss" in proc.stdout
+
+
+def test_why_says_outright_when_no_test_reaches_the_line(uncovered):
+    # The empty selection is the case the issue calls out by name: say so, and
+    # say what it means, rather than leaving a bare `selected -`.
+    proc = moonbuggy("why", "lib.py:6:constant_int:0", cwd=uncovered, expect=0)
+
+    assert "the coverage pass saw no test execute lib.py:6" in proc.stdout
+    assert "tests_run    0" in proc.stdout
+    assert "selected     -" in proc.stdout
+    assert "NO_COVERAGE" in proc.stdout
+    # An explanation is not a finding: `why` in a CI script must not fail it.
+    assert proc.returncode == 0
+
+
+def test_why_emits_the_same_shape_as_json(uncovered):
+    proc = moonbuggy("why", "--json", "lib.py:6:constant_int:0", cwd=uncovered)
+
+    payload = json.loads(proc.stdout)
+    assert payload["id"] == "lib.py:6:constant_int:0"
+    assert payload["selected"] == []
+    assert payload["tests_run"] == 0
+    assert payload["next_run"] == "no_coverage"
+    assert payload["cache_hit"] is False
+    assert payload["run_inputs"]["timeout"] == 30.0
+    assert payload["last_run_status"] is None
+
+
+def test_why_explains_several_mutants_from_one_coverage_pass(throwaway):
+    moonbuggy(cwd=throwaway)
+    ids = [
+        json.loads(line)["id"]
+        for line in (throwaway / ".moonbuggy" / "results.jsonl")
+        .read_text()
+        .splitlines()
+    ][:3]
+
+    proc = moonbuggy("why", "--json", *ids, cwd=throwaway, expect=0)
+
+    # One JSON object per line, the shape results.jsonl uses.
+    assert [json.loads(line)["id"] for line in proc.stdout.splitlines()] == ids
+
+
+def test_why_reports_an_unknown_id_clearly(throwaway):
+    proc = moonbuggy("why", "no-such-mutant", cwd=throwaway, expect=2)
+
+    assert "is not a mutant id" in proc.stderr
+    assert "Traceback (most recent call last)" not in proc.stderr

@@ -181,6 +181,29 @@ of your package rather than the working tree, coverage records the installed
 path and moonbuggy mutates the working tree — two different files. Installing
 your project in editable mode (`pip install -e .`) resolves it.
 
+## I wrote a test and the mutant still survives
+
+Two different causes, identical symptom. Either the test was never selected for
+that mutant — nothing it asserts can affect a verdict it does not participate
+in — or the verdict was served from the cache and nothing ran at all.
+
+Do not reach for an experiment. Ask:
+
+```{code-block} console
+$ moonbuggy why app/pricing.py:14:comparison_swap:0
+```
+
+If your test is missing from `selected`, it does not execute the mutated line;
+extend a test that does, or check that the coverage pass measured the same copy
+of your package your tests import (see *Everything is `NO_COVERAGE`* above). If
+`cache` says `hit`, the next run replays the verdict named there — the key
+covers the listed files and the selected set, so a test that is genuinely new
+or newly reaches the line turns the hit into a miss on its own; `--no-cache`
+forces the point.
+
+`moonbuggy run <id>` then re-measures that one mutant and never serves a cached
+answer. See [Reading the output](reading-the-output.md).
+
 ## The score got worse after I added tests
 
 Check whether the mutant count changed too. Adding tests does not add mutants,

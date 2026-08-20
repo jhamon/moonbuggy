@@ -11,8 +11,10 @@ drift apart.
 
 import argparse
 import io
+import json
 import os
 import sys
+import textwrap
 import time
 from collections import Counter
 from collections.abc import Sequence
@@ -66,7 +68,14 @@ from .terminal import (
     resolve_format,
     resolve_width,
 )
-from .verify import Verification, VerifyError, resolve_targets, verify
+from .verify import (
+    Explanation,
+    Verification,
+    VerifyError,
+    explain,
+    resolve_targets,
+    verify,
+)
 
 DEFAULT_OUTPUT_DIR = ".moonbuggy"
 
@@ -125,6 +134,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _accept(args)
         if args.command == "run-one":
             return _run_one(args)
+        if args.command == "why":
+            return _why(args)
         return _run(args)
     except KeyboardInterrupt:
         # An anticipated ending, not a crash. 130 is the shell convention for
@@ -171,6 +182,7 @@ def _build_parser() -> argparse.ArgumentParser:
     show.set_defaults(command="show")
 
     _add_run_one_parser(sub)
+    _add_why_parser(sub)
 
     accept = sub.add_parser(
         "accept",
@@ -293,6 +305,81 @@ def _add_run_one_parser(
         "(default: human at a terminal, agent when piped)",
     )
     one.set_defaults(command="run-one")
+
+
+def _add_why_parser(
+    sub: "argparse._SubParsersAction[argparse.ArgumentParser]",
+) -> None:
+    """Define `moonbuggy why <id>`: the selection and cache decisions, unrun.
+
+    Args:
+        sub: the subparser action to register on.
+    """
+    why = sub.add_parser(
+        "why",
+        help="explain which tests are selected for one mutant, and whether "
+        "its verdict would come from the cache",
+        description="Explain how a mutant is handled without running it: "
+        "which tests coverage-guided selection picks and why, how many of "
+        "them there are (the `tests_run=` on its result line), and whether "
+        "the results cache already holds a verdict for those exact inputs. "
+        "Answers 'is my new test being ignored, or am I being served a stale "
+        "verdict?' -- which look identical from a result line. Use "
+        "`moonbuggy run <id>` to re-measure instead.",
+    )
+    why.add_argument(
+        "mutant_id",
+        nargs="+",
+        metavar="ID",
+        help="mutant ids, as printed in `id=...`. `-` reads them from stdin, "
+        "one per line, exactly as `moonbuggy run` does",
+    )
+    why.add_argument("--project", default=".", help="project root (default: cwd)")
+    why.add_argument(
+        "--source", default=None, help="directory to mutate (default: discovered)"
+    )
+    why.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    why.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="the --timeout the run being explained uses. Not waited on here "
+        "-- nothing is run -- but it is part of the cache key, so an "
+        "explanation with the wrong one describes the wrong entry "
+        "(default: 30)",
+    )
+    why.add_argument(
+        "--pytest-arg",
+        action="append",
+        default=[],
+        metavar="ARG",
+        help="extra argument passed to the coverage pass (repeatable). Pass "
+        "the same ones your full run uses, or selection and the cache key "
+        "both describe a different suite",
+    )
+    why.add_argument(
+        "--flaky-probe",
+        type=int,
+        default=0,
+        metavar="N",
+        help="extra unmutated suite runs used to detect flaky tests "
+        "(default: 0). Off by default because `why` measures nothing and a "
+        "probe is a measurement; raise it to have a flaky selection reported",
+    )
+    why.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
+    why.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="skip the cache lookup and report selection only. `moonbuggy "
+        "why` never writes to the cache, with or without this",
+    )
+    why.add_argument(
+        "--json",
+        action="store_true",
+        help="emit one JSON object per mutant, one per line -- the same JSONL "
+        "shape results.jsonl uses, so `jq` reads either the same way",
+    )
+    why.set_defaults(command="why")
 
 
 def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1281,6 +1368,234 @@ def _print_test_list(label: str, node_ids: Sequence[str]) -> None:
     print(f"{label:<12} {node_ids[0]}")
     for node_id in node_ids[1:]:
         print(f"{'':<12} {node_id}")
+
+
+def _why(args: argparse.Namespace) -> int:
+    """Explain the selection and cache decisions for the named mutants.
+
+    Args:
+        args: the parsed `moonbuggy why` command line.
+
+    Returns:
+        0. An explanation has no verdict to gate on, so unlike `run` this never
+        exits 1 for a finding -- a `why` in a CI script must not fail the build
+        for successfully explaining something.
+
+    Raises:
+        VerifyError: if there are no ids to explain, or the project is not one
+            moonbuggy can run in. Both become an exit 2 with a message.
+    """
+    project_dir = Path(args.project).resolve()
+    ids = _target_ids(args.mutant_id)
+    if not ids:
+        raise VerifyError(
+            "no mutant ids to explain. Pass one or more ids, or `-` with ids "
+            "on stdin, one per line."
+        )
+    if not looks_like_pytest_project(project_dir):
+        raise VerifyError(
+            f"{project_dir} does not look like a pytest project "
+            "(no pytest.ini, pyproject.toml, conftest.py or test_*.py found). "
+            "Run moonbuggy from your project root, or pass --project."
+        )
+
+    source_dir = (
+        Path(args.source).resolve() if args.source else find_source_dir(project_dir)
+    )
+    mutants = resolve_targets(project_dir, ids)
+    reasons = resolve_accepted(
+        load_accepted(_accept_path(args, project_dir)), mutants
+    ).reasons()
+
+    output_dir = project_dir / args.output_dir
+    # Derived exactly as `run` and a full run derive it, from the same flags.
+    # An explanation of a key computed a second way would be an explanation of
+    # a key nothing else uses.
+    inputs: dict[str, object] = {
+        "pytest_args": list(args.pytest_arg),
+        "timeout": args.timeout,
+        "python": sys.executable,
+    }
+    cache = (
+        None
+        if args.no_cache
+        else ResultCache(
+            output_dir / "cache.json",
+            fingerprint=run_fingerprint(
+                args.pytest_arg, timeout=args.timeout, python=sys.executable
+            ),
+        )
+    )
+
+    results_path = output_dir / "results.jsonl"
+    records = (
+        {record["id"]: record for record in read_jsonl(results_path)}
+        if results_path.exists()
+        else {}
+    )
+
+    explanations = explain(
+        project_dir,
+        mutants,
+        source_dir,
+        probes=args.flaky_probe,
+        extra_args=args.pytest_arg,
+        cache=cache,
+        fingerprint_inputs=inputs,
+        reasons=reasons,
+        records=records,
+    )
+
+    for index, explanation in enumerate(explanations):
+        if args.json:
+            # JSONL rather than one array, so a single id yields one object
+            # `jq` reads directly and many ids stream the way results.jsonl
+            # does. One shape for both is worth more than an array's tidiness.
+            print(json.dumps(explanation.summary(), sort_keys=True))
+        else:
+            if index:
+                print()
+            _print_explanation(
+                explanation, _display_path(results_path, project_dir), bool(records)
+            )
+    return 0
+
+
+def _print_explanation(
+    explanation: Explanation, results_path: str, has_records: bool
+) -> None:
+    """Print one mutant's selection and cache decisions, in `show`'s shape.
+
+    Args:
+        explanation: the mutant's explanation.
+        results_path: where the last run's records were looked for, for the
+            `last_run` line to name.
+        has_records: whether that file existed at all. Distinguishes "no run
+            has happened here" from "the last run did not report this mutant",
+            which are different things to go and fix.
+    """
+    mutant = explanation.mutant
+    print(f"id           {mutant.id}")
+    print(f"location     {mutant.module}:{mutant.line}")
+    print(f"operator     {mutant.operator}")
+    print("diff")
+    print(f"  - {mutant.original}")
+    print(f"  + {mutant.mutated}")
+    print(f"selection    {_selection_line(explanation)}")
+    print(f"tests_run    {len(explanation.selected)}")
+    _print_test_list("selected", explanation.selected)
+    if explanation.flaky:
+        _print_test_list("flaky", explanation.flaky)
+    print(f"cache        {_cache_line(explanation)}")
+    if explanation.cache_key is not None:
+        print(f"cache_key    {explanation.cache_key}")
+        _print_test_list("cache_covers", explanation.cache_covers)
+    print(f"run_inputs   {_run_inputs_line(explanation.fingerprint_inputs or {})}")
+    print(f"last_run     {_last_run_line(explanation, results_path, has_records)}")
+    if explanation.reason is not None:
+        print(f"accepted     {explanation.reason}")
+    for note in _notes(explanation):
+        _print_note(note)
+
+
+def _selection_line(explanation: Explanation) -> str:
+    """One sentence naming the selected set and where it came from."""
+    mutant = explanation.mutant
+    where = f"{mutant.module}:{mutant.line}"
+    count = len(explanation.selected)
+    if explanation.selection == "suppressed":
+        return (
+            "the line carries a suppression marker, so no test is selected "
+            "and a run reports SKIPPED without measuring anything"
+        )
+    if explanation.selection == "module_level":
+        return (
+            f"{where} runs at import time, so the coverage pass attributes it "
+            f"to no single test and the whole suite is selected ({count})"
+        )
+    if count == 0:
+        return f"the coverage pass saw no test execute {where}"
+    return (
+        f"the coverage pass saw {count} "
+        f"{'test' if count == 1 else 'tests'} execute {where}"
+    )
+
+
+def _cache_line(explanation: Explanation) -> str:
+    """Whether a run would be served this mutant's verdict from the cache."""
+    if explanation.next_run == "skipped":
+        return "not consulted -- a suppressed mutant is settled before the lookup"
+    if explanation.next_run == "suspicious":
+        return (
+            "not consulted -- a flaky test in the selection settles this as "
+            "SUSPICIOUS before the lookup"
+        )
+    if explanation.cache_key is None:
+        return "not consulted (--no-cache)"
+    if explanation.cached is None:
+        return (
+            "miss -- nothing is stored under this key, so the next run "
+            "measures this mutant for real"
+        )
+    return (
+        f"hit -- the next run replays {explanation.cached['status']} "
+        f"(tests_run={explanation.cached['tests_run']}) without measuring it"
+    )
+
+
+def _run_inputs_line(inputs: dict[str, object]) -> str:
+    """The run inputs folded into the cache key, as one readable line."""
+    raw = inputs.get("pytest_args")
+    pytest_args = raw if isinstance(raw, list) else []
+    rendered = " ".join(str(a) for a in pytest_args) if pytest_args else "(none)"
+    return (
+        f"pytest args: {rendered}   timeout: {inputs.get('timeout')}   "
+        f"python: {inputs.get('python')}"
+    )
+
+
+def _last_run_line(
+    explanation: Explanation, results_path: str, has_records: bool
+) -> str:
+    """What the last full run recorded for this mutant, if anything."""
+    if not has_records:
+        return f"- (no {results_path}; no run has happened here yet)"
+    if explanation.last_run is None:
+        return (
+            f"- (not in {results_path}; the last run did not report this "
+            "mutant, so its line may have moved since)"
+        )
+    return (
+        f"{explanation.last_run['status']}  "
+        f"tests_run={explanation.last_run['tests_run']}  ({results_path})"
+    )
+
+
+def _notes(explanation: Explanation) -> list[str]:
+    """The one or two things the field lines above do not say outright."""
+    notes = []
+    if explanation.selection == "coverage" and not explanation.selected:
+        notes.append(
+            "no test reaches this line, so a run reports NO_COVERAGE rather than "
+            "SURVIVED -- nothing could have caught the mutation. Write a test that "
+            "executes the line, or delete the code."
+        )
+    if explanation.next_run == "cache":
+        notes.append(
+            "the key covers the selected set above and the contents of those files, "
+            "so a test that is new, edited, or newly reaches this line changes the "
+            "key and turns this hit into a miss. A stale verdict cannot outlive any "
+            "of those."
+        )
+    return notes
+
+
+def _print_note(text: str) -> None:
+    """Print one note, wrapped, under a single `note` label."""
+    lines = textwrap.wrap(text, width=76) or [""]
+    print(f"{'note':<12} {lines[0]}")
+    for line in lines[1:]:
+        print(f"{'':<12} {line}")
 
 
 def _target_ids(tokens: Sequence[str]) -> list[str]:
