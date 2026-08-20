@@ -12,7 +12,7 @@ import ast
 import sys
 from collections.abc import Callable, Iterator
 
-from .mutant import Mutant
+from .mutant import Mutant, make_id
 from .operators import Operator, all_operators
 from .srcio import strip_coding_cookie
 
@@ -225,7 +225,7 @@ def _build(
     index = sum(1 for m in found if m.line == lineno and m.operator == operator.name)
 
     return Mutant(
-        id=f"{module}:{lineno}:{operator.name}:{index}",
+        id=make_id(module, lineno, operator.name, index),
         module=module,
         line=lineno,
         operator=operator.name,

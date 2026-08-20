@@ -32,3 +32,49 @@ class Mutant:
     function body. Selection has to widen the test set for these: the line->test
     map is built from test-body execution, so a module-level line is attributed
     to no test, and an empty covering set reports a false NO_COVERAGE."""
+
+
+def make_id(module: str, line: int, operator: str, index: int) -> str:
+    """Build a mutant id from its four parts.
+
+    Args:
+        module: the module's path, as the mutant records it.
+        line: the mutated line number.
+        operator: the operator's name.
+        index: the occurrence index within that line and operator.
+
+    Returns:
+        The id, in the ``path:line:operator:index`` form the reports print.
+    """
+    return f"{module}:{line}:{operator}:{index}"
+
+
+def parse_id(mutant_id: str) -> tuple[str, int, str, int] | None:
+    """Take a mutant id back apart.
+
+    The inverse of :func:`make_id`, and the reason both live here: an id is the
+    only thing a user hands back to moonbuggy (`moonbuggy show`, `moonbuggy
+    accept`, `moonbuggy run`), so the format is a contract and it is defined in
+    exactly one place.
+
+    Split from the right, so a module path containing a colon -- a Windows
+    drive letter -- survives the round trip.
+
+    Args:
+        mutant_id: an id as printed in `id=...`.
+
+    Returns:
+        ``(module, line, operator, index)``, or None if the string is not an
+        id at all. None rather than an exception: callers get this string from
+        a human or a pipeline and have to say something helpful about it.
+    """
+    parts = mutant_id.rsplit(":", 3)
+    if len(parts) != 4:
+        return None
+    module, line, operator, index = parts
+    if not module or not operator:
+        return None
+    try:
+        return module, int(line), operator, int(index)
+    except ValueError:
+        return None
