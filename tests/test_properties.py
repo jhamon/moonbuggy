@@ -345,6 +345,16 @@ FEATURES = {
         isinstance(n, ast.AugAssign) for n in ast.walk(tree)
     ),
     "lambdas": lambda tree: any(isinstance(n, ast.Lambda) for n in ast.walk(tree)),
+    # The two test positions that are not statements. Without these the
+    # properties would say nothing about condition_negation on the shapes it
+    # exists for, and the operator's whole point is that it reaches conditions
+    # no other operator does.
+    "conditional expressions": lambda tree: any(
+        isinstance(n, ast.IfExp) for n in ast.walk(tree)
+    ),
+    "comprehension guards": lambda tree: any(
+        isinstance(n, ast.comprehension) and n.ifs for n in ast.walk(tree)
+    ),
 }
 
 

@@ -67,6 +67,9 @@ else. See [Writing an operator](../writing-an-operator.md).
 .. automodule:: moonbuggy.operators.comparison
    :members:
 
+.. automodule:: moonbuggy.operators.condition
+   :members:
+
 .. automodule:: moonbuggy.operators.constant
    :members:
 ```

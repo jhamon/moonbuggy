@@ -283,7 +283,7 @@ $ moonbuggy --project tests/fixtures/sample_project --report human 2>/dev/null
 ```
 
 ```{code-block} text
-moonbuggy  22 mutants across 5 files
+moonbuggy  29 mutants across 6 files
 
 sample/inventory.py:9
   SURVIVED  comparison_swap
@@ -312,6 +312,14 @@ sample/loops.py:10
   2 tests run this line; first is
   tests/test_loops.py::test_countdown_of_zero_is_zero
 
+sample/predicates.py:37
+  SURVIVED  condition_negation
+    - return [value for value in values if value]
+    + return [value for value in values if not value]
+                                           ^^^^^^^^^^
+  1 test runs this line; first is
+  tests/test_predicates.py::test_wanted_of_nothing_is_nothing
+
 1 line no test reaches
 
 sample/inventory.py:15
@@ -329,7 +337,7 @@ sample/loops.py:12
     + n += 1
         ^^
 
-4 survived, 1 no_coverage, 1 timeout, 15 killed, 1 skipped in 30.5s -- 15/21 killed, 71%
+5 survived, 1 no_coverage, 1 timeout, 21 killed, 1 skipped in 30.2s -- 21/28 killed, 75%
 Full records: .moonbuggy/results.jsonl
 exit 1 -- survivors, and lines no test reaches
 ```

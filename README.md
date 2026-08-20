@@ -273,7 +273,7 @@ python -m venv .venv && .venv/bin/pip install -e '.[dev,bench]'
 | `make check-all` | all of the above |
 
 The project under `tests/fixtures/sample_project` is input data, not tests of
-moonbuggy — a small pytest project whose 22 mutants have hand-written expected
+moonbuggy — a small pytest project whose 29 mutants have hand-written expected
 outcomes in `oracle.toml`. Some of its tests hang or fail by design once
 mutated, which is why the outer suite excludes it.
 

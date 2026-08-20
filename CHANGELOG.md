@@ -8,6 +8,43 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A sixth operator, `condition_negation`**, which wraps the test of an
+  `if`/`elif`, of a conditional expression, and of each comprehension `if`
+  clause in `not (...)`. Conditions that are not comparisons, boolean chains or
+  literals were previously **unmutated entirely**: `if is_valid(x):`,
+  `if flag:` and `if not ready:` produced no mutant at all, so a suite could be
+  completely blind to `is_valid` and moonbuggy would report nothing. Predicate
+  helpers are the ordinary way people write conditionals, not an exotic shape.
+
+  **This raises the mutant count on every existing project**, and the first run
+  after upgrading will surface survivors that were never reported before. They
+  are not new gaps; they are gaps that were previously invisible. Cached
+  verdicts for existing mutants are unaffected — mutant ids are unchanged, so
+  nothing already in `.moonbuggy/cache.json` or in an accepted-equivalents
+  ledger is invalidated. Only the new ids have to be measured.
+
+  `while` tests are deliberately **not** negated. `while queue:` →
+  `while not queue:` never terminates when the loop was not entered to begin
+  with — the shape of any empty-input test — so the mutant burns the whole
+  `--timeout` rather than failing fast, and a loop-heavy module would pay that
+  many times over for a mutation nobody plausibly writes. Literal tests are not
+  negated either: `if True:` already yields `if False:` from `constant_bool`.
+
+- **Operator context, and targeted yields**, for anyone writing an operator.
+  An operator may now implement `mutations_in_context(node, context)` instead
+  of `mutations(node)` and be told where the node sits — its parent, the field
+  it occupies, its index in that field, the chain of enclosing nodes, and the
+  nearest enclosing node of a given type. Either form may yield a
+  `(target, replacement)` pair to rewrite a node other than the one it was
+  handed, which is how an operator reaches the test of a compound statement,
+  or a child of an `ast.arguments`/`ast.comprehension` node that carries no
+  source position of its own.
+
+  Both are additions. The five operators that predate them are unchanged and
+  still take a bare node, adding an operator is still adding one file, and
+  `all_operators()` and `@register` are exactly what they were. See
+  [Writing an operator](docs/writing-an-operator.md).
+
 - **A machine-readable run summary**, so nothing has to be parsed out of a
   human sentence. Every run now writes `summary.json` beside `results.jsonl`,
   and `moonbuggy --json` prints that same object to stdout and nothing else.

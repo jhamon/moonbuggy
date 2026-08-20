@@ -9,6 +9,7 @@ import ast
 
 import pytest
 
+from moonbuggy.generate import generate_mutants
 from moonbuggy.operators.arithmetic import ArithmeticSwap
 from moonbuggy.operators.boolean import BooleanSwap
 from moonbuggy.operators.boundary import Boundary
@@ -143,3 +144,81 @@ def test_boundary_ignores_multi_argument_range():
 
 def test_boundary_ignores_other_calls():
     assert mutate(Boundary(), parse_expr("len(n)")) == []
+
+
+# --- condition_negation ----------------------------------------------------
+#
+# Tested through `generate_mutants` rather than by handing the operator a node,
+# because the whole decision is about where the node sits and a bare node
+# carries no such thing.
+
+
+def negations(source):
+    """The `- original` / `+ mutated` pairs condition_negation produces."""
+    return [
+        (m.original, m.mutated)
+        for m in generate_mutants(source, module="lib.py")
+        if m.operator == "condition_negation"
+    ]
+
+
+@pytest.mark.parametrize(
+    "source,original,mutated",
+    [
+        ("if is_valid(x):\n    pass\n", "if is_valid(x):", "if not is_valid(x):"),
+        ("if flag:\n    pass\n", "if flag:", "if not flag:"),
+        ("if not ready:\n    pass\n", "if not ready:", "if not not ready:"),
+        (
+            "y = 'a' if ok else 'b'\n",
+            "y = 'a' if ok else 'b'",
+            "y = 'a' if not ok else 'b'",
+        ),
+        (
+            "z = [y for y in ys if wanted(y)]\n",
+            "z = [y for y in ys if wanted(y)]",
+            "z = [y for y in ys if not wanted(y)]",
+        ),
+    ],
+    ids=["call", "name", "unaryop", "ifexp", "comprehension-guard"],
+)
+def test_condition_negation_fires_on_every_condition_shape(source, original, mutated):
+    assert negations(source) == [(original, mutated)]
+
+
+def test_condition_negation_fires_on_an_elif():
+    source = "if a:\n    pass\nelif b:\n    pass\n"
+
+    assert negations(source) == [("if a:", "if not a:"), ("elif b:", "elif not b:")]
+
+
+def test_condition_negation_brackets_a_boolean_chain():
+    # Precedence: `not a and b` would negate only `a`, which is a different
+    # and much weaker mutation than inverting the condition.
+    assert negations("if a and b:\n    pass\n") == [
+        ("if a and b:", "if not (a and b):")
+    ]
+
+
+def test_condition_negation_ignores_values_that_are_not_conditions():
+    # Negating every name in a module would be absurd. Only test position.
+    assert negations("x = flag\n") == []
+    assert negations("return_value = f(flag)\n") == []
+    assert negations("for x in items:\n    pass\n") == []
+
+
+def test_condition_negation_leaves_while_alone():
+    # Deliberate exclusion: negating a loop test either skips the loop, which
+    # any assertion catches, or never terminates. See the operator module.
+    assert negations("while queue:\n    pass\n") == []
+
+
+def test_condition_negation_leaves_literal_tests_to_constant_bool():
+    # `if True:` -> `if False:` is already generated; `if not True:` says the
+    # same thing twice and doubles the site.
+    assert negations("if True:\n    pass\n") == []
+
+
+def test_condition_negation_makes_one_mutant_per_condition():
+    source = "if a:\n    pass\nif b:\n    pass\n"
+
+    assert len(negations(source)) == 2
