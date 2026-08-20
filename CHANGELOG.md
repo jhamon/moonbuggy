@@ -13,6 +13,19 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is the whole interface. The human install path follows it rather than
   preceding it.
 
+### Fixed
+
+- The results cache now keys on the run itself, not only on the code. A run
+  whose `--pytest-arg` values, `--timeout` or interpreter differ from the one
+  that filled the cache no longer reads its verdicts. Previously the two runs
+  collided: you could add `--pytest-arg=--doctest-modules`, rerun, and be
+  handed the earlier run's `SURVIVED` for every mutant, with a suspiciously
+  high `cached=` count as the only hint. `-n/--workers` and `--jobs` are
+  deliberately not part of the key — they change how the work is distributed,
+  not what any test asserts. Existing cache files are ignored rather than
+  misread (`CACHE_VERSION` is bumped), so the first run after upgrading is
+  cold.
+
 ## [0.1.2] - 2026-08-19
 
 ### Added

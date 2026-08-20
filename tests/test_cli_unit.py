@@ -14,13 +14,16 @@ from pathlib import Path
 import pytest
 
 from moonbuggy.cli import (
+    _build_parser,
     _clock,
     _display_path,
     _harden_streams,
     _measurable_fd,
+    _prepare_cache,
     _settled_line,
     main,
 )
+from moonbuggy.mutant import Mutant
 
 
 def test_harden_streams_makes_encoding_errors_non_fatal(monkeypatch):
@@ -93,3 +96,38 @@ def test_display_path_falls_back_to_the_absolute_path():
     project_dir = Path("/repo")
     jsonl_path = Path("/tmp/elsewhere/results.jsonl")
     assert _display_path(jsonl_path, project_dir) == "/tmp/elsewhere/results.jsonl"
+
+
+def _cache_key(tmp_path, *argv):
+    """The key one mutant gets under `argv`, through the CLI's own wiring."""
+    args = _build_parser().parse_args(list(argv))
+    cache = _prepare_cache(args, tmp_path)
+    assert cache is not None
+    mutant = Mutant(
+        id="lib.py:2:comparison_swap:0",
+        module="lib.py",
+        line=2,
+        operator="comparison_swap",
+        original="return stock > 0",
+        mutated="return stock >= 0",
+    )
+    return cache.key_for(mutant, tmp_path, ("test_lib.py::test_x",))
+
+
+def test_pytest_args_reach_the_cache_key(tmp_path):
+    """The wiring, not the hashing -- `cache.py` proves the digest changes,
+    this proves the CLI actually hands it the arguments. Without it, the two
+    correct halves can still be connected by nothing."""
+    bare = _cache_key(tmp_path, "--project", str(tmp_path))
+    doctests = _cache_key(
+        tmp_path, "--project", str(tmp_path), "--pytest-arg=--doctest-modules"
+    )
+
+    assert bare != doctests
+
+
+def test_the_same_command_line_produces_the_same_cache_key(tmp_path):
+    first = _cache_key(tmp_path, "--project", str(tmp_path), "--pytest-arg=-x")
+    second = _cache_key(tmp_path, "--project", str(tmp_path), "--pytest-arg=-x")
+
+    assert first == second

@@ -111,9 +111,9 @@ table above has one "coverage pass" row and not two.
 ## The cache
 
 A second run only re-runs mutants whose outcome could have changed. The cache
-key covers the mutant's identity, the full source of its module, and the
-contents of every test file selected for it — so editing one module invalidates
-that module's mutants and nothing else.
+key covers the mutant's identity, the full source of its module, the contents
+of every test file selected for it, and a fingerprint of the run itself — so
+editing one module invalidates that module's mutants and nothing else.
 
 ```{doctest}
 >>> project = make_project({
@@ -132,6 +132,16 @@ The key is deliberately coarser than it could be: it hashes the whole module
 rather than the mutated function, because a mutant's behaviour can depend on
 anything else in its module. A stale hit is much worse than a miss — it would
 report a gap you have already closed — so the cache errs toward re-running.
+
+The run fingerprint is why changing the command line starts cold. It covers
+`--pytest-arg` (in the order you gave them, because pytest's argument order is
+meaningful), `--timeout`, and the interpreter running the tests. Each of those
+can change a verdict from unchanged source: `--doctest-modules` adds tests that
+did not exist, `-W error` turns a passing test into a failing one, a shorter
+timeout turns a `KILLED` into a `TIMEOUT`, and another interpreter is another
+set of installed packages. `-n/--workers` and `--jobs` are deliberately *not*
+in it — they change how the work is spread across processes, not which tests
+run or what they assert, so varying them keeps your cache.
 
 `--no-cache` ignores it entirely; `--clear-cache` deletes it and starts cold.
 Both are for measurement, not for daily use.
