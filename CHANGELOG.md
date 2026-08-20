@@ -6,7 +6,46 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `NO_COVERAGE`, a sixth status. A mutant on a line that no test executes is
+  now reported under its own keyword instead of as a survivor. It is a finding,
+  not a pass: it exits `1` exactly as `SURVIVED` does, it appears in
+  `results.jsonl` and `results.txt` like any other status, and the human report
+  gives it its own section ("N lines no test reaches") below the survivors.
+  The two are separated because the fix is different — a survivor needs a
+  stronger assertion in a test that already runs, an unreached line needs a
+  test to exist at all.
+
 ### Changed
+
+- **BREAKING (output contract): `grep SURVIVED` no longer returns every
+  finding.** Lines no test reaches used to be reported as `SURVIVED` with
+  `tests_run=0`; they are now `NO_COVERAGE`. Anything that greps, filters or
+  counts survivors — a CI step, a triage script, a dashboard, an agent prompt —
+  must match both keywords to see what it saw before:
+
+  ```console
+  $ grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt
+  ```
+
+  and the JSONL equivalent, `select(.status=="SURVIVED" or
+  .status=="NO_COVERAGE")`. The **exit code is deliberately unchanged**: both
+  statuses exit `1`, so a gate that only reads the exit code needs no edit and
+  cannot have been silently loosened by this release. The status vocabulary is
+  documented in [Reading the output](docs/reading-the-output.md), which now
+  lists six keywords rather than five.
+
+- The run summary line gained a `NO_COVERAGE=` count, and the human report's
+  footer a `no_coverage` tally and a closing line that names both findings
+  ("exit 1 -- survivors, and lines no test reaches"). The mutation score's
+  denominator is unchanged: unreached lines still count against it, because a
+  missing test is exactly the thing the score is measuring.
+
+- `CACHE_VERSION` is bumped to 3. Entries written by an earlier version hold
+  `SURVIVED` for these mutants and would replay under the old name, so old
+  cache files are ignored rather than misread and the first run after
+  upgrading is cold.
 
 - The README and the quickstart now lead with the agent onboarding path:
   `uv run --with moonbuggy moonbuggy -h` needs no install, and the help screen

@@ -52,8 +52,17 @@ def xdist_results(linemap):
 
 
 def expected_status():
+    """The fast path's expected labels, which are not always the naive one's.
+
+    An oracle entry carries `fast_path_status` when the two engines must
+    disagree, and exactly one does: a line no test executes is SURVIVED to the
+    naive runner (it runs the whole suite, which passes, and it has no coverage
+    map to know better) and NO_COVERAGE here. Falling back to `status` keeps
+    every other label single-sourced.
+    """
     return {
-        (m["module"], m["line"], m["operator"]): m["status"] for m in ORACLE["mutant"]
+        (m["module"], m["line"], m["operator"]): m.get("fast_path_status", m["status"])
+        for m in ORACLE["mutant"]
     }
 
 
@@ -86,7 +95,7 @@ def test_status_counts_match_oracle(serial_results):
     for result in serial_results:
         counts[result.status] = counts.get(result.status, 0) + 1
 
-    assert counts == ORACLE["meta"]["expected_counts"]
+    assert counts == ORACLE["meta"]["expected_counts_fast"]
 
 
 def test_selection_runs_fewer_tests_than_the_whole_suite(serial_results, linemap):
@@ -120,7 +129,7 @@ def test_module_level_mutants_deliberately_run_everything(serial_results, linema
 
 def test_uncovered_mutant_runs_no_tests_at_all(serial_results):
     # inventory-L15-const: no covering tests, so nothing to run. It must still
-    # be reported SURVIVED rather than hidden.
+    # be reported -- as NO_COVERAGE, its own finding -- rather than hidden.
     uncovered = [
         r
         for r in serial_results
@@ -129,7 +138,7 @@ def test_uncovered_mutant_runs_no_tests_at_all(serial_results):
 
     assert len(uncovered) == 1
     assert uncovered[0].tests_run == 0
-    assert uncovered[0].status == "SURVIVED"
+    assert uncovered[0].status == "NO_COVERAGE"
 
 
 def test_suppressed_mutant_runs_no_tests(serial_results):

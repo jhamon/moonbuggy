@@ -20,23 +20,53 @@ human report instead — the same findings, rendered to be read, described under
 
 ## Statuses
 
-Five keywords, and only five. Each line of plaintext begins with one, so
+Six keywords, and only six. Each line of plaintext begins with one, so
 `grep KILLED` needs no knowledge of anything else on this page.
 
 | status | meaning | what to do |
 |---|---|---|
 | `KILLED` | a selected test failed under the mutation | nothing — your suite caught it |
 | `SURVIVED` | every selected test passed under the mutation | **read it**; this is the finding |
+| `NO_COVERAGE` | no test executes the line, so none was selected | **read it**; this is the other finding |
 | `TIMEOUT` | the mutation made the tests take longer than `--timeout` | usually an infinite loop; treat as killed-ish |
 | `SUSPICIOUS` | moonbuggy cannot give a confident answer | investigate the *run*, not the code |
 | `SKIPPED` | the line carries `# moonbuggy: skip` | nothing — you asked for this |
 
-Two of these are worth expanding, because they are where a mutation tool
+:::{admonition} Changed in 0.1.3
+:class: warning
+
+`NO_COVERAGE` is new, and it took cases that used to be `SURVIVED`. A line no
+test reaches was previously reported as `SURVIVED` with `tests_run=0`, so
+**`grep SURVIVED` no longer returns every finding.** Anything that gates on
+survivors — a CI step, a triage script, a dashboard — needs both keywords:
+
+```{code-block} console
+$ grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt
+```
+
+The exit code did not change: `NO_COVERAGE` exits `1` exactly as `SURVIVED`
+does, so a gate that only reads the exit code is unaffected.
+:::
+
+Three of these are worth expanding, because they are where a mutation tool
 usually lies to you.
 
-**`SURVIVED` with `tests_run=0`** means no test executes that line at all. It is
-still a survivor rather than a skip, because an untested line is a finding —
-just a different one from "tested but not checked".
+**`SURVIVED`** means tests ran and none of them objected. The mutated line is
+exercised, and nothing asserts on what it produces — so the fix is a stronger
+assertion in a test you already have. (Or the mutant is equivalent: the mutated
+program genuinely behaves identically, and no test could tell. See
+[Equivalent mutants](equivalent-mutants.md).)
+
+**`NO_COVERAGE`** means no test was even selected: nothing in your suite
+executes that line, so nothing could have caught the change, and `tests_run` is
+always `0` and `nearest_test` always `-`. It is a finding rather than a skip —
+an untested line is a gap, not an exclusion — but a different finding from
+`SURVIVED`, with different work attached: write a test, or delete the code.
+Being told this by a survivor list was the reason the two were split apart.
+
+If *everything* comes back `NO_COVERAGE`, suspect the run rather than the
+suite: it usually means the coverage pass measured a different copy of your
+package than the one being mutated. See [Troubleshooting](troubleshooting.md).
 
 **`SUSPICIOUS`** is deliberate humility. moonbuggy reports it when a confident
 status would not be supportable: a test covering the mutant behaved
@@ -57,7 +87,7 @@ Whitespace-split gives you positional fields followed by `key=value` tokens:
 
 | position | field | notes |
 |---|---|---|
-| 1 | status | one of the five keywords |
+| 1 | status | one of the six keywords |
 | 2 | `file:line` | the location, in the form editors and terminals linkify |
 | 3 | category | currently the operator name |
 | 4+ | `key=value` | `line`, `nearest_test`, `tests_run`, `id` |
@@ -115,13 +145,6 @@ sample/inventory.py:13
   1 test runs this line; first is
   tests/test_inventory.py::test_restock_fills_to_target
 
-sample/inventory.py:15
-  SURVIVED  constant_int
-    - return 0
-    + return 1
-             ^
-  no test runs this line at all
-
 sample/loops.py:10
   SURVIVED  comparison_swap
     - while n > 0:
@@ -129,6 +152,15 @@ sample/loops.py:10
               ^^
   2 tests run this line; first is
   tests/test_loops.py::test_countdown_of_zero_is_zero
+
+1 line no test reaches
+
+sample/inventory.py:15
+  NO_COVERAGE  constant_int
+    - return 0
+    + return 1
+             ^
+  no test runs this line at all
 
 Problems with the run
 
@@ -138,9 +170,9 @@ sample/loops.py:12
     + n += 1
         ^^
 
-5 survived, 1 timeout, 15 killed, 1 skipped in 30.2s -- 15/21 killed, 71%
+4 survived, 1 no_coverage, 1 timeout, 15 killed, 1 skipped in 30.5s -- 15/21 killed, 71%
 Full records: .moonbuggy/results.jsonl
-exit 1 -- survivors
+exit 1 -- survivors, and lines no test reaches
 ```
 
 That is exactly what lands in a file from `moonbuggy --report human >
@@ -186,12 +218,12 @@ lines are stable byte-for-byte for unchanged input.
 | key | type | meaning |
 |---|---|---|
 | `id` | string | `file:line:operator:index` — stable across runs for unchanged source |
-| `status` | string | one of the five keywords |
+| `status` | string | one of the six keywords |
 | `file` | string | path relative to the project root |
 | `line` | integer | 1-based line number |
 | `operator` | string | which mutation operator produced it |
 | `category` | string | same as `operator` today; a separate taxonomy is deferred until there is survivor data to design one against |
-| `nearest_test` | string or null | for survivors, the first covering test — where to start reading |
+| `nearest_test` | string or null | for survivors, the first covering test — where to start reading; always null for `NO_COVERAGE`, which has none |
 | `tests_run` | integer | how many tests were selected for this mutant |
 | `duration` | number | seconds spent running this mutant's tests |
 | `module_level` | boolean | true when the line runs at import time, which widens selection to the whole suite |
@@ -214,20 +246,31 @@ operator, and they need separate identities.
 
 | code | meaning |
 |---|---|
-| 0 | ran to completion, no survivors |
-| 1 | ran to completion, at least one survivor |
+| 0 | ran to completion, no findings |
+| 1 | ran to completion, at least one `SURVIVED` or `NO_COVERAGE` |
 | 2 | did not run: bad layout, red baseline, no tests, unreadable source |
 
 Exit 1 is a *result*, not an error. In CI, `moonbuggy || true` is usually wrong
 and `moonbuggy; test $? -le 1` is usually what you meant — unless you want
-survivors to fail the build, which is the point of the distinction.
+findings to fail the build, which is the point of the distinction.
+
+`NO_COVERAGE` has counted toward exit 1 since it was introduced, on purpose: it
+took its cases from `SURVIVED`, and a status split that quietly turned a red
+build green would be the worst possible way to ship one.
 
 ## Recipes
 
-Every survivor, one per line:
+Every finding, one per line:
+
+```{code-block} console
+$ grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt
+```
+
+Just the survivors, or just the lines nothing reaches:
 
 ```{code-block} console
 $ grep '^SURVIVED' .moonbuggy/results.txt
+$ grep '^NO_COVERAGE' .moonbuggy/results.txt
 ```
 
 Count survivors per file, worst first:
@@ -249,7 +292,10 @@ Survivors with their diffs, ready to paste into a review:
 $ jq -r 'select(.status=="SURVIVED") | "\(.file):\(.line)\n\(.diff)\n"' .moonbuggy/results.jsonl
 ```
 
-The mutation score, killed over killed-plus-survived:
+The mutation score, killed over killed-plus-survived (`NO_COVERAGE` is not in
+this denominator; moonbuggy's own footer score keeps it, so the two numbers
+differ on a project with unreached lines — decide which question you are
+asking):
 
 ```{code-block} text
 $ jq -s '[.[] | select(.status=="KILLED")] | length as $k
@@ -295,6 +341,6 @@ of the five is meaningful:
 
 ```{doctest}
 >>> {line.split()[0] for line in text_lines} <= {
-...     "KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
+...     "KILLED", "SURVIVED", "NO_COVERAGE", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
 True
 ```

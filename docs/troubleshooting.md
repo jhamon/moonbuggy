@@ -167,9 +167,13 @@ the classic. Practically it means your suite would notice, since it would hang.
 If your suite is fast, lowering `--timeout` makes these cheap. If your suite is
 genuinely slow, raise it, or `# moonbuggy: skip` the line.
 
-## Everything is `SURVIVED` with `tests_run=0`
+## Everything is `NO_COVERAGE`
 
 No test executes those lines at all. The coverage map is empty or nearly so.
+(Before 0.1.3 this arrived as `SURVIVED` with `tests_run=0`.)
+
+A handful of these is a real finding about your suite — write the tests, or
+delete the code. *Everything* is almost always a finding about the run.
 
 Check that the coverage pass measured the right thing: `--source` must point at
 the package your tests actually import. If your tests import an *installed* copy

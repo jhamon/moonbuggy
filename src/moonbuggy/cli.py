@@ -514,7 +514,10 @@ def _run(args: argparse.Namespace) -> int:
             + f"  -> {_display_path(jsonl_path, project_dir)}",
             file=sys.stderr,
         )
-    return 1 if counts["SURVIVED"] else 0
+    # NO_COVERAGE counts exactly as SURVIVED does. It is a finding -- nothing
+    # exercises the line -- so a CI gate that failed on survivors before the
+    # status existed must not start passing because its findings were renamed.
+    return 1 if counts["SURVIVED"] or counts["NO_COVERAGE"] else 0
 
 
 def _measurable_fd(stream: IO[str]) -> int | None:
@@ -542,7 +545,14 @@ def _settled_line(done: int, total: int, counts: Counter[str], elapsed: float) -
     # keeps a record of how the run ended.
     tally = ", ".join(
         f"{counts[status]} {status.lower()}"
-        for status in ("KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED")
+        for status in (
+            "KILLED",
+            "SURVIVED",
+            "NO_COVERAGE",
+            "TIMEOUT",
+            "SUSPICIOUS",
+            "SKIPPED",
+        )
         if counts[status]
     )
     return (

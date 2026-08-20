@@ -95,7 +95,14 @@ def test_plaintext_line_starts_with_a_fixed_status_keyword():
 
 
 def test_every_status_keyword_is_in_the_fixed_vocabulary():
-    assert {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"} == STATUS_KEYWORDS
+    assert {
+        "KILLED",
+        "SURVIVED",
+        "NO_COVERAGE",
+        "TIMEOUT",
+        "SUSPICIOUS",
+        "SKIPPED",
+    } == STATUS_KEYWORDS
 
 
 def test_plaintext_line_has_no_embedded_newlines():

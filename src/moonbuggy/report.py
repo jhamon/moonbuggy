@@ -4,7 +4,9 @@ Section 5 assumes the reader is an agent grepping output rather than a human
 reading a dashboard, which makes the format the feature:
 
 - A fixed leading status keyword, so `grep SURVIVED` works with zero knowledge
-  of the schema.
+  of the schema. The keyword is padded to a fixed-width column for the eye's
+  benefit; a keyword longer than the column overflows it rather than widening
+  it, so a line's tokens keep their positions whatever the status is.
 - key=value tokens rather than prose, so naive whitespace splitting parses it.
 - Exactly one line per mutant, so grep and awk stay usable. The diff is
   deliberately NOT inlined -- `moonbuggy show <id>` retrieves it. This settles
@@ -23,7 +25,19 @@ from typing import IO, Literal, TypedDict
 
 from .runner import Result
 
-STATUS_KEYWORDS = {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
+# The whole status vocabulary. Every plaintext line begins with one of these,
+# so adding a keyword is a breaking change for anyone grepping: NO_COVERAGE
+# arrived in 0.1.3 and took the uncovered lines that used to be SURVIVED with
+# it. `summarise` seeds its counts from here, so a new keyword also appears in
+# the run's final summary line with a count of zero.
+STATUS_KEYWORDS = {
+    "KILLED",
+    "SURVIVED",
+    "NO_COVERAGE",
+    "TIMEOUT",
+    "SUSPICIOUS",
+    "SKIPPED",
+}
 
 # Printed when a field has no value. A literal placeholder rather than an empty
 # string keeps the token count per line constant, so whitespace-splitting

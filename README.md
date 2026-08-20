@@ -79,25 +79,31 @@ Two files land in `.moonbuggy/`:
 | `results.jsonl` | canonical, one JSON object per mutant |
 | `results.txt` | plaintext view, derived from the JSONL |
 
-Exit code is `0` when nothing survived, `1` when there are survivors, and `2`
-when the run could not start.
+Exit code is `0` when there are no findings, `1` when there are survivors or
+lines no test reaches, and `2` when the run could not start.
 
 ### Reading the output
 
-Every plaintext line begins with one of exactly five keywords:
+Every plaintext line begins with one of exactly six keywords:
 
 | keyword | meaning |
 |---|---|
 | `KILLED` | a test failed under the mutation — the good outcome |
 | `SURVIVED` | every selected test passed — a gap, or an equivalent mutant |
+| `NO_COVERAGE` | no test executes the line at all, so nothing could object |
 | `TIMEOUT` | the mutation caused a hang, killed by the time budget |
 | `SUSPICIOUS` | pytest could not complete; needs a look |
 | `SKIPPED` | suppressed, or filtered out by configuration |
 
-So the thing you usually want is:
+`SURVIVED` and `NO_COVERAGE` are both findings and both exit `1`. They are
+separate keywords because the fix is different: a survivor needs a stronger
+assertion in a test that already runs, and a `NO_COVERAGE` line needs a test to
+exist at all (or the code to go). Before 0.1.3 the second was reported as
+`SURVIVED` with `tests_run=0`, so **`grep SURVIVED` no longer catches uncovered
+lines** — grep for both to get every finding:
 
 ```bash
-grep SURVIVED .moonbuggy/results.txt
+grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt
 ```
 
 Each line carries `key=value` tokens, including `nearest_test=` — the test to

@@ -306,7 +306,8 @@ def read_coverage_data(
             a *measured* line, so a module whose functions are never called
             during any test contributes no contexts at all -- and then
             `all_tests()` is empty, and a module-level mutant that widens to
-            "the whole suite" runs nothing and is reported SURVIVED. Found by
+            "the whole suite" runs nothing and is reported NO_COVERAGE -- a
+            claim about the user's suite that is really about ours. Found by
             the M4 hunt; see tests/test_module_level_aliases.py.
 
     Returns:
@@ -333,8 +334,9 @@ def read_coverage_data(
 
     # Union rather than replacement: the recorder knows which tests ran, the
     # contexts know which touched the source. Selection's stated bias is
-    # toward the larger set, because a missing covering test is a false
-    # SURVIVED and a spurious one only costs time.
+    # toward the larger set, because a missing covering test is a false finding
+    # (a SURVIVED, or a NO_COVERAGE when the set empties) and a spurious one
+    # only costs time.
     tests.update(
         t for t in known_tests if "::" in t and not t.endswith("::<collection>")
     )

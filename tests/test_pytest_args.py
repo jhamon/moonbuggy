@@ -69,8 +69,12 @@ def test_without_the_flag_the_doctest_is_simply_not_part_of_the_suite(tmp_path):
     """The cost of not passing it, recorded rather than implied.
 
     Not a bug -- moonbuggy measures the suite it is given. But it is the reason
-    a survivor is only as meaningful as the test command it survived, and why
+    a finding is only as meaningful as the test command it survived, and why
     `--pytest-arg` exists at all.
+
+    The status is NO_COVERAGE rather than SURVIVED, and that is the point put
+    plainly: without `--doctest-modules` the doctest is not a test, so nothing
+    in the suite executes this line and moonbuggy says exactly that.
     """
     project = write_project(
         tmp_path,
@@ -84,7 +88,7 @@ def test_without_the_flag_the_doctest_is_simply_not_part_of_the_suite(tmp_path):
 
     assert (
         status_of_mutation(project, "return value * 2", "return value / 2")
-        == "SURVIVED"
+        == "NO_COVERAGE"
     )
 
 

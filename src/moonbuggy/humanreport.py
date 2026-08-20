@@ -214,10 +214,11 @@ def coverage_sentence(record: Record) -> list[str]:
         record: one mutant's record.
 
     Returns:
-        Zero, one, or two lines. Empty for anything but a survivor, because a
-        timeout is a fact about the run rather than a gap in the tests.
+        Zero, one, or two lines. Empty for anything but a finding about the
+        tests, because a timeout is a fact about the run rather than a gap in
+        them.
     """
-    if record["status"] != "SURVIVED":
+    if record["status"] not in {"SURVIVED", "NO_COVERAGE"}:
         return []
     if record["module_level"]:
         # Selection widens to the whole suite for these, so the line-to-test
@@ -311,18 +312,27 @@ def render_group(
     return lines
 
 
-# The order counts appear in the footer. Survivors first because they are the
-# work; killed and skipped last because they are context.
-FOOTER_ORDER = ("SURVIVED", "TIMEOUT", "SUSPICIOUS", "KILLED", "SKIPPED")
+# The order counts appear in the footer. The two findings first because they
+# are the work; killed and skipped last because they are context.
+FOOTER_ORDER = (
+    "SURVIVED",
+    "NO_COVERAGE",
+    "TIMEOUT",
+    "SUSPICIOUS",
+    "KILLED",
+    "SKIPPED",
+)
 
 
 def score_text(counts: Mapping[str, int]) -> str:
     """The kill rate, with the denominator visible.
 
     Suppressed mutants leave the denominator, because a mutant nobody could
-    kill is not a test failure. The number appears in the footer rather than
-    the header: at the top of a report a percentage reads as a target, and at
-    the bottom it reads as an observation.
+    kill is not a test failure. Mutants no test reaches stay in it, because one
+    of them is exactly a test failure -- the missing test is the finding, and
+    dropping them would raise the score for having no coverage. The number
+    appears in the footer rather than the header: at the top of a report a
+    percentage reads as a target, and at the bottom it reads as an observation.
 
     Args:
         counts: per-status counts, as `report.summarise` returns.
@@ -372,11 +382,27 @@ def render_footer(counts: Mapping[str, int], elapsed: float, artifact: str) -> s
         [
             f"{tally} in {elapsed:.1f}s -- {score_text(counts)}",
             f"Full records: {artifact}",
-            "exit 1 -- survivors"
-            if counts["SURVIVED"]
-            else "exit 0 -- nothing survived",
+            _exit_line(counts),
         ]
     )
+
+
+def _exit_line(counts: Mapping[str, int]) -> str:
+    # The report ends on the number the shell will see, and it has to name
+    # every reason for it. A run whose only finding is an unreached line still
+    # exits 1, and a closing line that said "survivors" would send the reader
+    # looking for a survivor list that is not there.
+    reasons = [
+        text
+        for status, text in (
+            ("SURVIVED", "survivors"),
+            ("NO_COVERAGE", "lines no test reaches"),
+        )
+        if counts.get(status)
+    ]
+    if not reasons:
+        return "exit 0 -- nothing survived"
+    return "exit 1 -- " + ", and ".join(reasons)
 
 
 def render_report(
@@ -420,12 +446,27 @@ def render_report(
     ]
 
     survivors = [r for r in records if r["status"] == "SURVIVED"]
+    uncovered = [r for r in records if r["status"] == "NO_COVERAGE"]
     timeouts = [r for r in records if r["status"] == "TIMEOUT"]
     suspicious = [r for r in records if r["status"] == "SUSPICIOUS"]
 
     for group in _group_by_location(survivors):
         lines.extend(render_group(group, palette, timeout=timeout, width=width))
         lines.append("")
+
+    if uncovered:
+        # Below the survivors and under their own heading, because the work is
+        # different: a survivor needs a better assertion, an unreached line
+        # needs a test to exist at all (or the code to go). Counted in lines
+        # rather than mutants -- three operators mutating one unreached line
+        # are one gap, and "3 lines no test reaches" for one line would
+        # overstate the hole.
+        groups = _group_by_location(uncovered)
+        noun = "line" if len(groups) == 1 else "lines"
+        lines.extend([f"{len(groups)} {noun} no test reaches", ""])
+        for group in groups:
+            lines.extend(render_group(group, palette, timeout=timeout, width=width))
+            lines.append("")
 
     if timeouts or suspicious:
         lines.extend(["Problems with the run", ""])

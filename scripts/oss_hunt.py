@@ -289,7 +289,10 @@ def hunt(target, root, timeout):
     for record in records:
         counts[record["status"]] = counts.get(record["status"], 0) + 1
     killed = counts.get("KILLED", 0)
-    scored = killed + counts.get("SURVIVED", 0)
+    # NO_COVERAGE is in the denominator alongside SURVIVED: it is a finding, and
+    # dropping it would raise a project's score for having no coverage at all.
+    # Same choice the tool's own footer score makes.
+    scored = killed + counts.get("SURVIVED", 0) + counts.get("NO_COVERAGE", 0)
 
     entry.update(
         {
@@ -300,7 +303,9 @@ def hunt(target, root, timeout):
             # TIMEOUT and SUSPICIOUS are excluded because neither is evidence
             # either way about whether the suite catches the change.
             "mutation_score": round(killed / scored, 4) if scored else None,
-            "survivors": [r for r in records if r["status"] == "SURVIVED"],
+            "survivors": [
+                r for r in records if r["status"] in {"SURVIVED", "NO_COVERAGE"}
+            ],
             "stderr_tail": stderr,
         }
     )

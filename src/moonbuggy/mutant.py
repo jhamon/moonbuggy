@@ -31,4 +31,4 @@ class Mutant:
     """True when the mutated line runs at import time rather than inside a
     function body. Selection has to widen the test set for these: the line->test
     map is built from test-body execution, so a module-level line is attributed
-    to no test, and running no tests reports a false SURVIVED."""
+    to no test, and an empty covering set reports a false NO_COVERAGE."""

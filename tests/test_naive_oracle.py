@@ -59,6 +59,8 @@ def test_naive_oracle_covers_every_mutant(naive_results):
 
 
 def test_status_counts_match_oracle_meta(naive_results):
+    # `expected_counts`, not `expected_counts_fast`: the naive runner has no
+    # coverage map, so NO_COVERAGE is a distinction it cannot draw.
     counts = {}
     for status in naive_results.values():
         counts[status] = counts.get(status, 0) + 1
