@@ -31,7 +31,8 @@ mutant: noise in the survivor list, which a human can see and dismiss, and
 which `moonbuggy accept` exists to retire.
 
 So the exclusions below are a closed list of shapes that are *provably* free of
-observable effect (plus one, imports, excluded for a different reason), and
+observable effect (plus the name-establishing statements -- imports and type
+aliases -- excluded for a different reason given at `DELETABLE`), and
 everything else is mutated. The impactful set is arrived at by subtraction, not
 by enumeration.
 """
@@ -48,10 +49,18 @@ from . import Context, Mutation, register
 # branch and its body". Naming the simple statements is the only spelling of
 # this rule that cannot be widened by accident.
 #
-# `ast.Pass`, `ast.Import`, `ast.ImportFrom`, `ast.Global` and `ast.Nonlocal`
-# are simple statements too and are deliberately absent: they are the always-
-# inert set, and leaving them out of the allowlist says so once instead of
-# twice.
+# `ast.Pass`, `ast.Import`, `ast.ImportFrom`, `ast.Global`, `ast.Nonlocal` and
+# `ast.TypeAlias` are simple statements too and are deliberately absent, and
+# leaving them out of the allowlist says so once instead of twice.
+#
+# `ast.Pass`, `ast.Global` and `ast.Nonlocal` are the always-inert set:
+# deleting one cannot change what the module does. `ast.Import`,
+# `ast.ImportFrom` and `ast.TypeAlias` are absent for the other reason -- each
+# establishes a name that later code refers to, so deleting one does not
+# produce a subtler program to test the suite against, it produces a
+# `NameError` at the first reference. `type X = int` followed by `def f(a: X)`
+# is exactly that: annotations are evaluated when the `def` runs, so the
+# mutant dies on the alias's absence and reports nothing about the suite.
 DELETABLE = (
     ast.Return,
     ast.Delete,

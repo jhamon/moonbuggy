@@ -373,6 +373,29 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The property suite now runs against every registered operator, not just
+  the `default` tier.** `make check-properties` called `generate_mutants`
+  without an `operators=` argument, which since the `default`/`deep` split has
+  meant the default tier -- so `statement_deletion`, `argument_swap`,
+  `default_arg` and `kwarg_drop` had no property coverage at all, while
+  `docs/writing-an-operator.md` told contributors twice that a new operator was
+  "covered by all of them automatically". All six invariants now hold over all
+  eleven operators.
+
+- **Property M1.2.2 is scoped, deliberately and narrowly.** It asserted an
+  exact multiset equality of string literals before and after each mutation,
+  which was written when every operator was a token swap and a swap could not
+  remove anything. `statement_deletion` replaces a whole statement with `pass`,
+  which removes any string literal that was part of that statement. It now
+  asserts, for every operator, that no string or comment content is ever
+  *invented or altered* -- which is the criterion C2 guarantee, "no mutation
+  inside a string literal" -- and separately that no string is *removed* except
+  by a mutation that replaces a whole statement with `pass`. The exemption is
+  keyed on the shape of the mutation rather than on an operator name, and
+  comment text stays under exact equality for every operator. No operator
+  changed. Reasoning in the test's docstring and in
+  `docs/development/phase-2-status.md`.
+
 - **A bare `moonbuggy` run is now the `default` tier rather than every
   registered operator.** Until this release those were the same set, so nothing
   observable changes for anyone upgrading -- but they are different claims, and
@@ -462,6 +485,28 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--pytest-arg` cache-key regression test. Both are now in `make check-all`.
 
 ### Fixed
+
+- **Operator and documentation accuracy pass.** `condition_negation` now states
+  its two exclusions (`while` tests, literal tests) in its docstrings rather
+  than only in comments; `argument_swap` names its three skipped sites on the
+  class docstring; `statement_deletion` documents `ast.TypeAlias` as a
+  deliberate absence from `DELETABLE`, alongside imports, and says why.
+  `docs/writing-an-operator.md` now presents `mutations` and
+  `mutations_in_context` as the two forms of the one required method rather
+  than describing a contract three of the eleven built-ins do not satisfy, and
+  counts six invariants rather than seven. Docs corrections: the `summary.json`
+  sample's `record_schema` (2 -> 3), the JSONL schema history (schema 3 and the
+  widened meaning of `suppressed`), the troubleshooting exit-code table
+  (`NO_COVERAGE` also exits 1), exit `130` on the exit-code tables, `why
+  --json` described as its own key set rather than the record schema, the
+  `.moonbuggy/` inventory (`cache.json` and `accepted.toml` alongside the three
+  result files), the ledger documented as accepting any finding rather than
+  survivors only, four options missing from the README's Options block
+  (`--project`, `--output-dir`, `--pytest-arg`, `--flaky-probe`), a footer
+  sample in `making-runs-fast.md` that contradicted its own arithmetic, a
+  `summary.json` mention in the `report` architecture tour, and a banner on
+  `differential.md` marking it as a capture from before the `NO_COVERAGE`
+  split.
 
 - The results cache now keys on the run itself, not only on the code. A run
   whose `--pytest-arg` values, `--timeout` or interpreter differ from the one

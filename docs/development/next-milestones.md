@@ -47,6 +47,15 @@ Invariants to test, each as a separate property:
   the multiset of string-literal values and comment text is identical before and
   after every mutation. This is criterion C2 generalised past the one
   hand-written case.
+  *(Scoped when the property suite was widened to the `deep` tier: exact
+  multiset equality was written when every operator was a token swap, and a
+  token swap cannot remove anything. `statement_deletion` replaces a whole
+  statement with `pass`, which removes any string literal that was part of that
+  statement — a deletion, not an edit inside a string. The property now asserts
+  that no operator ever invents or alters string content, and that only a
+  whole-statement deletion may remove any. Comment text stays under exact
+  equality for every operator. Criterion C2 itself — "no mutation is applied
+  inside string literals or comments" — is unchanged and still holds.)*
 - **M1.2.3** *Ids are stable and unique.* Generating twice from identical source
   yields identical id sequences; no id repeats within a module.
 - **M1.2.4** *Splicing round-trips.* For any single-line mutation, replacing the

@@ -3,7 +3,7 @@
 **Audience:** agent authors and CLI users. Anything that has to consume
 moonbuggy's output programmatically, or read it at 2am.
 
-Every run writes three files into `.moonbuggy/`:
+Every run writes three result files into `.moonbuggy/`:
 
 `results.jsonl`
 : The canonical record. One JSON object per line, one line per mutant.
@@ -16,6 +16,13 @@ Every run writes three files into `.moonbuggy/`:
 : The run itself rather than its mutants: one versioned JSON object with the
   counts, the totals, the wall time and the configuration that produced them.
   `--json` prints the same object to stdout. See *The run summary* below.
+
+Two more things live in the directory and are not result files. `cache.json` is
+written by every run that does not pass `--no-cache`; it is disposable, and
+deleting it costs one slow run. `accepted.toml` appears once you run
+`moonbuggy accept`, and it is the opposite: a checked-in record of human
+decisions. If you gitignore `.moonbuggy/`, un-ignore that one file — see
+[Equivalent mutants](equivalent-mutants.md#recording-the-decision-the-ledger).
 
 The plaintext is also what moonbuggy prints to stdout whenever the output is
 piped, redirected, or pinned to the agent format, so what you grep in a file is
@@ -286,8 +293,11 @@ has no verdict to gate on and **always exits `0`** unless it could not explain
 at all (exit `2`). It takes several ids and `-` on stdin exactly as `run` does,
 and one coverage pass serves all of them.
 
-`--json` emits one JSON object per mutant, one per line: the same JSONL shape
-`results.jsonl` uses, so `jq` reads either the same way.
+`--json` emits one JSON object per mutant, one per line — JSONL like
+`results.jsonl`, but its own set of keys: the `why` fields above, not the record
+schema. There is no `schema`, `status`, `category` or `diff` on these lines, so
+a `jq` filter written against `results.jsonl` (`select(.status=="SURVIVED")`)
+matches nothing here.
 
 ```{code-block} console
 $ moonbuggy why --json app/pricing.py:14:comparison_swap:0 | jq '{tests_run, cache_hit, next_run}'
@@ -460,7 +470,10 @@ operator, and they need separate identities.
 a reader that has one line should be able to tell what that line means. Schema
 `1` is anything written before the accepted-equivalents ledger existed and has
 no `accepted`/`accept_reason` keys; schema `2` adds them and the `schema` field
-itself. moonbuggy upgrades an older line to today's shape as it reads it, so
+itself; schema `3` adds `logging_call`, and with it widened what `suppressed`
+means — on a schema-2 line `suppressed` is always the `# moonbuggy: skip`
+marker, while on a schema-3 line it is that *or* a suppressed logging call, and
+`logging_call` is the discriminator. moonbuggy upgrades an older line to today's shape as it reads it, so
 `moonbuggy show` and the human report work on a results file written by an
 older version — but a reader of its own should check the field rather than
 assume, and a line with no `schema` key at all is schema 1 by definition.
@@ -487,7 +500,7 @@ works the same with it and without it.
 ```{code-block} json
 {
   "schema": 1,
-  "record_schema": 2,
+  "record_schema": 3,
   "moonbuggy": "0.1.2",
   "total": 84,
   "cached": 71,
@@ -556,6 +569,7 @@ docs.
 | 0 | ran to completion, no findings |
 | 1 | ran to completion, at least one `SURVIVED` or `NO_COVERAGE` |
 | 2 | did not run: bad layout, red baseline, no tests, unreadable source, unreadable accept file |
+| 130 | interrupted (Ctrl-C); the partial `results.jsonl` written so far is valid |
 
 With `--fail-on-unexplained`, exit `1` means something narrower: at least one
 finding that is neither killed nor covered by a live entry in the

@@ -15,12 +15,16 @@ bug regardless of what your project was doing.
 
 | code | meaning |
 |---|---|
-| 0 | ran to completion, no survivors |
-| 1 | ran to completion, at least one survivor |
+| 0 | ran to completion, no findings |
+| 1 | ran to completion, at least one `SURVIVED` or `NO_COVERAGE` |
 | 2 | did not run — one of the messages below |
+| 130 | interrupted (Ctrl-C); partial results are valid |
 
-Exit 1 is a *result*. In CI, `moonbuggy; test $? -le 1` means "run it and do not
-fail the build on findings"; plain `moonbuggy` means survivors fail the build.
+Exit 1 is a *result*. Both finding statuses drive it: a line no test reaches
+(`NO_COVERAGE`) fails the build exactly as a survivor does. In CI,
+`moonbuggy; test $? -le 1` means "run it and do not fail the build on
+findings"; plain `moonbuggy` means findings fail the build. Note that
+`test $? -le 1` also swallows nothing else — 2 and 130 both fall outside it.
 
 ---
 

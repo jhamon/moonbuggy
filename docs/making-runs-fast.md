@@ -130,7 +130,7 @@ A scoped run says so twice, in the header and the footer:
 ```
 moonbuggy  7 mutants across 2 files  (diff-scoped since origin/main)
 ...
-6 survived, 1 killed in 4.2s -- 6/7 killed, 86%
+1 survived, 6 killed in 4.2s -- 6/7 killed, 86%
 Diff-scoped: only lines changed since origin/main (merge base 4f21c0a) were mutated -- 2 files, 31 lines.
 Full records: .moonbuggy/results.jsonl
 exit 1 -- survivors
