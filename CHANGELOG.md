@@ -8,6 +8,39 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A mutation policy for logging calls.** A mutation inside the arguments of a
+  logging call -- `logger.debug("retrying in %ds", delay * 2)` -- is unkillable
+  by construction: nothing asserts on the contents of a debug line. Those
+  mutants are now tagged `logging_call` in `results.jsonl` and, by default,
+  reported `SKIPPED` instead of `SURVIVED`. In the session that prompted this,
+  two thirds of the survivors in a retry region were arithmetic inside
+  `logger.debug(...)` arguments.
+
+  **A condition *around* a log call is still a finding.** Only the call's own
+  argument expressions qualify: in `if attempts > 5: logger.debug(...)` the `>`
+  is reported exactly as before. A real call nested in a log line
+  (`logger.info("%s", compute(n + 1))`) is not suppressed either -- `compute`
+  runs, so its arguments matter.
+
+  A logger is recognised as a level method (`debug`, `info`, `warning`,
+  `error`, `critical`, `exception`, `log`) called on a name like `log`,
+  `logger`, `logging`, `LOG`, `LOGGER`, their underscore-prefixed spellings, or
+  any attribute chain ending in one -- `self.logger.debug(...)` counts.
+  `--logger-name NAME` (repeatable) adds names for a project that wraps its
+  logger; `--include-logging-mutants` runs them anyway and keeps the tag, for a
+  project that does assert on log output. Both flags are accepted by
+  `moonbuggy`, `moonbuggy run <id>` and `moonbuggy why <id>`.
+
+  **Mutant ids are unchanged** -- the policy labels mutants, it does not filter
+  them -- so nothing in `.moonbuggy/cache.json` or in an accepted-equivalents
+  ledger is invalidated, and `CACHE_VERSION` is unchanged. A suppressed mutant
+  is settled before the cache is consulted, so a cached verdict can never be
+  replayed for one.
+
+  `SKIPPED` leaves the score's denominator, as it always has, so suppressing
+  these does not flatter the kill rate. The human report says how many were
+  suppressed and how to see them.
+
 - **A sixth operator, `condition_negation`**, which wraps the test of an
   `if`/`elif`, of a conditional expression, and of each comprehension `if`
   clause in `not (...)`. Conditions that are not comparisons, boolean chains or
@@ -195,6 +228,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   test to exist at all.
 
 ### Changed
+
+- **`results.jsonl` record schema 3**, adding `logging_call`. Records written
+  by an older version are upgraded on read as usual, with `logging_call` false
+  -- a version with no logging policy recognised none of them. `suppressed` now
+  means "settled without running" for either reason; `logging_call` says which.
 
 - **BREAKING (output contract): `grep SURVIVED` no longer returns every
   finding.** Lines no test reaches used to be reported as `SURVIVED` with

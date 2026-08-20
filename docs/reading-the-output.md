@@ -35,7 +35,7 @@ Six keywords, and only six. Each line of plaintext begins with one, so
 | `NO_COVERAGE` | no test executes the line, so none was selected | **read it**; this is the other finding |
 | `TIMEOUT` | the mutation made the tests take longer than `--timeout` | usually an infinite loop; treat as killed-ish |
 | `SUSPICIOUS` | moonbuggy cannot give a confident answer | investigate the *run*, not the code |
-| `SKIPPED` | the line carries `# moonbuggy: skip` | nothing — you asked for this |
+| `SKIPPED` | the mutant was suppressed: the line carries `# moonbuggy: skip`, or the mutation sits inside a logging call | nothing — but see [Logging calls](equivalent-mutants.md#logging-calls) for the second case |
 
 :::{admonition} Changed in 0.1.3
 :class: warning
@@ -192,7 +192,8 @@ Field by field:
   against the source as it stands — there is no line→test map on disk, and
   deliberately so: a stored map would answer for the code as it was. A
   module-level line says so instead, because an import-time line is attributed
-  to no test and widens to the whole suite; a suppressed line says that.
+  to no test and widens to the whole suite; a suppressed line says that, and
+  names which suppression it was.
 
 `tests_run`
 : The size of the selected set, and the same number the result line's
@@ -384,7 +385,7 @@ lines are stable byte-for-byte for unchanged input.
 
 | key | type | meaning |
 |---|---|---|
-| `schema` | integer | the record schema this line was written in; `2` today |
+| `schema` | integer | the record schema this line was written in; `3` today |
 | `id` | string | `file:line:operator:index` — stable across runs for unchanged source |
 | `status` | string | one of the six keywords |
 | `file` | string | path relative to the project root |
@@ -395,7 +396,8 @@ lines are stable byte-for-byte for unchanged input.
 | `tests_run` | integer | how many tests were selected for this mutant |
 | `duration` | number | seconds spent running this mutant's tests |
 | `module_level` | boolean | true when the line runs at import time, which widens selection to the whole suite |
-| `suppressed` | boolean | true when the line carries the skip marker |
+| `suppressed` | boolean | true when the mutant was settled without running: the skip marker, or a suppressed logging mutant |
+| `logging_call` | boolean | true when the mutation sits inside the arguments of a logging call, whether or not it was run |
 | `original` | string | the source line before mutation, stripped of surrounding whitespace |
 | `mutated` | string | the same line after mutation, stripped the same way |
 | `diff` | string | two lines: `- original` then `+ mutated` |

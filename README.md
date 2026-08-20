@@ -101,7 +101,7 @@ Every plaintext line begins with one of exactly six keywords:
 | `NO_COVERAGE` | no test executes the line at all, so nothing could object |
 | `TIMEOUT` | the mutation caused a hang, killed by the time budget |
 | `SUSPICIOUS` | pytest could not complete; needs a look |
-| `SKIPPED` | suppressed, or filtered out by configuration |
+| `SKIPPED` | suppressed: a `# moonbuggy: skip` marker, or a mutation inside a logging call |
 
 `SURVIVED` and `NO_COVERAGE` are both findings and both exit `1`. They are
 separate keywords because the fix is different: a survivor needs a stronger
@@ -196,6 +196,29 @@ CACHE_SIZE = 128  # moonbuggy: skip -- tuning only, no observable behaviour
 They are then reported `SKIPPED` rather than silently dropped, so the mutant
 count stays honest.
 
+### Mutants inside logging calls
+
+Nothing asserts on the contents of a debug line, so a mutation inside one is
+unkillable by construction:
+
+```python
+logger.debug("retrying in %ds", delay * 2)
+```
+
+Left alone, these dominate a survivor list. moonbuggy tags them `logging_call`
+in `results.jsonl` and reports them `SKIPPED` by default. The guard *around* a
+log call is untouched — `if attempts > 5:` above that line is a real finding
+and stays one; only the call's own argument expressions are suppressed.
+
+```bash
+moonbuggy --logger-name audit          # your project wraps its logger
+moonbuggy --include-logging-mutants    # you do assert on log output
+```
+
+`SKIPPED` leaves the score's denominator, so this shortens the list you read
+without flattering the number. See
+[Equivalent mutants](docs/equivalent-mutants.md#logging-calls).
+
 ### Accepting one you have already reviewed
 
 A survivor you have reviewed and decided is equivalent goes in a ledger, so
@@ -229,6 +252,9 @@ Nothing below is required.
 --exclude FRAGMENT   skip paths containing FRAGMENT (repeatable)
 --since REF          only mutate lines changed since a git ref, compared
                      against the merge base (e.g. --since origin/main)
+--include-logging-mutants
+                     run mutants inside logging calls instead of skipping them
+--logger-name NAME   also treat NAME as a logger receiver (repeatable)
 --accept-file PATH   the accepted-equivalents ledger
                      (default: .moonbuggy/accepted.toml)
 --fail-on-unexplained
