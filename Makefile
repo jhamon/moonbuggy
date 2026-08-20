@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-spike check-mutmut check-robustness check-properties check-cli bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install check-all
+.PHONY: test check-oracle check-fast-path check-pytest-args check-spike check-mutmut check-robustness check-properties check-cli bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -17,6 +17,20 @@ test:
 ## pytest, and checks each result against the hand-written oracle labels.
 check-oracle:
 	$(PYTHON) -m pytest -m slow tests/test_naive_oracle.py -v
+
+## Criterion D5: the fast path, checked against the oracle.
+## In-memory mutation with coverage-guided selection must agree with the naive
+## oracle on every mutant, serial and under xdist. This is the load-bearing
+## test in the project: if it disagrees, nothing else about the tool matters.
+check-fast-path:
+	$(PYTHON) -m pytest -m slow tests/test_runner.py -v
+
+## Milestone M4: the --pytest-arg regression gate.
+## The M4 hunt found the flag reaching the baseline run but not the mutant
+## runs, which turned a whole project's mutants SUSPICIOUS. Also covers the
+## cache key: two runs with different --pytest-arg must not share entries.
+check-pytest-args:
+	$(PYTHON) -m pytest -m slow tests/test_pytest_args.py -v
 
 ## Criteria B1/B2: the Phase 0 spike gate.
 ## In-memory mutation coexisting with pytest's assert rewriting, reaching xdist
@@ -122,7 +136,7 @@ check-fresh-install:
 check-mutmut:
 	$(PYTHON) scripts/check_mutmut_differential.py
 
-check-all: lint format-check typecheck test check-oracle check-spike check-properties check-robustness check-cli check-mutmut check-fresh-install
+check-all: lint format-check typecheck test check-oracle check-fast-path check-pytest-args check-spike check-properties check-robustness check-cli check-mutmut check-fresh-install
 
 ## Criterion B3: coverage mechanism benchmark.
 ## Prints wall-clock and map content for each candidate. See docs/development/spike-b-findings.md.

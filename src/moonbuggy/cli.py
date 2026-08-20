@@ -167,10 +167,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
 
+# Two things about a run are invisible from the outside and cannot be worked
+# out from a result line: why a mutant was not re-measured, and why it ran the
+# tests it ran. Both used to be discoverable only by controlled experiment. `-h`
+# is the one surface an agent reads before acting, so they live here rather than
+# only in docs/.
+_EPILOG = """\
+Caching:
+  A stored verdict is reused only when nothing it depends on has changed: the
+  mutant itself, the full source of the module it mutates, the contents of
+  every test file selected for it, and this run's --pytest-arg values,
+  --timeout and interpreter. Editing a test file therefore invalidates every
+  mutant that file was selected for. --jobs and -n/--workers are deliberately
+  not part of the key -- they change how the work is scheduled, not the
+  verdict. --no-cache bypasses the cache for one run; --clear-cache deletes it
+  first.
+
+Test selection:
+  One instrumented pass over the unmutated suite builds a line -> test map,
+  and each mutant then runs only the tests that execute its line. That is what
+  `tests_run=` on a result line counts, and why it differs per mutant.
+  tests_run=0 means no test reaches that line at all, which is reported as
+  NO_COVERAGE rather than SURVIVED: nothing could have killed it. The map is
+  rebuilt every run and is never written to disk. `moonbuggy why <id>` prints
+  the selection for one mutant without running anything.
+"""
+
+# Every command that reads or writes a results directory names it the same
+# way, for the same reason `--accept-file` does: a path that means one thing
+# to the writer and another to the reader fails silently.
+_OUTPUT_DIR_HELP = (
+    "the results directory -- results.jsonl, results.txt and summary.json "
+    f"(default: {DEFAULT_OUTPUT_DIR}, relative to the project root)"
+)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="moonbuggy",
         description="Fast, agent-first mutation testing for Python.",
+        epilog=_EPILOG,
+        # The epilog is prose in paragraphs. The default formatter reflows it
+        # into one block, which is what makes most epilogs unreadable; it is
+        # hand-wrapped here instead.
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version", action="version", version=f"moonbuggy {__version__}"
@@ -181,8 +221,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command")
     show = sub.add_parser("show", help="print the full record for one mutant id")
-    show.add_argument("mutant_id")
-    show.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    show.add_argument("mutant_id", help="the mutant to print, as printed in `id=...`")
+    show.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help=_OUTPUT_DIR_HELP)
     show.set_defaults(command="show")
 
     _add_run_one_parser(sub)
@@ -199,7 +239,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the mutant to accept, as printed in `id=...` (omit for --list)",
     )
     accept.add_argument("--project", default=".", help="project root (default: cwd)")
-    accept.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    accept.add_argument(
+        "--output-dir", default=DEFAULT_OUTPUT_DIR, help=_OUTPUT_DIR_HELP
+    )
     accept.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
     accept.add_argument(
         "-r",
@@ -262,7 +304,7 @@ def _add_run_one_parser(
     one.add_argument(
         "--source", default=None, help="directory to mutate (default: discovered)"
     )
-    one.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    one.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help=_OUTPUT_DIR_HELP)
     one.add_argument(
         "--timeout",
         type=float,
@@ -342,7 +384,7 @@ def _add_why_parser(
     why.add_argument(
         "--source", default=None, help="directory to mutate (default: discovered)"
     )
-    why.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    why.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help=_OUTPUT_DIR_HELP)
     why.add_argument(
         "--timeout",
         type=float,
@@ -391,7 +433,9 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--source", default=None, help="directory to mutate (default: discovered)"
     )
-    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--output-dir", default=DEFAULT_OUTPUT_DIR, help=_OUTPUT_DIR_HELP
+    )
     parser.add_argument(
         "--timeout",
         type=float,
@@ -436,7 +480,8 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "--jobs",
         type=int,
         default=0,
-        help="mutants to run concurrently (default: CPU count)",
+        help="mutants to run concurrently (default: CPU count, or one fewer "
+        "with -n/--workers, which needs a core for the parent process)",
     )
     parser.add_argument(
         "-n",

@@ -159,7 +159,9 @@ repository at all, or a ref that does not resolve.
 ## Flags that matter
 
 `--jobs N`
-: How many mutants run at once. Defaults to the CPU count. On a shared or
+: How many mutants run at once. Defaults to the CPU count — one fewer
+  under `-n/--workers`, where the parent process needs a core of its own.
+  On a shared or
   containerised machine, set it explicitly — the default reads the host's CPU
   count, which in a container is often not the count you are allowed.
 

@@ -7,6 +7,7 @@ functions directly, in-process, so they belong outside that mark and run on
 every plain `pytest` invocation.
 """
 
+import argparse
 import io
 import json
 import subprocess
@@ -319,3 +320,64 @@ def test_a_broken_ledger_exits_2_rather_than_running(tmp_path, capsys):
 
     assert code == 2
     assert "accept file" in capsys.readouterr().err
+
+
+def _help_text():
+    """`moonbuggy -h`, as an agent reading it before its first run would see."""
+    return _build_parser().format_help()
+
+
+def test_help_explains_what_a_cache_hit_depends_on():
+    """#13 made `-h` the advertised onboarding path, so anything an agent has
+    to reason about before acting has to survive there. Cache invalidation was
+    only discoverable by experiment: the flags were listed, what a hit depends
+    on was not."""
+    text = _help_text()
+
+    assert "Caching" in text
+    # The four halves of the key, in the words the user's own command line
+    # uses -- a paragraph that says "the run's inputs" is not actionable.
+    for phrase in ("module", "test file", "--pytest-arg", "--timeout"):
+        assert phrase in text, phrase
+    assert "--no-cache" in text
+
+
+def test_help_explains_how_test_selection_picks_tests():
+    """The other half: `tests_run` is the number an agent acts on, and nothing
+    said where it comes from or what zero means."""
+    text = _help_text()
+
+    assert "Test selection" in text
+    assert "tests_run=0" in text
+    # As of #20 that case has its own status; help that still called it
+    # SURVIVED would send an agent looking for a test that cannot exist.
+    assert "NO_COVERAGE" in text
+
+
+def test_help_does_not_claim_the_coverage_map_is_persisted():
+    """moonbuggy has never written a line->test map to disk. Help that implied
+    one would send an agent hunting for a file, and hunting for a stale-map
+    explanation for a `tests_run` it did not expect."""
+    text = _help_text()
+
+    assert "rebuilt every run" in text
+    assert "never written to disk" in text
+
+
+def test_every_option_the_parser_accepts_carries_help_text():
+    """`-h` is a promise as of #13, and a flag listed with a bare metavar and
+    nothing beside it is the one shape of help that is worse than absent."""
+    parsers = {"moonbuggy": _build_parser()}
+    for action in _build_parser()._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            parsers.update(
+                {f"moonbuggy {name}": p for name, p in action.choices.items()}
+            )
+
+    undocumented = [
+        f"{prog}: {action.dest}"
+        for prog, parser in parsers.items()
+        for action in parser._actions
+        if not action.help and not isinstance(action, argparse._SubParsersAction)
+    ]
+    assert undocumented == []

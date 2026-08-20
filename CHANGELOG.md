@@ -192,6 +192,37 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is the whole interface. The human install path follows it rather than
   preceding it.
 
+- **`moonbuggy -h` now explains the two things a run does that are invisible
+  from the outside.** The help screen is the advertised onboarding path, so
+  anything an agent must reason about before acting has to survive there, and
+  two things did not: what a cache hit depends on, and what decides
+  `tests_run`. Both were previously discoverable only by running a controlled
+  experiment. The epilog now says that a verdict is reused only when the
+  mutant, its module's full source, every selected test file, and the run's
+  `--pytest-arg`/`--timeout`/interpreter are all unchanged — and that one
+  instrumented pass builds a line-to-test map, rebuilt every run and never
+  written to disk, from which each mutant runs only the tests that execute its
+  line. `tests_run=0` is named as `NO_COVERAGE`, the status it has carried
+  since this release.
+
+- Every flag the parser accepts now carries help text. `--output-dir` was
+  listed with a bare metavar and nothing beside it on all five commands, which
+  is the one shape of help worse than no help at all; `moonbuggy show`'s
+  positional argument was likewise unexplained. A test now fails the build if
+  any option is added without help.
+
+- `--jobs` is documented as defaulting to the CPU count, one fewer under
+  `-n/--workers`. The README said "CPU count - 1" and `-h` said "CPU count";
+  both were half right, because the two runner paths genuinely differ — the
+  xdist path holds a core back for the parent, the warm-session path does not,
+  since there the parent is blocked on a pipe for the whole interval.
+
+- `make check-fast-path` and `make check-pytest-args` run two suites that were
+  in no gate at all. Both files are `slow`-marked, so the default `make test`
+  deselects them, and no target named them — meaning CI never ran the D5
+  fast-path oracle (the load-bearing correctness test in the project) or the
+  `--pytest-arg` cache-key regression test. Both are now in `make check-all`.
+
 ### Fixed
 
 - The results cache now keys on the run itself, not only on the code. A run
