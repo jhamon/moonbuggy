@@ -8,6 +8,32 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `moonbuggy run <id>`: re-run one mutant, or several, without a full run.
+  `moonbuggy show <id>` could print a mutant but not execute it, so checking
+  whether a new test kills a survivor meant hand-applying the mutation and
+  running pytest yourself. `run` is `show` with the run attached — the same
+  coverage pass, the same coverage-guided selection, the same runner — and it
+  prints the two things a one-line report cannot carry: every test that was
+  selected, and every one of them that failed. It honours `--pytest-arg`,
+  `--timeout`, `-n` and `--flaky-probe`, and its exit code mirrors a full
+  run's: `0` when every target was killed, `1` for a `SURVIVED` or a
+  `NO_COVERAGE`, `2` when it could not run at all.
+
+- `moonbuggy run` **never serves a cached verdict for its target**, because
+  re-measuring is the entire point of the command. It does store the fresh
+  verdict, under the same fingerprinted key a full run uses, so verifying a fix
+  makes the next full run shorter rather than longer; `--no-cache` turns the
+  write off. It leaves `results.jsonl` and `results.txt` alone — they are the
+  record of a *run*, and rewriting one line of them from a single-mutant
+  measurement would leave a file whose summary no longer describes it.
+
+- `moonbuggy run` takes **several ids, and `-` to read them from stdin**, so a
+  round of new tests can be checked against every outstanding finding at once:
+  `grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt | moonbuggy run -`.
+  Whole result lines are accepted as well as bare ids, and piped output is the
+  same one-line-per-mutant format `results.txt` uses, so one `run` pipes into
+  the next.
+
 - `moonbuggy accept <id> --reason "..."`: an accepted-equivalents ledger. A
   survivor a human has reviewed and decided is equivalent is recorded in
   `.moonbuggy/accepted.toml` (or `--accept-file`) with the reason for the

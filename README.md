@@ -116,6 +116,28 @@ awk-friendly. To see a mutant in full:
 moonbuggy show 'shipping.py:5:comparison_swap:0'
 ```
 
+### Checking a fix without a full run
+
+You wrote the test you think kills that mutant. Ask:
+
+```bash
+moonbuggy run 'shipping.py:5:comparison_swap:0'
+```
+
+`run` re-measures exactly that mutant with the same coverage-guided selection a
+full run uses, and prints which tests were selected and which of them failed.
+The verdict is always measured — a cached one would answer a different
+question — and `results.jsonl` is left as the last full run wrote it. Exit code
+matches a full run: `0` if the mutant is now killed, `1` if it still survives or
+still has no coverage.
+
+It takes several ids, and `-` reads them from stdin, so the whole outstanding
+set goes back through in one command:
+
+```bash
+grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt | moonbuggy run -
+```
+
 That is the format you get when output is piped or redirected. At a terminal
 you get a human report instead: survivors grouped by file and line, each with
 the code delta and a caret under exactly what changed.

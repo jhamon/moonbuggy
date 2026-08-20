@@ -120,6 +120,38 @@ def test_exactly_ten_does_not_qualify():
     assert discount(quantity=10) == 0
 ```
 
+Now ask whether that test actually kills the mutant, without re-running the
+other seventy:
+
+```{code-block} console
+$ moonbuggy run app/pricing.py:14:comparison_swap:0
+id           app/pricing.py:14:comparison_swap:0
+status       KILLED
+location     app/pricing.py:14
+operator     comparison_swap
+tests_run    3
+selected     tests/test_pricing.py::test_discount
+             tests/test_pricing.py::test_exactly_ten_does_not_qualify
+             tests/test_pricing.py::test_bulk
+failed       tests/test_pricing.py::test_exactly_ten_does_not_qualify
+diff
+  - if quantity > 10:
+  + if quantity >= 10:
+```
+
+`run` is `show` with the run attached: same coverage pass, same selection, same
+runner, one mutant. It never serves a cached verdict for its target — the point
+of the command is to re-measure — and it leaves `results.jsonl` alone, since
+that file is the record of a run and no run has happened. Exit code is `0` when
+the mutant is killed and `1` when it is not, so it works in a script.
+
+To re-check everything still outstanding after a round of new tests, pipe the
+findings in:
+
+```{code-block} console
+$ grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt | moonbuggy run -
+```
+
 Run moonbuggy again:
 
 ```{code-block} console
