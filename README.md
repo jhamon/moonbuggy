@@ -234,12 +234,16 @@ Nothing below is required.
 --fail-on-unexplained
                      exit 1 only for findings that are neither killed nor
                      accepted
---jobs N             mutants to run concurrently (default: CPU count - 1)
+--jobs N             mutants to run concurrently (default: CPU count, or one
+                     fewer with -n/--workers)
 -n, --workers N      pytest-xdist workers per mutant run
 --source DIR         directory to mutate, if discovery guesses wrong
 --no-cache           ignore and do not update the cache
 --clear-cache        delete the cache, then run
 --quiet              summary line only
+--json               print the run summary to stdout as one JSON object and
+                     nothing else (it is written to .moonbuggy/summary.json
+                     either way)
 --report MODE        'human' for a readable report with diffs, 'agent' for
                      one grep-friendly line per mutant (default: human at a
                      terminal, agent when piped; MOONBUGGY_REPORT overrides)
@@ -259,6 +263,8 @@ python -m venv .venv && .venv/bin/pip install -e '.[dev,bench]'
 |---|---|
 | `make test` | fast unit suite |
 | `make check-oracle` | every mutant against the hand-written oracle |
+| `make check-fast-path` | the fast path against that oracle, serial and under xdist |
+| `make check-pytest-args` | `--pytest-arg` reaches every run, and keys the cache |
 | `make check-spike` | in-memory mutation, assert rewriting, xdist |
 | `make check-cli` | end-to-end CLI runs against real pytest subprocesses |
 | `make check-mutmut` | advisory cross-check of the oracle against mutmut |
