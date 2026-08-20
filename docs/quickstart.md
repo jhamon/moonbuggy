@@ -7,9 +7,38 @@ audience: You have a Python project with a pytest suite and have never used muta
 **Audience:** you have a Python project with a pytest suite. You have never used
 mutation testing and do not need to understand it yet.
 
-**Goal:** install moonbuggy, run it, read one survivor, and fix it. Ten minutes.
+**Goal:** get moonbuggy running, read one survivor, and fix it. Ten minutes.
 
-## 1. Install
+## 1. Start it
+
+There are two ways in. The first is the one moonbuggy is designed around.
+
+### If you are handing this to an agent
+
+Show it the help screen and let it work:
+
+```{code-block} console
+$ uv run --with moonbuggy moonbuggy -h
+```
+
+`uv run --with` pulls moonbuggy into a throwaway environment for that one
+command, so there is nothing to install and nothing added to your project.
+That help screen is the whole interface: no configuration file, no scaffolding
+step, nothing to read first.
+
+The first real run, from your project root and inside the virtualenv where
+your tests already run, is a single line:
+
+```{code-block} console
+$ uv run --with moonbuggy moonbuggy --include src/yourpkg --pytest-arg=-q
+```
+
+`--include` keeps the first run small, and `--pytest-arg` passes anything your
+suite needs through to every pytest run. Both are optional.
+
+### If you are running it yourself
+
+Install it:
 
 ```{code-block} console
 $ pip install moonbuggy

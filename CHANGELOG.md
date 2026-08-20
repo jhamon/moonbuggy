@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The README and the quickstart now lead with the agent onboarding path:
+  `uv run --with moonbuggy moonbuggy -h` needs no install, and the help screen
+  is the whole interface. The human install path follows it rather than
+  preceding it.
+
 ## [0.1.2] - 2026-08-19
 
 ### Added

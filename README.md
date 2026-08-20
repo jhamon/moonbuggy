@@ -23,6 +23,31 @@ Two things make moonbuggy different:
   view whose every line starts with a fixed keyword, so `grep SURVIVED` works
   with no knowledge of the schema.
 
+## Point an agent at it
+
+This is the intended way to use moonbuggy, and it needs no install at all.
+Show your agent the help screen and let it drive:
+
+```bash
+uv run --with moonbuggy moonbuggy -h
+```
+
+`uv run --with` fetches moonbuggy into a throwaway environment for that one
+command, so nothing is added to your project. Everything an agent needs to
+operate the tool is on that screen: there is no config file, no scaffolding
+step, and no tutorial to read first.
+
+From your project root, inside the virtualenv where your tests already run,
+the first real invocation is one line:
+
+```bash
+uv run --with moonbuggy moonbuggy --include src/yourpkg --pytest-arg=-q
+```
+
+`--include` keeps the first run small while you are still deciding whether you
+like the answers, and `--pytest-arg` passes anything your suite needs through
+to every pytest run. Both are optional; bare `moonbuggy` discovers the rest.
+
 ## Install
 
 Full documentation is published at
@@ -30,8 +55,10 @@ Full documentation is published at
 
 Requires Python 3.12+ and pytest.
 
+For repeated use, install it into your project instead:
+
 ```bash
-pip install .
+pip install moonbuggy
 ```
 
 ## Use
