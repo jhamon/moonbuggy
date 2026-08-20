@@ -8,6 +8,7 @@ every plain `pytest` invocation.
 """
 
 import io
+import subprocess
 from collections import Counter
 from pathlib import Path
 
@@ -131,3 +132,44 @@ def test_the_same_command_line_produces_the_same_cache_key(tmp_path):
     second = _cache_key(tmp_path, "--project", str(tmp_path), "--pytest-arg=-x")
 
     assert first == second
+
+
+def _tiny_project(root):
+    (root / "pytest.ini").write_text("[pytest]\n")
+    (root / "lib.py").write_text("def one():\n    return 1\n")
+    (root / "test_lib.py").write_text("def test_nothing():\n    assert True\n")
+    return root
+
+
+def test_since_outside_a_git_repository_exits_2(tmp_path, capsys):
+    # Criterion H5: the flag needs git history, and saying so beats a
+    # traceback out of subprocess.
+    _tiny_project(tmp_path)
+
+    code = main(["--project", str(tmp_path), "--since", "main"])
+
+    assert code == 2
+    assert "not inside a git repository" in capsys.readouterr().err
+
+
+def test_since_with_an_unknown_ref_exits_2(tmp_path, capsys):
+    _tiny_project(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+
+    code = main(["--project", str(tmp_path), "--since", "no-such-branch"])
+
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "no-such-branch" in err
+    assert "fetch-depth" in err
+
+
+def test_since_does_not_enter_the_cache_fingerprint(tmp_path):
+    # A mutant's verdict cannot depend on how the run reached it, so a
+    # diff-scoped run must fill and read the same cache as a full one. If
+    # `--since` were folded into the fingerprint, every PR run would start
+    # cold and the flag's whole point -- being cheap -- would go with it.
+    full = _cache_key(tmp_path, "--project", str(tmp_path))
+    scoped = _cache_key(tmp_path, "--project", str(tmp_path), "--since", "origin/main")
+
+    assert full == scoped

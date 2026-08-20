@@ -11,6 +11,7 @@ canonical one, for the same reason the plaintext view cannot.
 
 from collections.abc import Mapping, Sequence
 
+from .diffscope import DiffScope
 from .report import Record, summarise
 from .terminal import (
     FALLBACK_WIDTH,
@@ -348,7 +349,13 @@ def score_text(counts: Mapping[str, int]) -> str:
     return f"{killed}/{runnable} killed, {round(100 * killed / runnable)}%"
 
 
-def render_footer(counts: Mapping[str, int], elapsed: float, artifact: str) -> str:
+def render_footer(
+    counts: Mapping[str, int],
+    elapsed: float,
+    artifact: str,
+    *,
+    scope: DiffScope | None = None,
+) -> str:
     """The report's closing lines: the tally, the artifact, and the exit code.
 
     Public because `--quiet` in human mode means the footer only, so `cli.py`
@@ -369,9 +376,16 @@ def render_footer(counts: Mapping[str, int], elapsed: float, artifact: str) -> s
             that decision belongs to the caller alone. No default: a default
             is exactly how the artifact path drifted from `--output-dir` and
             `--project` before.
+        scope: the run's diff scope under `--since`, or None for a full run.
+            A scoped run says so here, between the tally and the artifact,
+            because the tally directly above it is the sentence most likely to
+            be misread: "3/3 killed, 100%" is a different claim about a
+            three-mutant slice of a branch than about a whole codebase, and
+            the footer is the last place either reading can be settled.
 
     Returns:
-        Three newline-separated lines, with no trailing newline.
+        Three newline-separated lines, or four for a diff-scoped run, with no
+        trailing newline.
     """
     tally = ", ".join(
         f"{counts[status]} {status.lower()}"
@@ -381,6 +395,7 @@ def render_footer(counts: Mapping[str, int], elapsed: float, artifact: str) -> s
     return "\n".join(
         [
             f"{tally} in {elapsed:.1f}s -- {score_text(counts)}",
+            *([scope.describe()] if scope is not None else []),
             f"Full records: {artifact}",
             _exit_line(counts),
         ]
@@ -414,6 +429,7 @@ def render_report(
     timeout: float,
     artifact: str,
     width: int = FALLBACK_WIDTH,
+    scope: DiffScope | None = None,
 ) -> str:
     """The whole human report.
 
@@ -433,6 +449,9 @@ def render_report(
             it: a `path:line` header must stay one contiguous token that a
             terminal and `$EDITOR +N` can act on, and the footer's score must
             keep its denominator, so both soft wrap instead.
+        scope: the run's diff scope under `--since`, or None. Named in the
+            header as well as forwarded to the footer, so a reader who stops
+            after the first line has still been told the run was partial.
 
     Returns:
         The report, newline-separated, with no trailing newline.
@@ -440,8 +459,9 @@ def render_report(
     counts = summarise(records)
     mutant_noun = "mutant" if len(records) == 1 else "mutants"
     file_noun = "file" if files == 1 else "files"
+    scoped = "" if scope is None else f"  (diff-scoped since {scope.ref})"
     lines = [
-        f"moonbuggy  {len(records)} {mutant_noun} across {files} {file_noun}",
+        f"moonbuggy  {len(records)} {mutant_noun} across {files} {file_noun}{scoped}",
         "",
     ]
 
@@ -486,7 +506,7 @@ def render_report(
             )
             lines.append("")
 
-    lines.append(render_footer(counts, elapsed, artifact))
+    lines.append(render_footer(counts, elapsed, artifact, scope=scope))
     return "\n".join(lines)
 
 

@@ -5,6 +5,7 @@ which is what lets the alignment, truncation, and encoding cases be ordinary
 unit tests.
 """
 
+from moonbuggy.diffscope import DiffScope
 from moonbuggy.humanreport import (
     changed_span,
     coverage_sentence,
@@ -496,3 +497,57 @@ def test_the_minus_line_windows_around_the_same_span_as_the_plus_line():
     )
     minus_line = next(line for line in lines if line.lstrip().startswith("- "))
     assert "OLD" in minus_line
+
+
+SCOPE = DiffScope(
+    ref="origin/main",
+    merge_base="1a2b3c4d5e6f7a8b9c0d",
+    ranges={"lib.py": ((10, 12),)},
+)
+
+
+def test_a_full_run_footer_is_unchanged_by_the_scope_argument():
+    # The scope line exists only when there is a scope. A full run's footer
+    # keeps its three lines and its line numbering, which is what the tests
+    # above index into.
+    counts = {"KILLED": 1, "SURVIVED": 0, "TIMEOUT": 0, "SKIPPED": 0, "SUSPICIOUS": 0}
+
+    assert render_footer(counts, 1.0, "out.jsonl") == render_footer(
+        counts, 1.0, "out.jsonl", scope=None
+    )
+
+
+def test_a_diff_scoped_footer_says_so_and_names_the_ref():
+    # The point of the line: "1/1 killed, 100%" on the line above it is a claim
+    # about three changed lines, not about the codebase.
+    counts = {"KILLED": 1, "SURVIVED": 0, "TIMEOUT": 0, "SKIPPED": 0, "SUSPICIOUS": 0}
+
+    lines = render_footer(counts, 1.0, "out.jsonl", scope=SCOPE).splitlines()
+
+    assert len(lines) == 4
+    assert lines[0].endswith("1/1 killed, 100%")
+    assert "origin/main" in lines[1]
+    assert "1a2b3c4" in lines[1]
+    assert lines[2] == "Full records: out.jsonl"
+
+
+def test_a_diff_scoped_report_says_so_in_its_header_too():
+    # A reader who stops after the first line has still been told the run was
+    # partial.
+    report = render_report(
+        [rec(status="KILLED")],
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact="out.jsonl",
+        scope=SCOPE,
+    )
+    lines = report.splitlines()
+
+    assert (
+        lines[0] == "moonbuggy  1 mutant across 1 file  (diff-scoped since origin/main)"
+    )
+    assert any(
+        "Diff-scoped: only lines changed since origin/main" in ln for ln in lines
+    )
