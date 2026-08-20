@@ -73,7 +73,14 @@ from .mutant import Mutant
 #    raise. A warm cache would therefore report a *different* crash-kill count
 #    than a cold one on the same code, which is the one thing a cache must
 #    never do.
-CACHE_VERSION = 4
+# 5: doctest mismatches reclassified. v4 stored KILLED_BY_ERROR for a doctest
+#    that caught a mutation, because `doctest.DocTestFailure` is neither an
+#    AssertionError nor a pytest failure; it is now the ordinary KILLED it
+#    always should have been. v4 never shipped -- 0.2.0 is the first release to
+#    carry any of these -- so this bump costs one cold run to nobody outside
+#    this repository, and buys not replaying a verdict this version disagrees
+#    with.
+CACHE_VERSION = 5
 
 
 def run_fingerprint(

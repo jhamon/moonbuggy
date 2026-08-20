@@ -153,7 +153,9 @@ def _is_error(call: Any, report: Any) -> bool:
 
     Returns:
         True for an uncaught exception, or for any failure outside the call
-        phase -- a fixture that raised has not checked anything either.
+        phase -- a fixture that raised has not checked anything either. False
+        for the exceptions a test raises on purpose to object, which includes
+        a doctest whose output did not match.
     """
     if getattr(report, "when", "call") != "call":
         return True
@@ -161,16 +163,47 @@ def _is_error(call: Any, report: Any) -> bool:
     if excinfo is None:
         # No exception to look at. Nothing here can improve on "killed".
         return False
+    import doctest
+
     import pytest
 
     # The exception classes that mean a test made a judgement and it went
     # against the code. `AssertionError` is the plain `assert`, rewritten or
     # not. `pytest.fail.Exception` -- `_pytest.outcomes.Failed` -- is
     # `pytest.fail()` and, importantly, a `pytest.raises` block whose expected
-    # exception never arrived. Both are the test speaking, so both are
+    # exception never arrived. `doctest.DocTestFailure` is a doctest whose
+    # output did not match: the example is the assertion, and the mismatch is
+    # the doctest objecting. All three are the test speaking, so all three are
     # ordinary kills.
-    deliberate = (AssertionError, pytest.fail.Exception)
+    #
+    # `doctest.UnexpectedException` is deliberately NOT here, and the pair is
+    # the whole distinction this module draws: a doctest that printed the
+    # wrong answer checked something, and a doctest whose code raised did not.
+    deliberate = (AssertionError, pytest.fail.Exception, doctest.DocTestFailure)
+    if issubclass(excinfo.type, _multiple_doctest_failures()):
+        # `--doctest-continue-on-failure` collects a file's failures into one
+        # wrapper. It is an ordinary kill only if every failure inside it is,
+        # so a mismatch sitting beside a raised exception counts as an error.
+        failures = getattr(getattr(excinfo, "value", None), "failures", None) or ()
+        return not failures or not all(
+            isinstance(f, doctest.DocTestFailure) for f in failures
+        )
     return not issubclass(excinfo.type, deliberate)
+
+
+def _multiple_doctest_failures() -> tuple[type[BaseException], ...]:
+    """The wrapper `--doctest-continue-on-failure` raises, if this pytest has it.
+
+    Returns:
+        A one-tuple of `_pytest.doctest.MultipleDoctestFailures`, or an empty
+        tuple where it does not exist -- it is private to pytest, so its
+        absence is a version difference rather than a broken install.
+    """
+    try:
+        from _pytest.doctest import MultipleDoctestFailures
+    except ImportError:  # pragma: no cover - depends on the pytest version
+        return ()
+    return (MultipleDoctestFailures,)
 
 
 # The module-level instance, for the subprocess path -- `-p moonbuggy.killreason`

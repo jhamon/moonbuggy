@@ -500,6 +500,24 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A doctest that catches a mutation is a `KILLED`, not a `KILLED_BY_ERROR`.**
+  The kill-reason classifier asked whether the exception was an
+  `AssertionError` or a pytest failure, and a failing doctest is neither --
+  it raises `doctest.DocTestFailure`. So every mutant a doctest caught was
+  reported as a crash-kill: the tool said "nothing checked this" about a test
+  that had just checked it and objected. A suite written mostly in doctests
+  would have had its kill quality reported as near-worthless.
+
+  `doctest.UnexpectedException` -- the doctest whose *code* raised -- stays a
+  crash-kill, and the pair is the whole distinction: an example that printed
+  the wrong answer checked something, an example that blew up did not.
+  `--doctest-continue-on-failure` wraps a file's failures together, and that
+  wrapper is an ordinary kill only when every failure inside it is one.
+
+  Found by `make check-pytest-args` on its first run in CI. That suite existed
+  but was wired into no `make` target until this release, so nothing had ever
+  executed it there.
+
 - **Operator and documentation accuracy pass.** `condition_negation` now states
   its two exclusions (`while` tests, literal tests) in its docstrings rather
   than only in comments; `argument_swap` names its three skipped sites on the
