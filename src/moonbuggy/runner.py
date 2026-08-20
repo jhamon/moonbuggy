@@ -7,7 +7,20 @@ applied (4.2). Neither writes a mutated file to disk.
 One process per mutant. That is not merely convenient -- it is what makes the
 xdist story work without any cross-process state, since the mutant's identity
 travels in the environment and every worker installs it independently. See
-docs/development/spike-a-findings.md.
+docs/development/spike-a-findings.md. On the warm path it is one host process
+plus one grandchild per mutant, which keeps the same isolation.
+
+`run_session` is the primary entry point and the one the CLI calls for a normal
+run: it does the coverage pass and the mutant runs in a single warm process.
+`run_mutants` is the fallback for when forking is unavailable or xdist workers
+were asked for.
+
+The whole reported status vocabulary is settled here: `SKIPPED` (suppressed),
+`SUSPICIOUS` (a flaky test in the selection) and `NO_COVERAGE` (nothing selected)
+without running anything, and `KILLED`, `KILLED_BY_ERROR`, `SURVIVED` and
+`TIMEOUT` from the mutant's own process. See :data:`moonbuggy.forkserver.Status`
+for what a process can decide and :data:`ResultStatus` for what can reach a
+:class:`Result`.
 """
 
 import json
@@ -143,7 +156,11 @@ def run_mutants(
         extra_args: pytest arguments to add to every run.
 
     Returns:
-        a list of :class:`Result`, one per mutant, in the input order.
+        a list of :class:`Result`, one per mutant, in the input order. Each
+        status is one of KILLED, KILLED_BY_ERROR, SURVIVED, TIMEOUT,
+        SUSPICIOUS, SKIPPED or NO_COVERAGE -- plus UNAPPLIED on the warm-batch
+        path, which unlike `run_session` does not scrub it (see
+        :data:`ResultStatus`).
     """
     project_dir = Path(project_dir)
     python = python or sys.executable
@@ -284,7 +301,8 @@ def run_one(
             never appears.
 
     Returns:
-        A :class:`Result`.
+        A :class:`Result`, whose status is one of KILLED, KILLED_BY_ERROR,
+        SURVIVED, TIMEOUT, SUSPICIOUS, SKIPPED or NO_COVERAGE.
     """
     if outcomes is not None:
         use_fork = False
@@ -460,7 +478,10 @@ def run_session(
             mutant its doctests would catch is reported as a survivor.
 
     Returns:
-        ``(linemap, results)``.
+        ``(linemap, results)``. Each result's status is one of KILLED,
+        KILLED_BY_ERROR, SURVIVED, TIMEOUT, SUSPICIOUS, SKIPPED or
+        NO_COVERAGE; UNAPPLIED never reaches a caller here, because
+        `_rerun_unapplied` re-runs those coldly first.
 
     Raises:
         BaselineError: if the suite is already failing or collects nothing. Falls back
@@ -887,10 +908,12 @@ def _warm_up_args(project_dir: str | os.PathLike[str], linemap: "LineMap") -> li
 def _apply_in_place(mutant: Mutant) -> None:
     """Mutate an already-imported module inside a warm grandchild.
 
-    Raises if the module was never imported or the swap cannot be made, which
-    propagates as a crashed grandchild and drops the whole batch to the cold
-    path. Loud failure is the point: a mutation that quietly does not apply is
-    reported SURVIVED and looks exactly like a real finding.
+    Raises if the module was never imported or the swap cannot be made. The
+    grandchild catches that deliberately, exits `COULD_NOT_APPLY`, and the
+    parent reports UNAPPLIED for that one mutant and re-runs just it on the
+    cold path -- no other mutant in the batch is affected. Loud failure is the
+    point: a mutation that quietly does not apply is reported SURVIVED and
+    looks exactly like a real finding.
     """
     from pathlib import Path
 

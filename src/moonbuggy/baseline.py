@@ -89,7 +89,8 @@ class OutcomeRecorder:
         """A module that fails to import produces no tests at all.
 
         Left unrecorded, a collection error would look like an empty but green
-        suite, and moonbuggy would report SURVIVED for everything it covers.
+        suite, and moonbuggy would report on every line it covers as though no
+        test existed -- NO_COVERAGE, since an empty selection settles there.
         """
         if report.outcome in _FAILING:
             self.outcomes[f"{report.nodeid}::<collection>"] = "failed"

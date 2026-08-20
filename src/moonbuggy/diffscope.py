@@ -184,7 +184,8 @@ def scope_since(ref: str, project_dir: str | os.PathLike[str]) -> DiffScope:
 
     Raises:
         DiffScopeError: if this is not a git repository, `ref` does not
-            resolve, or the two have no merge base.
+            resolve, the two have no merge base, or the `git diff` itself
+            fails.
     """
     project_dir = Path(project_dir).resolve()
 
