@@ -27,6 +27,7 @@ from .baseline import check as check_baseline
 from .cache import ResultCache
 from .forkserver import Job, Status, WarmSessionEvidence
 from .inmemory import install
+from .killreason import TESTS_ERRORED
 from .mutant import Mutant
 from .plugin import MUTANT_ENV_VAR
 from .profiling import Profiler
@@ -380,6 +381,12 @@ def _run_pytest(
         *_base_args(project_dir),
         "-p",
         "moonbuggy.plugin",
+        # Turns a "tests failed" exit code into TESTS_ERRORED when every
+        # failure was a crash rather than an assertion. Registered here as
+        # well as in the fork paths so all three runners answer the same
+        # question the same way.
+        "-p",
+        "moonbuggy.killreason",
         *selected,
     ]
     if xdist_workers:
@@ -411,6 +418,8 @@ def _run_pytest(
         return "SURVIVED"
     if proc.returncode == PYTEST_TESTS_FAILED:
         return "KILLED"
+    if proc.returncode == TESTS_ERRORED:
+        return "KILLED_BY_ERROR"
     # pytest could not complete: collection error, internal error, usage error,
     # or nothing collected. Not a clean kill, which is what SUSPICIOUS is for.
     return "SUSPICIOUS"

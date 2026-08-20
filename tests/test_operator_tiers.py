@@ -162,9 +162,7 @@ def test_a_selection_that_resolves_to_nothing_says_so(monkeypatch):
     that it has one, the case is provoked rather than found lying around --
     it must stay a clear error and not a zero-mutant run that looks like a
     clean bill of health."""
-    monkeypatch.setattr(
-        operators_pkg, "TIERS", (*TIERS, "zz_empty_tier"), raising=True
-    )
+    monkeypatch.setattr(operators_pkg, "TIERS", (*TIERS, "zz_empty_tier"), raising=True)
     with pytest.raises(SelectionError, match="zz_empty_tier"):
         resolve_operators("zz_empty_tier")
 

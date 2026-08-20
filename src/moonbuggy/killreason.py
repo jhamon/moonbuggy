@@ -1,0 +1,208 @@
+"""Why a mutant died: a failed assertion, or a test that blew up.
+
+A kill is not a kill. When a mutation makes the code raise `NameError` at the
+first line that touches it, every test near it errors out -- and the tool
+reports the same `KILLED` it reports for a test that computed the wrong answer
+and said so. The two are different findings about the suite:
+
+- a **failed assertion** proves a test *checked* the behaviour the mutation
+  changed. That is the thing mutation testing measures.
+- an **errored test** proves only that a test *executes* the line. The mutant
+  broke the code badly enough that touching it explodes; nothing was checked.
+
+Under the `default` tier the distinction is a curiosity, because most mutations
+there produce a program that still runs and merely computes something else.
+Under `statement_deletion` it is the difference between a meaningful kill rate
+and a meaningless one: delete a binding and everything downstream raises. A
+deep-tier run without this would report a *higher* score for a suite that
+checks less.
+
+HOW THE ANSWER TRAVELS
+======================
+
+Every path that runs a mutant's tests -- a forked child, a warm grandchild, a
+`python -m pytest` subprocess -- reports back through pytest's exit code and
+nothing else. So this plugin puts the answer there, by rewriting
+`session.exitstatus` from `TESTS_FAILED` to :data:`TESTS_ERRORED` in
+`pytest_sessionfinish`. Each runner then learns one new code rather than a new
+channel, and the three of them cannot drift apart by reading different things.
+
+The classification itself is made from `call.excinfo` in
+`pytest_exception_interact`, which is exact -- the exception class, not a
+rendered string -- and stamped onto the report rather than kept in an
+attribute of this object. That is what makes it survive pytest-xdist: the
+worker classifies, `TestReport` carries unknown attributes through its own
+JSON round trip, and the controller reads the flag off the deserialised report
+in `pytest_runtest_logreport`.
+"""
+
+from typing import Any
+
+# pytest is imported lazily, inside the two functions that need it. This
+# module is reachable from `runner` and so from the CLI's import graph, and
+# `import pytest` costs about a tenth of a second -- which `moonbuggy
+# operators` should not pay to print a list.
+
+# pytest's own "tests failed" exit code, spelled out rather than imported for
+# the same reason.
+PYTEST_TESTS_FAILED = 1
+
+# The exit code this plugin substitutes for pytest's TESTS_FAILED when every
+# failure was an error rather than an assertion. Above pytest's own codes
+# (0-5) and clear of `forkserver.CHILD_CRASHED` (70) and `COULD_NOT_APPLY`
+# (71), so no runner has to guess which layer produced a number.
+TESTS_ERRORED = 72
+
+# The attribute the classification travels on. Named rather than anonymous
+# because it crosses pytest's own report serialisation, where a collision with
+# a field pytest or another plugin owns would be silent.
+FLAG = "moonbuggy_errored"
+
+
+class KillReason:
+    """Records whether this session's failures were assertions or errors.
+
+    One instance per process that runs one mutant's tests. It carries no state
+    between mutants because no two mutants ever share a process -- see
+    `forkserver`'s module docstring for why that is load-bearing rather than
+    incidental.
+    """
+
+    def __init__(self) -> None:
+        self.assertion_failed = False
+        self.test_errored = False
+
+    def reset(self) -> None:
+        """Forget this session's verdict.
+
+        The warm host builds one config before the first fork and every
+        grandchild inherits a copy of this object with it, so each one starts
+        by clearing whatever the host happened to leave in it.
+        """
+        self.assertion_failed = False
+        self.test_errored = False
+
+    @property
+    def errored(self) -> bool:
+        """Whether this session's kill was an error rather than an assertion.
+
+        One assertion failure anywhere is enough to call the kill ordinary:
+        it is direct evidence that a test checked the mutated behaviour, and
+        the errors beside it are then a consequence rather than the finding.
+        """
+        return self.test_errored and not self.assertion_failed
+
+    def pytest_exception_interact(self, node: object, call: Any, report: Any) -> None:
+        """Classify one failure, stamp its report, and fold it in.
+
+        This is where the classification happens in whichever process actually
+        ran the test -- the ordinary case, and the xdist *worker*.
+
+        Args:
+            node: the item or collector that failed. Unused.
+            call: the `CallInfo`, carrying the `ExceptionInfo` this reads.
+            report: the report to stamp, so the answer survives xdist.
+        """
+        if hasattr(report, FLAG):
+            return
+        errored = _is_error(call, report)
+        setattr(report, FLAG, errored)
+        self._fold(errored)
+
+    def pytest_runtest_logreport(self, report: Any) -> None:
+        """Fold in a report that already carries a classification.
+
+        Only an xdist controller reaches this with a flag set: in a single
+        process `call_and_report` calls `pytest_runtest_logreport` *before*
+        `pytest_exception_interact`, so an unflagged report here has not been
+        classified yet rather than been classified as an assertion. Folding it
+        in anyway is how the first version of this got every crash-kill wrong.
+
+        Args:
+            report: one test report, possibly deserialised from a worker.
+        """
+        if report.failed and hasattr(report, FLAG):
+            self._fold(bool(getattr(report, FLAG)))
+
+    def _fold(self, errored: bool) -> None:
+        """Record one classified failure."""
+        if errored:
+            self.test_errored = True
+        else:
+            self.assertion_failed = True
+
+    def pytest_sessionfinish(self, session: Any, exitstatus: Any) -> None:
+        """Rewrite the exit code when the kill was an error.
+
+        Args:
+            session: the pytest session, whose `exitstatus` is what every
+                caller of `pytest.main` (and of `pytest_cmdline_main`) ends up
+                returning.
+            exitstatus: the code pytest settled on, before this.
+        """
+        if int(exitstatus) == PYTEST_TESTS_FAILED and self.errored:
+            session.exitstatus = TESTS_ERRORED
+
+
+def _is_error(call: Any, report: Any) -> bool:
+    """Whether this failure is a test blowing up rather than a test objecting.
+
+    Args:
+        call: the `CallInfo` for the phase that failed.
+        report: the report being classified.
+
+    Returns:
+        True for an uncaught exception, or for any failure outside the call
+        phase -- a fixture that raised has not checked anything either.
+    """
+    if getattr(report, "when", "call") != "call":
+        return True
+    excinfo = getattr(call, "excinfo", None)
+    if excinfo is None:
+        # No exception to look at. Nothing here can improve on "killed".
+        return False
+    import pytest
+
+    # The exception classes that mean a test made a judgement and it went
+    # against the code. `AssertionError` is the plain `assert`, rewritten or
+    # not. `pytest.fail.Exception` -- `_pytest.outcomes.Failed` -- is
+    # `pytest.fail()` and, importantly, a `pytest.raises` block whose expected
+    # exception never arrived. Both are the test speaking, so both are
+    # ordinary kills.
+    deliberate = (AssertionError, pytest.fail.Exception)
+    return not issubclass(excinfo.type, deliberate)
+
+
+# The module-level instance, for the subprocess path -- `-p moonbuggy.killreason`
+# registers this module, and pytest finds the hooks below on it.
+_ACTIVE = KillReason()
+
+
+def pytest_exception_interact(node: object, call: Any, report: Any) -> None:
+    """Module-level hook, delegating to the process's :data:`_ACTIVE` recorder.
+
+    Args:
+        node: the failing item or collector.
+        call: the `CallInfo` for the failing phase.
+        report: the report to stamp.
+    """
+    _ACTIVE.pytest_exception_interact(node, call, report)
+
+
+def pytest_runtest_logreport(report: Any) -> None:
+    """Module-level hook, delegating to the process's :data:`_ACTIVE` recorder.
+
+    Args:
+        report: one test report.
+    """
+    _ACTIVE.pytest_runtest_logreport(report)
+
+
+def pytest_sessionfinish(session: Any, exitstatus: Any) -> None:
+    """Module-level hook, delegating to the process's :data:`_ACTIVE` recorder.
+
+    Args:
+        session: the pytest session.
+        exitstatus: the code pytest settled on.
+    """
+    _ACTIVE.pytest_sessionfinish(session, exitstatus)

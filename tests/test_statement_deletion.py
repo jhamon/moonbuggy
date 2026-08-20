@@ -58,7 +58,8 @@ def test_a_default_run_generates_no_deletions():
     source = "def f(x):\n    return x + 1\n"
 
     assert [
-        m for m in generate_mutants(source, module="lib.py")
+        m
+        for m in generate_mutants(source, module="lib.py")
         if m.operator == "statement_deletion"
     ] == []
     assert any(
@@ -198,7 +199,7 @@ def test_a_local_read_later_is_mutated():
 
 
 def test_a_local_read_earlier_in_a_loop_is_mutated():
-    """"Never read *again*" is implemented as "never read anywhere in the
+    """ "Never read *again*" is implemented as "never read anywhere in the
     function", because a read above the write is still a read after it once
     the two share a loop. The stricter rule is the correct one."""
     source = "def f(items):\n    for i in items:\n        use(seen)\n        seen = i\n"

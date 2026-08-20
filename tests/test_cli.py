@@ -488,6 +488,61 @@ def test_an_unreached_line_is_reported_as_no_coverage(tmp_path):
     assert "NO_COVERAGE=" in proc.stderr
 
 
+DELETION_PROJECT = """\
+def scaled(value):
+    factor = 2
+    return value * factor
+"""
+
+DELETION_TESTS = """\
+from lib import scaled
+
+
+def test_scaled():
+    assert scaled(3) == 6
+"""
+
+
+def test_a_deep_tier_run_separates_crash_kills_from_assertion_kills(tmp_path):
+    """End to end: `statement_deletion` is off by default, on under
+    `--operators`, and its crash-kills are reported under their own keyword.
+
+    Deleting `factor = 2` leaves `return value * factor` raising `NameError`.
+    The suite notices -- it is a kill -- but nothing about it says the suite
+    *checks* the multiplication, which is the whole distinction. Deleting the
+    `return` instead makes `scaled` return None and the assertion objects, so
+    the same file produces one of each.
+    """
+    (tmp_path / "lib.py").write_text(DELETION_PROJECT)
+    (tmp_path / "test_lib.py").write_text(DELETION_TESTS)
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "conftest.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "sys.path.insert(0, str(Path(__file__).parent))\n"
+    )
+
+    default_run = moonbuggy(cwd=tmp_path, expect=0)
+    default_text = (tmp_path / ".moonbuggy" / "results.txt").read_text()
+    assert "statement_deletion" not in default_text
+
+    # A kill is not a finding, so this still exits 0.
+    proc = moonbuggy("--operators", "+deep", cwd=tmp_path, expect=0)
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / ".moonbuggy" / "results.jsonl").read_text().splitlines()
+    ]
+    by_id = {r["id"]: r["status"] for r in records}
+
+    assert by_id["lib.py:2:statement_deletion:0"] == "KILLED_BY_ERROR"
+    assert by_id["lib.py:3:statement_deletion:0"] == "KILLED"
+    text = (tmp_path / ".moonbuggy" / "results.txt").read_text()
+    assert [line for line in text.splitlines() if line.startswith("KILLED_BY_ERROR")]
+    assert "KILLED_BY_ERROR=1" in proc.stderr
+    # The default run above had no deep operator in it at all.
+    assert "KILLED_BY_ERROR=0" in default_run.stderr
+
+
 def test_a_non_tty_run_puts_no_bare_survived_line_on_stderr(tmp_path, capsys):
     """Survivor scrollback belongs to the live region, and only to it.
 

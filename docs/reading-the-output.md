@@ -25,12 +25,13 @@ human report instead — the same findings, rendered to be read, described under
 
 ## Statuses
 
-Six keywords, and only six. Each line of plaintext begins with one, so
-`grep KILLED` needs no knowledge of anything else on this page.
+Seven keywords, and only seven. Each line of plaintext begins with one, so
+`grep SURVIVED` needs no knowledge of anything else on this page.
 
 | status | meaning | what to do |
 |---|---|---|
-| `KILLED` | a selected test failed under the mutation | nothing — your suite caught it |
+| `KILLED` | a selected test's assertion failed under the mutation | nothing — your suite caught it |
+| `KILLED_BY_ERROR` | a selected test errored out under the mutation | nothing to fix, but **read the count**; see below |
 | `SURVIVED` | every selected test passed under the mutation | **read it**; this is the finding |
 | `NO_COVERAGE` | no test executes the line, so none was selected | **read it**; this is the other finding |
 | `TIMEOUT` | the mutation made the tests take longer than `--timeout` | usually an infinite loop; treat as killed-ish |
@@ -53,6 +54,23 @@ The exit code did not change: `NO_COVERAGE` exits `1` exactly as `SURVIVED`
 does, so a gate that only reads the exit code is unaffected.
 :::
 
+:::{admonition} Changed in 0.1.4
+:class: warning
+
+`KILLED_BY_ERROR` is new, and it took cases that used to be `KILLED`. A kill
+where the test raised rather than asserted is reported under the new keyword,
+so **`grep KILLED` no longer returns every kill** — it now returns both, since
+one keyword is a prefix of the other. Anchor the pattern to get only ordinary
+kills:
+
+```{code-block} console
+$ grep -E '^KILLED ' .moonbuggy/results.txt
+```
+
+Neither the exit code nor the mutation score changed: a crash-kill is a kill,
+it counts in the numerator, and it is not a finding.
+:::
+
 Three of these are worth expanding, because they are where a mutation tool
 usually lies to you.
 
@@ -73,6 +91,27 @@ If *everything* comes back `NO_COVERAGE`, suspect the run rather than the
 suite: it usually means the coverage pass measured a different copy of your
 package than the one being mutated. See [Troubleshooting](troubleshooting.md).
 
+**`KILLED_BY_ERROR`** means a test died rather than objected. The mutation
+broke the code badly enough that something raised — `NameError`,
+`AttributeError`, `TypeError` — and pytest recorded an error rather than a
+failed assertion. That is still a kill: the mutation was noticed, it counts in
+the score's numerator, and there is nothing to fix.
+
+What it does not prove is that your tests *check* the mutated line. They
+*execute* it, which is a weaker claim, and the two are worth telling apart
+because a suite that only executes code can still score highly. Under the
+default operators this is rare: most mutations there leave a program that runs
+and merely computes something else. Under the `deep` tier's
+`statement_deletion` it is the common case, since deleting a binding leaves
+everything downstream undefined — which is exactly why the two statuses were
+split before that operator shipped. The human report's footer says how many of
+the kills were crashes, so the number above it can be read honestly.
+
+`pytest.fail()` and a `pytest.raises` block whose exception never arrived both
+count as ordinary `KILLED`: those are the test speaking as deliberately as
+`assert` is. A failure during a fixture counts as an error, because a fixture
+that raised has not checked anything either.
+
 **`SUSPICIOUS`** is deliberate humility. moonbuggy reports it when a confident
 status would not be supportable: a test covering the mutant behaved
 inconsistently between two unmutated runs, or the mutant's process died without
@@ -92,7 +131,7 @@ Whitespace-split gives you positional fields followed by `key=value` tokens:
 
 | position | field | notes |
 |---|---|---|
-| 1 | status | one of the six keywords |
+| 1 | status | one of the seven keywords |
 | 2 | `file:line` | the location, in the form editors and terminals linkify |
 | 3 | category | currently the operator name |
 | 4+ | `key=value` | `line`, `nearest_test`, `tests_run`, `id` |
@@ -387,7 +426,7 @@ lines are stable byte-for-byte for unchanged input.
 |---|---|---|
 | `schema` | integer | the record schema this line was written in; `3` today |
 | `id` | string | `file:line:operator:index` — stable across runs for unchanged source |
-| `status` | string | one of the six keywords |
+| `status` | string | one of the seven keywords |
 | `file` | string | path relative to the project root |
 | `line` | integer | 1-based line number |
 | `operator` | string | which mutation operator produced it |
@@ -453,7 +492,7 @@ works the same with it and without it.
   "elapsed": 4.117,
   "exit_code": 1,
   "counts": {
-    "killed": 71, "survived": 11, "no_coverage": 0,
+    "killed": 68, "killed_by_error": 3, "survived": 11, "no_coverage": 0,
     "timeout": 0, "suspicious": 1, "skipped": 1
   },
   "acceptance": {
@@ -469,6 +508,7 @@ works the same with it and without it.
     "operators": null, "operators_selector": null,
     "include": [], "exclude": [],
     "pytest_args": ["-p", "no:randomly"], "timeout": 30.0,
+    "include_logging_mutants": false, "logger_names": [],
     "jobs": 0, "workers": 0, "flaky_probe": 1, "cache": true
   }
 }
@@ -491,8 +531,8 @@ works the same with it and without it.
 produced it, which paths were in and out, and what pytest was told — the same
 inputs the cache key covers, so two results files that disagree can be told
 apart by their inputs rather than by guesswork. `operators` is `null` for a
-default run rather than the expanded list, because "all of them" and "all of
-the ones that version had" are different claims. When `--operators` *was*
+default run rather than the expanded list, because "the default tier" and "the
+operators that version put in it" are different claims. When `--operators` *was*
 given, `operators` is the resolved set — sorted names, never the shorthand —
 because `deep` and `+boundary` say nothing to a consumer about which operators
 produced these results, and a later version would resolve them differently.
@@ -570,12 +610,19 @@ $ jq -r 'select(.status=="SURVIVED") | "\(.file):\(.line)\n\(.diff)\n"' .moonbug
 The mutation score, killed over killed-plus-survived (`NO_COVERAGE` is not in
 this denominator; moonbuggy's own footer score keeps it, so the two numbers
 differ on a project with unreached lines — decide which question you are
-asking):
+asking). Both kill statuses go in the numerator, because both are kills:
 
 ```{code-block} text
-$ jq -s '[.[] | select(.status=="KILLED")] | length as $k
+$ jq -s '[.[] | select(.status | startswith("KILLED"))] | length as $k
     | ([.[] | select(.status=="SURVIVED")] | length) as $s
     | $k / ($k + $s)' .moonbuggy/results.jsonl
+```
+
+How much of that numerator is crashes rather than assertions — the number that
+says whether the score above means anything:
+
+```{code-block} console
+$ jq -r 'select(.status=="KILLED_BY_ERROR") | .id' .moonbuggy/results.jsonl | wc -l
 ```
 
 Survivors in code you touched on this branch:
@@ -586,10 +633,10 @@ $ git diff --name-only main... | while read f; do
   done
 ```
 
-Anything not `KILLED` or `SKIPPED`, which is the set worth a human's time:
+Anything not killed or skipped, which is the set worth a human's time:
 
 ```{code-block} console
-$ grep -Ev '^(KILLED|SKIPPED)' .moonbuggy/results.txt
+$ grep -Ev '^(KILLED|KILLED_BY_ERROR|SKIPPED)' .moonbuggy/results.txt
 ```
 
 ## Checking a recipe against the schema
@@ -612,11 +659,12 @@ True
 ```
 
 Every plaintext line's first token is a real status keyword, so a `grep` on any
-of the five is meaningful:
+of the seven is meaningful:
 
 ```{doctest}
 >>> {line.split()[0] for line in text_lines} <= {
-...     "KILLED", "SURVIVED", "NO_COVERAGE", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
+...     "KILLED", "KILLED_BY_ERROR", "SURVIVED", "NO_COVERAGE", "TIMEOUT",
+...     "SUSPICIOUS", "SKIPPED"}
 True
 ```
 

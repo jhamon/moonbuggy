@@ -1270,6 +1270,7 @@ def _settled_line(done: int, total: int, counts: Counter[str], elapsed: float) -
         f"{counts[status]} {status.lower()}"
         for status in (
             "KILLED",
+            "KILLED_BY_ERROR",
             "SURVIVED",
             "NO_COVERAGE",
             "TIMEOUT",

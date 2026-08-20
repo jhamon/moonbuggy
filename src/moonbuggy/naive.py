@@ -45,6 +45,14 @@ PYTEST_TESTS_FAILED = 1
 # whose mutation nothing notices is a SURVIVED here, and that disagreement with
 # the fast path is a known, labelled one -- see `fast_path_status` in
 # tests/fixtures/oracle.toml.
+#
+# KILLED_BY_ERROR is absent for a different reason, and a stronger one. Drawing
+# it needs `moonbuggy.killreason` loaded into the process running the tests,
+# and loading moonbuggy's own machinery into the reference implementation is
+# exactly what the module docstring above forbids: the oracle's value is that
+# it shares no code with the thing under test. So a crash-kill is a KILLED
+# here, and where the two engines therefore differ the oracle labels it with
+# `fast_path_status`, the same mechanism NO_COVERAGE already uses.
 Status = Literal["SKIPPED", "SURVIVED", "KILLED", "TIMEOUT", "SUSPICIOUS"]
 
 

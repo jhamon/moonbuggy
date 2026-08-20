@@ -200,12 +200,14 @@ own fast-path output, A2 has been violated — check `git log` on the oracle fil
 - **E3.** The plaintext view is *derived from* the JSONL, not authored separately.
   Verified by regenerating plaintext from a JSONL file and asserting it matches the
   plaintext emitted during the run byte-for-byte.
-- **E4.** Every plaintext line begins with one of exactly six fixed keywords:
-  `KILLED`, `SURVIVED`, `NO_COVERAGE`, `TIMEOUT`, `SUSPICIOUS`, `SKIPPED`. Verified by
+- **E4.** Every plaintext line begins with one of exactly seven fixed keywords:
+  `KILLED`, `KILLED_BY_ERROR`, `SURVIVED`, `NO_COVERAGE`, `TIMEOUT`, `SUSPICIOUS`,
+  `SKIPPED`. Verified by
   asserting `grep -c SURVIVED` on the plaintext equals the count of survived records in
   the JSONL. (`NO_COVERAGE` was added in 0.1.3 and took the uncovered lines that were
-  previously `SURVIVED` with `tests_run=0`; the criterion is about the keyword-per-line
-  shape, which is unchanged, not about the size of the vocabulary.)
+  previously `SURVIVED` with `tests_run=0`; `KILLED_BY_ERROR` was added in 0.1.4 and
+  took the kills where a test raised rather than asserted. The criterion is about the
+  keyword-per-line shape, which is unchanged, not about the size of the vocabulary.)
 - **E5.** Plaintext is strictly one line per mutant, with no embedded newlines — the
   diff is not inlined (the §5.3 open question, resolved as the doc's current lean).
   Verified by asserting line count equals mutant count.

@@ -57,16 +57,25 @@ _SCHEMA_2_DEFAULTS: dict[str, object] = {"logging_call": False}
 # The whole status vocabulary. Every plaintext line begins with one of these,
 # so adding a keyword is a breaking change for anyone grepping: NO_COVERAGE
 # arrived in 0.1.3 and took the uncovered lines that used to be SURVIVED with
-# it. `summarise` seeds its counts from here, so a new keyword also appears in
-# the run's final summary line with a count of zero.
+# it, and KILLED_BY_ERROR arrived next and took the crash-kills that used to
+# be KILLED. `summarise` seeds its counts from here, so a new keyword also
+# appears in the run's final summary line with a count of zero.
 STATUS_KEYWORDS = {
     "KILLED",
+    "KILLED_BY_ERROR",
     "SURVIVED",
     "NO_COVERAGE",
     "TIMEOUT",
     "SUSPICIOUS",
     "SKIPPED",
 }
+
+# The statuses that mean the mutation was noticed. Both count toward the kill
+# rate: a crash-kill is still a kill, and dropping it from the numerator would
+# report a *lower* score for a suite that did notice. What KILLED_BY_ERROR
+# says is what the kill proves -- that the tests execute the line, not that
+# they check it -- which is a distinction to read, not to score.
+KILL_STATUSES = frozenset({"KILLED", "KILLED_BY_ERROR"})
 
 # The statuses that are findings about the tests rather than facts about the
 # run: something was changed, and nothing noticed. These are the statuses that

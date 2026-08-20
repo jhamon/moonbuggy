@@ -83,6 +83,40 @@ constant_bool, and `if not True:` is the same mutation counted twice.
 """
 rule = "test -> not (test)"
 
+[operators.statement_deletion]
+description = """
+DEEP TIER, and so absent from every mutant listed below: the inventory in this
+file is a bare `moonbuggy` run, which is the `default` tier. Pinned here anyway
+because the inventory is only well-defined given exact operator semantics, and
+"this operator generates nothing in a default run" is one of them.
+
+A simple statement in a body is replaced by `pass`, spliced at its own
+`col_offset` so the indentation survives. Compound statements are excluded by
+an allowlist rather than by the multi-line splice guard: `if x: return` fits on
+one line, and deleting the `If` would delete a branch and its body rather than
+one statement.
+
+Never generated for a statement that is provably inert, because each of those
+is an equivalent mutant somebody has to read and dismiss:
+
+  - a bare `Expr` whose value is a Constant or a Name. Docstrings and `...`
+    are this shape.
+  - `pass`, `global`, `nonlocal`.
+  - `import` and `from ... import`. Not equivalent -- the opposite, a
+    NameError at every use -- but a crash-kill carrying no information about
+    test quality.
+  - `x = <expr>` where the right-hand side contains no Call, Await or Yield,
+    the target is a plain Name, and nothing in the enclosing function reads
+    `x`. A dead store. "Reads" is asked of the whole function body rather than
+    of the statements after it, because a read above the write is still a read
+    after it once the two share a loop.
+
+Everything else is mutated, by subtraction. The heuristic runs in this
+direction on purpose: a wrong answer about inertness costs noise, and a wrong
+answer about impact costs a finding.
+"""
+rule = "statement -> pass"
+
 # ---------------------------------------------------------------------------
 # sample/discounts.py
 # ---------------------------------------------------------------------------

@@ -71,6 +71,32 @@ If the loop always assigns before any read, the initial value is unobservable �
 except when the loop body never runs, which is exactly the case worth checking
 before you dismiss it.
 
+## Deleted statements
+
+`statement_deletion` — the `deep` tier — produces more equivalent mutants than
+any other operator, because "this line can be removed" is true of more lines
+than people expect. The operator already refuses to generate the ones it can
+*prove* are equivalent: docstrings, `pass`, `...`, `global`/`nonlocal`, a bare
+name or literal on its own line, and a local binding with a pure right-hand
+side that nothing in the enclosing function reads again. Anything it cannot
+prove, it generates — the alternative is declining to mutate lines that hide
+real gaps, and a missed finding costs more than a survivor you dismiss.
+
+So expect survivors of this shape, and expect some of them to be genuine:
+
+```{code-block} python
+def load(path):
+    path = Path(path)
+    cache.setdefault(path, {})     # deleting this may be equivalent
+    return _read(path)
+```
+
+Whether that `setdefault` matters depends on what `_read` does with a missing
+key, which is exactly the judgement no analysis can make for you. Ask the
+question in the next section, and when the answer is "nothing observable",
+record it in the ledger rather than deleting the line — the ledger is what
+stops the next run asking you again.
+
 ## The test before you dismiss it
 
 Before calling a survivor equivalent, answer this concretely:

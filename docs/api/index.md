@@ -75,6 +75,9 @@ else. See [Writing an operator](../writing-an-operator.md).
 
 .. automodule:: moonbuggy.operators.constant
    :members:
+
+.. automodule:: moonbuggy.operators.deletion
+   :members:
 ```
 
 ## Applying mutations
@@ -87,6 +90,9 @@ else. See [Writing an operator](../writing-an-operator.md).
    :members:
 
 .. automodule:: moonbuggy.plugin
+   :members:
+
+.. automodule:: moonbuggy.killreason
    :members:
 
 .. automodule:: moonbuggy.srcio
