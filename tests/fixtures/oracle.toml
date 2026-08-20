@@ -102,9 +102,13 @@ is an equivalent mutant somebody has to read and dismiss:
   - a bare `Expr` whose value is a Constant or a Name. Docstrings and `...`
     are this shape.
   - `pass`, `global`, `nonlocal`.
-  - `import` and `from ... import`. Not equivalent -- the opposite, a
-    NameError at every use -- but a crash-kill carrying no information about
-    test quality.
+  - `import`, `from ... import`, and `type X = ...`. Not equivalent -- the
+    opposite, a NameError at every use -- but a crash-kill carrying no
+    information about test quality. Each establishes a name later code refers
+    to, so deleting one does not produce a subtler program to test the suite
+    against. `type X = int` followed by `def f(a: X)` is exactly that:
+    annotations are evaluated when the `def` runs, so the mutant dies on the
+    alias's absence and reports nothing about the suite.
   - `x = <expr>` where the right-hand side contains no Call, Await or Yield,
     the target is a plain Name, and nothing in the enclosing function reads
     `x`. A dead store. "Reads" is asked of the whole function body rather than
