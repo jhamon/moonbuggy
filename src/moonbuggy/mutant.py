@@ -27,11 +27,24 @@ class Mutant:
     original: str
     mutated: str
     suppressed: bool = False
+    """True when this mutant is settled as `SKIPPED` without ever being run:
+    the line carries the `# moonbuggy: skip` marker, or it sits inside a
+    logging call and the run did not ask for those. Suppressed mutants leave
+    the score's denominator -- a mutant nobody could kill is not a test
+    failure -- but they are still reported, so the count stays honest."""
     module_level: bool = False
     """True when the mutated line runs at import time rather than inside a
     function body. Selection has to widen the test set for these: the line->test
     map is built from test-body execution, so a module-level line is attributed
     to no test, and an empty covering set reports a false NO_COVERAGE."""
+
+    logging_call: bool = False
+    """True when the mutation sits inside the arguments of a logging call, as
+    :mod:`moonbuggy.logging_policy` recognises one. Nothing asserts on the
+    contents of a debug line, so these survive whatever the tests do -- by
+    default they are also `suppressed`, but the tag is set either way so a
+    project that *does* assert on log output can run them and still tell them
+    apart."""
 
 
 def make_id(module: str, line: int, operator: str, index: int) -> str:
