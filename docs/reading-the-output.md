@@ -98,7 +98,51 @@ missing field.
 
 **The diff is deliberately not on this line.** One line per mutant is what keeps
 `grep`, `awk` and `wc -l` usable; a multi-line record would break all three.
-Retrieve a diff with `moonbuggy show <id>`.
+Retrieve a diff with `moonbuggy show <id>`, and re-measure one mutant with
+`moonbuggy run <id>`.
+
+## Re-running one mutant
+
+`moonbuggy run <id>` answers the fix-verify question — "I think this new test
+kills that mutant" — without a full run. It uses the same coverage pass,
+selection and runner, so its verdict means what a full run's verdict means, and
+it adds the two things a one-line report cannot carry: every test selection
+chose, and every one of them that failed.
+
+```{code-block} console
+$ moonbuggy run app/pricing.py:14:comparison_swap:0
+```
+
+Three properties are worth knowing:
+
+- **It never serves a cached verdict for its target.** Re-measuring is the
+  whole point. It does *store* the fresh verdict, under the same key a full run
+  uses, so verifying a fix here makes the next full run shorter rather than
+  longer. `--no-cache` turns the write off.
+- **It does not touch `results.jsonl` or `results.txt`.** Those are the record
+  of a *run*, complete with a summary; rewriting one line of them from a
+  single-mutant measurement would leave a file that no longer describes itself.
+  Run `moonbuggy` to refresh them.
+- **The exit code matches a full run's.** `0` when every named mutant was
+  killed, `1` when any of them is a finding — `SURVIVED` or `NO_COVERAGE`, both
+  of which mean the mutation went unnoticed — and `2` when it could not run at
+  all.
+
+It takes several ids, and `-` reads them from stdin, one per line. Whole result
+lines are accepted as well as bare ids, so the survivor set pipes straight back
+in:
+
+```{code-block} console
+$ grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt | moonbuggy run -
+```
+
+Piped like that, `run` emits the same one-line-per-mutant format as
+`results.txt`, so its output greps and pipes exactly as a run's does. At a
+terminal it prints the block above instead; `--report` overrides either way.
+
+A mutant a human has accepted as equivalent is annotated with its reason and
+otherwise reported unchanged — the acceptance never alters the verdict or the
+exit code, which is `--fail-on-unexplained`'s job on a full run.
 
 ## The human report
 
@@ -356,4 +400,31 @@ of the five is meaningful:
 >>> {line.split()[0] for line in text_lines} <= {
 ...     "KILLED", "SURVIVED", "NO_COVERAGE", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
 True
+```
+
+## Checking that `run` re-measures
+
+The claim that `moonbuggy run` reflects a test you have just written, and that
+it leaves the run's artifacts alone, is checked here rather than asserted:
+
+```{doctest}
+>>> project = make_project({
+...     "lib.py": "def used(value):\n    return value + 1\n\n\ndef never_called(value):\n    return value * 2\n",
+...     "test_lib.py": "from lib import used\n\ndef test_used():\n    assert used(1) == 2\n",
+... })
+>>> _ = moonbuggy(cwd=project)
+>>> [r["status"] for r in records(project) if r["id"] == "lib.py:6:constant_int:0"]
+['NO_COVERAGE']
+>>> _ = (project / "test_never.py").write_text(
+...     "from lib import never_called\n\ndef test_never():\n    assert never_called(3) == 6\n")
+>>> proc = moonbuggy("run", "lib.py:6:constant_int:0", cwd=project)
+>>> proc.stdout.split()[0], proc.returncode
+('KILLED', 0)
+```
+
+The verdict changed; `results.jsonl` did not, because no run has happened:
+
+```{doctest}
+>>> [r["status"] for r in records(project) if r["id"] == "lib.py:6:constant_int:0"]
+['NO_COVERAGE']
 ```

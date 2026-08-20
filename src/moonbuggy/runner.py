@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 from . import forkserver, profiling
-from .baseline import BaselineError
+from .baseline import BaselineError, probe_env
 from .baseline import check as check_baseline
 from .cache import ResultCache
 from .forkserver import Job, Status, WarmSessionEvidence
@@ -258,6 +258,7 @@ def run_one(
     cache: ResultCache | None = None,
     use_fork: bool = False,
     flaky: Iterable[str] = (),
+    outcomes: str | os.PathLike[str] | None = None,
 ) -> Result:
     """Run one mutant against its selected tests.
 
@@ -275,10 +276,17 @@ def run_one(
         cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
         use_fork: whether to fork rather than spawn a subprocess.
         flaky: test node ids whose outcome is not reproducible.
+        outcomes: a file for this run's per-test outcomes, or None. Only the
+            subprocess path can produce them -- a forked child reports one
+            exit-code byte and nothing else -- so asking for outcomes turns
+            forking off, said here rather than left as a file that silently
+            never appears.
 
     Returns:
         A :class:`Result`.
     """
+    if outcomes is not None:
+        use_fork = False
     if mutant.suppressed:
         return Result(mutant, "SKIPPED", 0, 0.0)
 
@@ -328,7 +336,13 @@ def run_one(
             )
         else:
             status = _run_pytest(
-                project_dir, mutant, selected, timeout, python, xdist_workers
+                project_dir,
+                mutant,
+                selected,
+                timeout,
+                python,
+                xdist_workers,
+                outcomes,
             )
         result = Result(
             mutant,
@@ -357,6 +371,7 @@ def _run_pytest(
     timeout: float,
     python: str,
     xdist_workers: int,
+    outcomes: str | os.PathLike[str] | None = None,
 ) -> Status:
     command = [
         python,
@@ -369,6 +384,14 @@ def _run_pytest(
     ]
     if xdist_workers:
         command += ["-n", str(xdist_workers)]
+    env = _env_for(project_dir, mutant)
+    if outcomes is not None:
+        # The same recorder the baseline pass uses. Reusing it means "which
+        # tests failed" is answered by the mechanism that already answers
+        # "which tests failed" for the red-baseline check, rather than by
+        # parsing pytest's human output.
+        command += ["-p", "moonbuggy.baseline"]
+        env.update(probe_env(outcomes))
 
     try:
         proc = subprocess.run(
@@ -377,7 +400,7 @@ def _run_pytest(
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=_env_for(project_dir, mutant),
+            env=env,
         )
     except subprocess.TimeoutExpired:
         # The mutant made something never terminate. Report it and carry on --

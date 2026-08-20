@@ -39,6 +39,9 @@ For the shape of the whole thing rather than the parts, read
 .. automodule:: moonbuggy.report
    :members:
 
+.. automodule:: moonbuggy.verify
+   :members:
+
 .. automodule:: moonbuggy.accepted
    :members:
 ```

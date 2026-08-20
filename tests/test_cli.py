@@ -748,3 +748,156 @@ def test_accept_list_and_remove_round_trip(throwaway):
 
     moonbuggy("accept", "--remove", mutant_id, cwd=throwaway, expect=0)
     assert mutant_id not in moonbuggy("accept", "--list", cwd=throwaway).stdout
+
+
+# --- `moonbuggy run <id>`: the fix-verify loop -------------------------------
+
+
+def _status_of(project, mutant_id):
+    """The status the last full run recorded for one mutant id."""
+    for line in (project / ".moonbuggy" / "results.jsonl").read_text().splitlines():
+        record = json.loads(line)
+        if record["id"] == mutant_id:
+            return record["status"]
+    raise AssertionError(f"no record for {mutant_id}")
+
+
+def _poison_cache(project, status):
+    """Rewrite every cached verdict, so a served answer is visibly a lie."""
+    path = project / ".moonbuggy" / "cache.json"
+    payload = json.loads(path.read_text())
+    for entry in payload["entries"].values():
+        entry["status"] = status
+    path.write_text(json.dumps(payload))
+
+
+KILLING_TEST = """\
+from lib import never_called
+
+
+def test_never_called_is_called_after_all():
+    assert never_called(3) == 6
+"""
+
+
+@pytest.fixture
+def uncovered(tmp_path):
+    """A project with a function no test reaches -- the NO_COVERAGE shape."""
+    (tmp_path / "lib.py").write_text(UNCOVERED_PROJECT)
+    (tmp_path / "test_lib.py").write_text(UNCOVERED_TESTS)
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "conftest.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "sys.path.insert(0, str(Path(__file__).parent))\n"
+    )
+    return tmp_path
+
+
+def test_run_names_the_tests_it_selected_and_the_ones_that_failed(throwaway):
+    # The two things `moonbuggy show` cannot say, because it never ran anything.
+    moonbuggy(cwd=throwaway)
+    killed = next(
+        json.loads(line)
+        for line in (throwaway / ".moonbuggy" / "results.jsonl")
+        .read_text()
+        .splitlines()
+        if json.loads(line)["status"] == "KILLED"
+    )
+
+    proc = moonbuggy("run", "--report", "human", killed["id"], cwd=throwaway, expect=0)
+
+    assert f"id           {killed['id']}" in proc.stdout
+    assert "status       KILLED" in proc.stdout
+    assert "selected     test_calc.py::" in proc.stdout
+    assert "failed       test_calc.py::" in proc.stdout
+    assert "  - " in proc.stdout and "  + " in proc.stdout
+
+
+def test_run_reports_no_coverage_rather_than_survived(uncovered):
+    # A mutant no test reaches is a finding under its own keyword here too --
+    # exit 1, and not the word `SURVIVED`, which would send the reader looking
+    # for an assertion to strengthen instead of a test to write.
+    proc = moonbuggy("run", "lib.py:6:constant_int:0", cwd=uncovered, expect=1)
+
+    assert proc.stdout.startswith("NO_COVERAGE")
+    assert "tests_run=0" in proc.stdout
+
+
+def test_run_sees_a_new_test_without_a_full_run(uncovered):
+    """The whole point: write the test, ask whether it kills that mutant.
+
+    The mutant is NO_COVERAGE until the test exists and KILLED the moment it
+    does, and the answer arrives without re-running the other mutants or
+    rewriting the run's artifacts.
+    """
+    moonbuggy(cwd=uncovered, expect=1)
+    mutant_id = "lib.py:6:constant_int:0"
+    assert _status_of(uncovered, mutant_id) == "NO_COVERAGE"
+
+    (uncovered / "test_never.py").write_text(KILLING_TEST)
+    proc = moonbuggy("run", mutant_id, cwd=uncovered, expect=0)
+
+    assert proc.stdout.startswith("KILLED")
+    # results.jsonl is the record of a run, and no run has happened since.
+    assert _status_of(uncovered, mutant_id) == "NO_COVERAGE"
+    assert "results.jsonl is unchanged" in proc.stderr
+
+
+def test_run_re_measures_instead_of_serving_the_cache(throwaway):
+    """A cached verdict must never answer the question `run` exists to ask.
+
+    The cache is poisoned first and a full run is served the poison, which is
+    what makes the rest of this a test rather than a coincidence.
+    """
+    moonbuggy(cwd=throwaway)
+    killed_id = next(
+        json.loads(line)["id"]
+        for line in (throwaway / ".moonbuggy" / "results.jsonl")
+        .read_text()
+        .splitlines()
+        if json.loads(line)["status"] == "KILLED"
+    )
+    _poison_cache(throwaway, "SURVIVED")
+
+    moonbuggy(cwd=throwaway, expect=1)
+    assert _status_of(throwaway, killed_id) == "SURVIVED"
+
+    proc = moonbuggy("run", killed_id, cwd=throwaway, expect=0)
+    assert proc.stdout.startswith("KILLED")
+
+    # And the fresh verdict is kept, so the next full run does not pay for it
+    # again -- and is not served the stale answer either.
+    moonbuggy(cwd=throwaway, expect=1)
+    assert _status_of(throwaway, killed_id) == "KILLED"
+
+
+def test_run_takes_the_survivor_set_on_stdin(throwaway):
+    # The workflow from the issue: re-run everything still outstanding, in one
+    # command, after a round of new tests.
+    moonbuggy(cwd=throwaway)
+    findings = (throwaway / ".moonbuggy" / "results.txt").read_text().splitlines()
+    piped = "\n".join(
+        line for line in findings if line.startswith(("SURVIVED", "NO_COVERAGE"))
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "moonbuggy.cli", "run", "-"],
+        cwd=throwaway,
+        input=piped,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+    assert proc.returncode == 1, proc.stderr
+    assert len(proc.stdout.splitlines()) == len(piped.splitlines())
+    assert all(
+        line.startswith(("SURVIVED", "NO_COVERAGE"))
+        for line in proc.stdout.splitlines()
+    )
+
+
+def test_run_reports_an_unknown_id_clearly(throwaway):
+    proc = moonbuggy("run", "no-such-mutant", cwd=throwaway, expect=2)
+
+    assert "is not a mutant id" in proc.stderr

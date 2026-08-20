@@ -19,7 +19,9 @@ weak to be worth making.
 So the honest position is: moonbuggy will produce equivalent mutants, it cannot
 tell you which ones they are, and the judgement is yours. What it can do is give
 you enough information to make that judgement quickly, which is what the diff in
-`moonbuggy show` is for.
+`moonbuggy show` is for — and, when you would rather test the hypothesis than
+reason about it, `moonbuggy run <id>` re-measures that one mutant against the
+test you just wrote.
 
 ## Recognising one
 
