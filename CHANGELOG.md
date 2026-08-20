@@ -227,7 +227,52 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stronger assertion in a test that already runs, an unreached line needs a
   test to exist at all.
 
+- **`moonbuggy operators`**, which lists every operator with its tier, a rough
+  cost, and one line on what it mutates. `--operators` has taken a subset of
+  names since the first release, but nothing told you the names existed —
+  `-h` said "e.g. comparison_swap,boundary" and left the rest to be
+  reverse-engineered by experiment. `moonbuggy operators --json` prints the
+  same listing as a single JSON object, so an agent can enumerate rather than
+  guess.
+
+- **Operator tiers, and additive `--operators` selection.** Operators now
+  declare a tier: `default` for the cheap, high-signal ones a bare `moonbuggy`
+  runs, `deep` for ones expensive or noisy enough to be opted into
+  deliberately. `all` selects everything.
+
+  ```bash
+  moonbuggy --operators comparison_swap,boundary   # exactly these two, as before
+  moonbuggy --operators deep                       # the deep tier
+  moonbuggy --operators +statement_deletion        # the default tier, plus one
+  ```
+
+  **A bare list of names is still an exact set** — that is the compatibility
+  promise, and it is pinned by a test. Tier names and the `+` prefix are
+  syntax layered on top, never underneath.
+
+  Every operator in this version is `default`; **`deep` has no members yet**,
+  and `--operators deep` says so and exits 2 rather than running nothing and
+  reporting success. #16 and #19 are where the first deep operators land.
+  The three selector words are reserved: `@register` raises if an operator
+  claims one as its name, so a future operator file cannot silently shadow a
+  tier. A contributor declares all of this with two optional class attributes
+  on the operator itself — adding an operator is still adding a file and
+  nothing else. See [Writing an operator](docs/writing-an-operator.md).
+
 ### Changed
+
+- **An unknown `--operators` name is now an error.** `--operators
+  compaison_swap` used to generate no mutants, report a clean run and exit 0 —
+  a typo that reads exactly like a passing suite. It now exits 2 with a message
+  listing the operators and tiers that do exist. A selection that resolves to
+  no operators at all is refused for the same reason.
+
+- **`summary.json` reports the resolved operator set.** `config.operators` is
+  now the sorted list of names the run actually used when `--operators` was
+  given (still `null` when it was not), because `deep` or `+boundary` tells a
+  consumer nothing about which operators produced the results and a later
+  version would resolve them differently. The shorthand as typed is kept
+  alongside it in the new `config.operators_selector`.
 
 - **`results.jsonl` record schema 3**, adding `logging_call`. Records written
   by an older version are upgraded on read as usual, with `logging_call` false

@@ -24,6 +24,42 @@ The engine asks the registry for `all_operators()` and never learns their names.
 Operators are discovered by importing every module in the package, which is why
 adding a file is enough.
 
+## Saying what it costs
+
+Three optional class attributes decide how your operator appears in
+`moonbuggy operators` and which tier selects it. All three are plain class
+attributes with sensible defaults, so an operator that says nothing is a cheap
+`default`-tier one — which every built-in currently is.
+
+`tier`
+: `"default"` (the default) or `"deep"`. `default` is what a bare `moonbuggy`
+  runs: cheap in wall clock, high signal. `deep` is for an operator that is
+  expensive to run or noisy to read, and is opted into with `--operators deep`
+  or `--operators +your_operator`. Put it in `deep` if it multiplies the mutant
+  count, if a fair share of its mutants will time out, or if you expect more
+  survivors-that-are-noise than survivors-that-are-findings.
+
+`cost`
+: `"low"` (the default), `"medium"` or `"high"`. A rough ordering for the
+  listing, not a measurement — the real cost depends on the code being mutated.
+
+`description`
+: One line about what it mutates, for the listing. Omit it and the first line
+  of the class docstring is used, which is the line you were going to write
+  anyway.
+
+The tier lives on the operator rather than in a table somewhere central, and
+that is deliberate: a table would mean adding an operator required editing two
+files, and "adding an operator is adding a file" is the one property this
+package is built around.
+
+The three tier *selector* words — `default`, `deep`, `all` — are reserved.
+`@register` raises if an operator claims one as its `name`, because an operator
+called `deep` would silently change what every existing `--operators deep`
+means. It also raises for a `tier` or `cost` this version does not know, so a
+typo is a loud import error rather than an operator quietly filed under
+nothing.
+
 Two further things an operator may ask for, both optional. Neither changes
 registration, discovery, or `all_operators()`.
 
@@ -158,8 +194,11 @@ def _is_zero(node):
     )
 ```
 
-That is the whole operator. It is now discovered, applied, and selectable with
-`--operators emptiness_swap`.
+That is the whole operator. It is now discovered, applied, listed by
+`moonbuggy operators`, and selectable with `--operators emptiness_swap` or
+`--operators +emptiness_swap`. It declares no `tier`, so it is a `default`-tier
+operator — which is right for this one: it fires on a narrow shape and produces
+at most one mutant per site.
 
 ## Four rules
 
@@ -193,6 +232,11 @@ like, now never terminates: `while queue:` becomes `while not queue:` and the
 mutant burns the entire `--timeout` instead of failing fast. `TIMEOUT` is a
 real status, so this is not wrong; it is just expensive and quiet, and paid on
 every loop in the file. An operator's cost is wall-clock as well as noise.
+
+That exclusion is also the shape of thing the `deep` tier exists for. A
+while-negating operator would be a plausible `deep` member — expensive, opted
+into deliberately, useful on a suite you specifically suspect of not testing
+its loops. Nothing here implements one; the tier is the place it would go.
 
 ## Testing it
 
