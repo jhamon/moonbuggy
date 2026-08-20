@@ -927,7 +927,7 @@ def _accept(args: argparse.Namespace) -> int:
     entries = list(load_accepted(path))
 
     if args.list:
-        return _accept_list(entries, path)
+        return _accept_list(entries, _display_path(path, project_dir))
     if not args.mutant_id:
         print(
             "moonbuggy: accept needs a mutant id (or --list). "
@@ -947,7 +947,7 @@ def _accept(args: argparse.Namespace) -> int:
     return _accept_add(entries, args, path, project_dir)
 
 
-def _accept_list(entries: list[Entry], path: Path) -> int:
+def _accept_list(entries: list[Entry], path: str) -> int:
     # One line per entry, `id` first and key=value after it, so the ledger
     # greps the same way results.txt does.
     if not entries:
