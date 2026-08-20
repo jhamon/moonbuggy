@@ -201,6 +201,7 @@ def _accepted_project(root):
                 "duration": 0.1,
                 "module_level": False,
                 "suppressed": False,
+                "logging_call": False,
                 "original": "return 1",
                 "mutated": "return 2",
                 "diff": "- return 1\n+ return 2",

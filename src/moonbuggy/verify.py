@@ -57,6 +57,7 @@ from .baseline import read_outcomes
 from .cache import CacheRecord, ResultCache
 from .coverage_pass import run_baseline_pass
 from .generate import GenerationError, generate_mutants
+from .logging_policy import LoggingPolicy
 from .mutant import Mutant, parse_id
 from .report import Record
 from .runner import Result, check_selection_is_runnable, run_one
@@ -371,7 +372,9 @@ def explain(
 
 
 def resolve_targets(
-    project_dir: str | os.PathLike[str], mutant_ids: Iterable[str]
+    project_dir: str | os.PathLike[str],
+    mutant_ids: Iterable[str],
+    logging_policy: LoggingPolicy | None = None,
 ) -> list[Mutant]:
     """Find the mutant each id names, by regenerating the module it points at.
 
@@ -385,6 +388,10 @@ def resolve_targets(
     Args:
         project_dir: the project root. Ids name modules relative to it.
         mutant_ids: ids as printed in `id=...`, in the order to run them.
+        logging_policy: the run's logging policy. Pass the same one the full
+            run used: it decides whether a mutant inside a logging call comes
+            back suppressed, and an explanation built under a different policy
+            describes a run nobody made.
 
     Returns:
         One :class:`~moonbuggy.mutant.Mutant` per id, in the same order.
@@ -407,7 +414,7 @@ def resolve_targets(
             )
         module = parsed[0]
         if module not in generated:
-            generated[module] = _mutants_in(project_dir, module)
+            generated[module] = _mutants_in(project_dir, module, logging_policy)
         found = generated[module].get(mutant_id)
         if found is None:
             raise VerifyError(
@@ -419,12 +426,14 @@ def resolve_targets(
     return targets
 
 
-def _mutants_in(project_dir: Path, module: str) -> dict[str, Mutant]:
+def _mutants_in(
+    project_dir: Path, module: str, logging_policy: LoggingPolicy | None
+) -> dict[str, Mutant]:
     # Ids are unique within a module by construction (they carry an occurrence
     # index), so a dict loses nothing and makes the per-id lookup free.
     try:
         source = read_source(project_dir / module)
-        found = generate_mutants(source, module=module)
+        found = generate_mutants(source, module=module, logging_policy=logging_policy)
     except (SourceError, GenerationError) as error:
         raise VerifyError(f"cannot read {module}: {error}") from error
     return {mutant.id: mutant for mutant in found}

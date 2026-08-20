@@ -49,6 +49,7 @@ def record(mutant, status="SURVIVED"):
         "duration": 0.1,
         "module_level": False,
         "suppressed": False,
+        "logging_call": False,
         "original": mutant.original,
         "mutated": mutant.mutated,
         "diff": f"- {mutant.original}\n+ {mutant.mutated}",

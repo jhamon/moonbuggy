@@ -47,7 +47,8 @@ from .discover import (
     looks_like_pytest_project,
 )
 from .generate import GenerationError, generate_mutants
-from .humanreport import render_footer, render_report
+from .humanreport import count_logging_skipped, render_footer, render_report
+from .logging_policy import LoggingPolicy, policy_for
 from .mutant import Mutant
 from .report import (
     FINDING_STATUSES,
@@ -335,6 +336,7 @@ def _add_run_one_parser(
         help="extra unmutated suite runs used to detect flaky tests "
         "(default: 1, 0 disables)",
     )
+    _add_logging_arguments(one)
     one.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
     one.add_argument(
         "--no-cache",
@@ -412,6 +414,7 @@ def _add_why_parser(
         "(default: 0). Off by default because `why` measures nothing and a "
         "probe is a measurement; raise it to have a flaky selection reported",
     )
+    _add_logging_arguments(why)
     why.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
     why.add_argument(
         "--no-cache",
@@ -426,6 +429,36 @@ def _add_why_parser(
         "shape results.jsonl uses, so `jq` reads either the same way",
     )
     why.set_defaults(command="why")
+
+
+def _add_logging_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the logging-policy flags to one subcommand's parser.
+
+    Shared rather than repeated because the policy has to be identical across
+    `run`, `run <id>` and `why`: it decides whether a mutant is suppressed, and
+    a mutant suppressed by one command and measured by another would make them
+    contradict each other about unchanged source.
+
+    Args:
+        parser: the subcommand parser to add them to.
+    """
+    parser.add_argument(
+        "--include-logging-mutants",
+        action="store_true",
+        help="run mutants that sit inside a logging call's arguments instead "
+        "of reporting them SKIPPED. They are unkillable unless your tests "
+        "assert on log output -- which is exactly when you want this",
+    )
+    parser.add_argument(
+        "--logger-name",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="also treat this receiver name as a logger (repeatable). For a "
+        "project that wraps the stdlib logger: `--logger-name audit` makes "
+        "`audit.info(...)` and `self.audit.info(...)` logging calls. Added to "
+        "the built-in names, never replacing them",
+    )
 
 
 def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -467,6 +500,7 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "the merge base (e.g. --since origin/main). Composes with "
         "--include/--exclude rather than replacing them",
     )
+    _add_logging_arguments(parser)
     parser.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
     parser.add_argument(
         "--fail-on-unexplained",
@@ -640,9 +674,10 @@ def _run(args: argparse.Namespace) -> int:
         cache = _prepare_cache(args, output_dir)
 
     wanted = set(args.operators.split(",")) if args.operators else None
+    logging_policy = _logging_policy(args)
     with profiler.span("generation"):
         mutants, unreadable = _collect_mutants(
-            project_dir, source_files, wanted, progress
+            project_dir, source_files, wanted, progress, logging_policy
         )
         if scope is not None:
             # The line-level half. Generation is untouched -- it produced
@@ -865,6 +900,7 @@ def _run(args: argparse.Namespace) -> int:
                         _display_path(jsonl_path, project_dir),
                         scope=scope,
                         acceptance=acceptance,
+                        logging_skipped=count_logging_skipped(records),
                     )
                 )
             else:
@@ -970,6 +1006,12 @@ def _effective_config(args: argparse.Namespace) -> dict[str, object]:
         "workers": args.workers,
         "flaky_probe": args.flaky_probe,
         "cache": not args.no_cache,
+        "include_logging_mutants": args.include_logging_mutants,
+        # The names this run *added*, not the effective set. Same reasoning as
+        # `operators` above: "the built-in names plus audit" and "the built-in
+        # names of that version plus audit" are different claims, and only the
+        # first is one this run made.
+        "logger_names": list(args.logger_name),
     }
 
 
@@ -1098,11 +1140,32 @@ def _display_path(path: Path, project_dir: Path) -> str:
         return str(path)
 
 
+def _logging_policy(args: argparse.Namespace) -> LoggingPolicy:
+    """The logging policy this invocation asks for.
+
+    Built in one place because three commands need the same answer: `run`,
+    `run <id>` and `why` all regenerate mutants, and a mutant that is
+    suppressed in one and measured in another would make the three disagree
+    about the same source.
+
+    Args:
+        args: the parsed command line.
+
+    Returns:
+        The :class:`~moonbuggy.logging_policy.LoggingPolicy` for this run.
+    """
+    return policy_for(
+        args.logger_name,
+        include_logging_mutants=args.include_logging_mutants,
+    )
+
+
 def _collect_mutants(
     project_dir: Path,
     source_files: list[str],
     wanted: set[str] | None,
     progress: LiveRegion,
+    logging_policy: LoggingPolicy,
 ) -> tuple[list[Mutant], list[str]]:
     """Generate mutants for every readable source file.
 
@@ -1119,6 +1182,8 @@ def _collect_mutants(
         progress: the live progress region, so these messages go through the
             same single writer as everything else printed to stderr while it
             is open.
+        logging_policy: which calls count as logging calls, and whether their
+            mutants are suppressed.
 
     Returns:
         ``(mutants, unreadable)`` -- the mutants found, and the relative paths that
@@ -1144,6 +1209,7 @@ def _collect_mutants(
                 source,
                 module=relative,
                 on_skip=_note_skip,
+                logging_policy=logging_policy,
             )
         except (SourceError, GenerationError) as error:
             progress.log(f"moonbuggy: skipping {relative}: {error}")
@@ -1437,7 +1503,7 @@ def _run_one(args: argparse.Namespace) -> int:
     source_dir = (
         Path(args.source).resolve() if args.source else find_source_dir(project_dir)
     )
-    mutants = resolve_targets(project_dir, ids)
+    mutants = resolve_targets(project_dir, ids, _logging_policy(args))
 
     # Resolved the same way a full run resolves it, so a mutant a human has
     # already reviewed says so here too. It is an annotation and never a
@@ -1568,7 +1634,7 @@ def _why(args: argparse.Namespace) -> int:
     source_dir = (
         Path(args.source).resolve() if args.source else find_source_dir(project_dir)
     )
-    mutants = resolve_targets(project_dir, ids)
+    mutants = resolve_targets(project_dir, ids, _logging_policy(args))
     reasons = resolve_accepted(
         load_accepted(_accept_path(args, project_dir)), mutants
     ).reasons()
@@ -1670,6 +1736,16 @@ def _selection_line(explanation: Explanation) -> str:
     where = f"{mutant.module}:{mutant.line}"
     count = len(explanation.selected)
     if explanation.selection == "suppressed":
+        if mutant.logging_call:
+            # Named specifically, because this suppression is the tool's own
+            # policy rather than something the author wrote into the file, and
+            # a reader looking for a `# moonbuggy: skip` that is not there
+            # would conclude the report was wrong.
+            return (
+                "the mutation is inside a logging call's arguments, so no "
+                "test is selected and a run reports SKIPPED without measuring "
+                "anything -- pass --include-logging-mutants to run it"
+            )
         return (
             "the line carries a suppression marker, so no test is selected "
             "and a run reports SKIPPED without measuring anything"

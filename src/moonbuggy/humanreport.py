@@ -9,7 +9,7 @@ that was written to `results.jsonl` -- so the human view cannot drift from the
 canonical one, for the same reason the plaintext view cannot.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from .accepted import Acceptance
 from .diffscope import DiffScope
@@ -350,6 +350,30 @@ def score_text(counts: Mapping[str, int]) -> str:
     return f"{killed}/{runnable} killed, {round(100 * killed / runnable)}%"
 
 
+def _logging_lines(logging_skipped: int) -> list[str]:
+    """The footer's line about suppressed logging mutants, or nothing.
+
+    Nothing is the common case -- most modules in most runs contain no logging
+    call at all -- and a footer line reporting zero of something would be a
+    line about a thing that did not happen.
+
+    Args:
+        logging_skipped: how many mutants were suppressed for sitting inside a
+            logging call.
+
+    Returns:
+        Zero or one line, to sit directly under the tally.
+    """
+    if logging_skipped <= 0:
+        return []
+    noun = "mutant" if logging_skipped == 1 else "mutants"
+    verb = "was" if logging_skipped == 1 else "were"
+    return [
+        f"{logging_skipped} {noun} inside logging calls {verb} skipped "
+        "(nothing asserts on log output) -- --include-logging-mutants runs them"
+    ]
+
+
 def _acceptance_lines(acceptance: Acceptance | None) -> list[str]:
     """The ledger's part of the footer, or nothing at all.
 
@@ -390,6 +414,26 @@ def _acceptance_lines(acceptance: Acceptance | None) -> list[str]:
     return lines
 
 
+def count_logging_skipped(records: Iterable[Record]) -> int:
+    """How many records were skipped for sitting inside a logging call.
+
+    Public because `--quiet` prints the footer without the report above it, so
+    `cli.py` has to compute the same number the same way.
+
+    Args:
+        records: every mutant's record.
+
+    Returns:
+        The count. Zero under `--include-logging-mutants`, where the same
+        mutants are tagged but run.
+    """
+    return sum(
+        1
+        for record in records
+        if record["logging_call"] and record["status"] == "SKIPPED"
+    )
+
+
 def render_footer(
     counts: Mapping[str, int],
     elapsed: float,
@@ -397,6 +441,7 @@ def render_footer(
     *,
     scope: DiffScope | None = None,
     acceptance: Acceptance | None = None,
+    logging_skipped: int = 0,
 ) -> str:
     """The report's closing lines: the tally, the artifact, and the exit code.
 
@@ -428,10 +473,17 @@ def render_footer(
             is no ledger to report. It sits below the scope line because it
             qualifies the same tally: "12 survived" means something different
             when three of the twelve carry a reviewed explanation.
+        logging_skipped: how many of the skipped mutants were suppressed for
+            sitting inside a logging call. Said out loud rather than left
+            inside the `skipped` count, because that suppression is moonbuggy's
+            own policy rather than something the author asked for in the file,
+            and a reader has to be told a decision was made on their behalf
+            before they can disagree with it.
 
     Returns:
-        Three newline-separated lines, plus one for a diff-scoped run and one
-        or two for a ledger, with no trailing newline.
+        Three newline-separated lines, plus one for a diff-scoped run, one for
+        suppressed logging mutants and one or two for a ledger, with no
+        trailing newline.
     """
     tally = ", ".join(
         f"{counts[status]} {status.lower()}"
@@ -441,6 +493,7 @@ def render_footer(
     return "\n".join(
         [
             f"{tally} in {elapsed:.1f}s -- {score_text(counts)}",
+            *_logging_lines(logging_skipped),
             *([scope.describe()] if scope is not None else []),
             *_acceptance_lines(acceptance),
             f"Full records: {artifact}",
@@ -597,7 +650,14 @@ def render_report(
         lines.append("")
 
     lines.append(
-        render_footer(counts, elapsed, artifact, scope=scope, acceptance=acceptance)
+        render_footer(
+            counts,
+            elapsed,
+            artifact,
+            scope=scope,
+            acceptance=acceptance,
+            logging_skipped=count_logging_skipped(records),
+        )
     )
     return "\n".join(lines)
 

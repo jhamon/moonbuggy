@@ -36,6 +36,7 @@ def rec(**over):
         "duration": 0.1,
         "module_level": False,
         "suppressed": False,
+        "logging_call": False,
         "original": "return stock > 0 and not discontinued",
         "mutated": "return stock >= 0 and not discontinued",
         "diff": "",

@@ -12,6 +12,7 @@ import ast
 import sys
 from collections.abc import Callable, Iterator
 
+from .logging_policy import LoggingPolicy, in_logging_call
 from .mutant import Mutant, make_id
 from .operators import Context, ContextualOperator, Operator, all_operators
 from .srcio import strip_coding_cookie
@@ -41,7 +42,10 @@ DEEP_RECURSION_LIMIT = 20_000
 
 
 def generate_mutants(
-    source: str, module: str, on_skip: OnSkip | None = None
+    source: str,
+    module: str,
+    on_skip: OnSkip | None = None,
+    logging_policy: LoggingPolicy | None = None,
 ) -> list[Mutant]:
     """Return every mutant for one module's source, in a stable order.
 
@@ -51,6 +55,12 @@ def generate_mutants(
         on_skip: called as ``(lineno, reason)`` for each site that could not be turned
             into a mutant. Sites are skipped rather than silently dropped, so
             the caller can say how much of the file it gave up on.
+        logging_policy: which calls count as logging calls, and whether mutants
+            inside their arguments are suppressed. Defaults to
+            :class:`~moonbuggy.logging_policy.LoggingPolicy`'s own defaults,
+            which tag those mutants and suppress them. The policy never changes
+            *which* mutants exist, only how they are labelled -- so mutant ids
+            are the same whichever way it is set.
 
     Returns:
         a list of :class:`~moonbuggy.mutant.Mutant`, sorted by line then operator then
@@ -73,6 +83,7 @@ def generate_mutants(
 
     lines = source.splitlines()
     operators = all_operators()
+    policy = logging_policy if logging_policy is not None else LoggingPolicy()
     deferred = _function_body_lines(tree)
 
     found: list[Mutant] = []
@@ -90,6 +101,7 @@ def generate_mutants(
                     found,
                     deferred=deferred,
                     on_skip=on_skip,
+                    policy=policy,
                 )
     finally:
         sys.setrecursionlimit(previous_limit)
@@ -148,6 +160,7 @@ def _mutate_node(
     found: list[Mutant],
     deferred: set[int],
     on_skip: OnSkip | None,
+    policy: LoggingPolicy,
 ) -> None:
     """Apply one operator to one node, tolerating a site too deep to rewrite.
 
@@ -182,6 +195,8 @@ def _mutate_node(
                 module,
                 found,
                 deferred=deferred,
+                context=context,
+                policy=policy,
             )
             if mutant is not None:
                 found.append(mutant)
@@ -242,6 +257,8 @@ def _build(
     module: str,
     found: list[Mutant],
     deferred: set[int],
+    context: Context,
+    policy: LoggingPolicy,
 ) -> Mutant | None:
     lineno = getattr(node, "lineno", None)
     if lineno is None or lineno > len(lines):
@@ -261,6 +278,15 @@ def _build(
     # the same line (two `+` operators in one expression, say).
     index = sum(1 for m in found if m.line == lineno and m.operator == operator.name)
 
+    # Asked here rather than once per node in the walk, because this runs once
+    # per mutation actually built and that is a small fraction of the nodes
+    # visited. `context` belongs to the node the operator was *handed*, which
+    # may not be `node`: a targeted `(target, replacement)` pair moves the edit
+    # to a child, and a child is strictly further inside the tree -- so a site
+    # outside a logging call cannot have its edit land inside one, and the
+    # outer context is the conservative answer as well as the cheap one.
+    logging_call = in_logging_call(context, policy)
+
     return Mutant(
         id=make_id(module, lineno, operator.name, index),
         module=module,
@@ -268,11 +294,15 @@ def _build(
         operator=operator.name,
         original=original_line.strip(),
         mutated=mutated_line.strip(),
-        suppressed=SUPPRESS_MARKER in original_line,
+        # Two reasons a mutant is settled without running, folded into one
+        # flag because the runner does the same thing with both. Which reason
+        # applied is still recoverable: `logging_call` says so.
+        suppressed=SUPPRESS_MARKER in original_line or (logging_call and policy.skip),
         # Read off the line actually rewritten, not the line of the node the
         # operator was handed: a targeted yield can move the edit to a child
         # on a different line, and scope follows the edit.
         module_level=lineno not in deferred,
+        logging_call=logging_call,
     )
 
 

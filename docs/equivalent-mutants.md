@@ -119,6 +119,92 @@ next year as "someone was in a hurry".
 mutant and every real gap that arrives on that line later. moonbuggy has no
 file-level suppression for this reason.
 
+## Logging calls
+
+One family of unkillable mutant is common enough, and recognisable enough, that
+moonbuggy handles it for you. Nothing asserts on the contents of a debug line,
+so a mutation inside one survives every suite that will ever be written against
+that code:
+
+```{code-block} python
+logger.debug("retrying in %ds", delay * 2)
+```
+
+`delay * 2` becomes `delay / 2`, the log line reads differently, and no test
+notices — nor should one. Left alone these dominate a survivor list: in the
+session that prompted this feature, two thirds of the survivors in a retry
+region were arithmetic inside `logger.debug(...)` arguments.
+
+So a mutation inside a logging call's arguments is **tagged** `logging_call` in
+`results.jsonl` and, by default, reported `SKIPPED`:
+
+```{doctest}
+>>> project = make_project({
+...     "lib.py": (
+...         "import logging\n\n"
+...         "logger = logging.getLogger(__name__)\n\n"
+...         "def charge(n):\n"
+...         "    if n > 10:\n"
+...         "        logger.info('big charge: %d', n * 2)\n"
+...         "    return n\n"
+...     ),
+...     "test_lib.py": (
+...         "from lib import charge\n\n"
+...         "def test_charge():\n    assert charge(3) == 3\n"
+...     ),
+... })
+>>> _ = moonbuggy(cwd=project)
+>>> sorted({r["status"] for r in records(project) if r["logging_call"]})
+['SKIPPED']
+```
+
+**The guard around a log call is still a finding.** This is the line the
+policy is drawn on, and it is drawn narrowly on purpose. In the module above,
+`n > 10` decides whether anything is logged at all; mutating it changes which
+branch runs, which is exactly what a mutation tester exists to find. Only the
+*argument expressions* of the call itself are suppressed:
+
+```{doctest}
+>>> [r["operator"] for r in records(project) if not r["logging_call"]]
+['comparison_swap', 'condition_negation', 'constant_int']
+```
+
+The same rule keeps a real call nested inside a log line honest:
+`logger.info("%s", compute(n + 1))` mutates `n + 1` as usual, because the
+nearest enclosing call is `compute`, and `compute` really runs.
+
+**Recognising a logger is a heuristic.** moonbuggy looks for a level method —
+`debug`, `info`, `warning`, `error`, `critical`, `exception`, `log` — called on
+something named like a logger: `log`, `logger`, `logging`, `LOG`, `LOGGER`, the
+underscore-prefixed spellings, and any attribute chain ending in one, so
+`self.logger.debug(...)` and `mypkg.util.LOG.info(...)` both count. If your
+project wraps its logger under another name, add it:
+
+```{code-block} console
+$ moonbuggy --logger-name audit --logger-name telemetry
+```
+
+Names are *added* to the built-in ones, never replacing them. The same flag is
+accepted by `moonbuggy run <id>` and `moonbuggy why <id>`, and passing it to
+one and not another is how those three commands end up disagreeing about the
+same line.
+
+**To see them anyway**, pass `--include-logging-mutants`. They run like any
+other mutant and keep the `logging_call` tag, so a project that asserts on log
+output — with `caplog`, or against a structured-logging sink — gets the
+findings and can still filter on them:
+
+```{code-block} console
+$ moonbuggy --include-logging-mutants
+$ jq 'select(.logging_call and .status == "SURVIVED")' .moonbuggy/results.jsonl
+```
+
+**This does not flatter your score.** A suppressed logging mutant is `SKIPPED`,
+and `SKIPPED` leaves the denominator exactly the way a `# moonbuggy: skip` line
+does — the kill rate is unchanged, and the human report says how many mutants
+were suppressed and how to see them. What changes is the length of the list you
+have to read.
+
 ## Recording the decision: the ledger
 
 Suppression is for a line you own and want marked in the source. The other
