@@ -167,8 +167,27 @@ def test_older_records_are_upgraded_when_they_are_read(tmp_path):
     assert record["schema"] == 1
     assert record["accepted"] is False
     assert record["accept_reason"] is None
+    # Every later schema's keys, not just the next one's.
+    assert record["logging_call"] is False
     # Nothing the old file did say is overwritten.
     assert record["status"] == "SURVIVED"
+
+
+def test_a_schema_2_record_gains_only_what_schema_3_added(tmp_path):
+    # The half-way case: a file written after the ledger but before the
+    # logging policy. It says nothing about logging calls, and "false" is the
+    # honest fill -- that version recognised none of them.
+    path = tmp_path / "results.jsonl"
+    result = Result(make("SURVIVED").mutant, "SURVIVED", tests_run=3, duration=0.12)
+    older = {**record_for(result), "schema": 2}
+    del older["logging_call"]
+    path.write_text(json.dumps(older) + "\n", encoding="utf-8")
+
+    record = read_jsonl(path)[0]
+
+    assert record["schema"] == 2
+    assert record["logging_call"] is False
+    assert record["accept_reason"] is None
 
 
 def test_a_current_record_round_trips_unchanged(tmp_path):

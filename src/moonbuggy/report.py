@@ -33,7 +33,8 @@ from .runner import Result
 #
 # 1: the original record, before the accepted-equivalents ledger.
 # 2: `accepted` and `accept_reason`, and this field.
-RECORD_SCHEMA = 2
+# 3: `logging_call`, which also widened what `suppressed` can mean.
+RECORD_SCHEMA = 3
 
 # The version of the run summary -- `summary.json` and `--json`. Separate from
 # RECORD_SCHEMA because they are separate documents that will move for separate
@@ -47,6 +48,11 @@ SUMMARY_SCHEMA = 1
 # every consumer -- moonbuggy's own human report included -- can index the keys
 # instead of guessing at them with `.get()`.
 _SCHEMA_1_DEFAULTS: dict[str, object] = {"accepted": False, "accept_reason": None}
+
+# The same, for the key schema 3 added. False is the honest fill: a run by a
+# version with no logging policy generated these mutants without recognising
+# any of them, so "not a logging mutant" is what that file actually claims.
+_SCHEMA_2_DEFAULTS: dict[str, object] = {"logging_call": False}
 
 # The whole status vocabulary. Every plaintext line begins with one of these,
 # so adding a keyword is a breaking change for anyone grepping: NO_COVERAGE
@@ -96,6 +102,7 @@ class Record(TypedDict):
     duration: float
     module_level: bool
     suppressed: bool
+    logging_call: bool
     original: str
     mutated: str
     diff: str
@@ -138,7 +145,12 @@ def record_for(result: Result, reason: str | None = None) -> Record:
         "tests_run": result.tests_run,
         "duration": round(result.duration, 4),
         "module_level": mutant.module_level,
+        # True whenever this mutant was settled without running -- the skip
+        # marker, or a suppressed logging mutant. `logging_call` says which,
+        # and stays true under `--include-logging-mutants` when the mutant
+        # really did run, so triage can filter on it either way.
         "suppressed": mutant.suppressed,
+        "logging_call": mutant.logging_call,
         # The operands, not just the rendered diff. The human reporter computes
         # a changed span from these; deriving them by splitting `diff` would be
         # a reporter parsing its own output format.
@@ -260,7 +272,12 @@ def _upgraded(record: dict[str, object]) -> Record:
         return record  # type: ignore[return-value]
     # No `schema` key at all is schema 1 by definition: the field arrived with
     # schema 2, so its absence is the version rather than a missing value.
-    upgraded = {**_SCHEMA_1_DEFAULTS, **record}
+    #
+    # Defaults are layered oldest first and the record goes on top, so a
+    # schema-2 line gains only what schema 3 added and a schema-1 line gains
+    # both. Adding a fourth version means adding one more mapping here, not
+    # branching on the version number.
+    upgraded = {**_SCHEMA_1_DEFAULTS, **_SCHEMA_2_DEFAULTS, **record}
     upgraded.setdefault("schema", 1)
     return upgraded  # type: ignore[return-value]
 
