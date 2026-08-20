@@ -13,7 +13,7 @@ import sys
 from collections.abc import Callable, Iterator
 
 from .mutant import Mutant, make_id
-from .operators import Operator, all_operators
+from .operators import Context, ContextualOperator, Operator, all_operators
 from .srcio import strip_coding_cookie
 
 # Called as (lineno, reason) for a site that could not be turned into a
@@ -79,16 +79,16 @@ def generate_mutants(
     previous_limit = sys.getrecursionlimit()
     sys.setrecursionlimit(max(previous_limit, DEEP_RECURSION_LIMIT))
     try:
-        for node in _walk(tree):
-            lineno = getattr(node, "lineno", None)
+        for node, context in _walk(tree):
             for operator in operators:
                 _mutate_node(
                     node,
+                    context,
                     operator,
                     lines,
                     module,
                     found,
-                    module_level=lineno not in deferred,
+                    deferred=deferred,
                     on_skip=on_skip,
                 )
     finally:
@@ -141,14 +141,20 @@ def _function_body_lines(tree: ast.Module) -> set[int]:
 
 def _mutate_node(
     node: ast.AST,
+    context: Context,
     operator: Operator,
     lines: list[str],
     module: str,
     found: list[Mutant],
-    module_level: bool,
+    deferred: set[int],
     on_skip: OnSkip | None,
 ) -> None:
     """Apply one operator to one node, tolerating a site too deep to rewrite.
+
+    Which of the two operator shapes this is, is decided by which method the
+    operator provides: `mutations_in_context` gets the context, `mutations`
+    does not. The engine still never learns an operator's name, and an
+    operator that does not need context does not have to accept it.
 
     Beyond the raised limit, deep-copying or unparsing a single expression can
     still fail. That costs one mutant, which is a smaller loss than abandoning
@@ -157,15 +163,25 @@ def _mutate_node(
     "this code has fewer mutable sites".
     """
     try:
-        for mutated_node in operator.mutations(node):
+        if isinstance(operator, ContextualOperator):
+            mutations = operator.mutations_in_context(node, context)
+        else:
+            mutations = operator.mutations(node)
+        for mutation in mutations:
+            # A pair names the node to rewrite; a bare node means the one the
+            # operator was handed.
+            if isinstance(mutation, tuple):
+                target, mutated_node = mutation
+            else:
+                target, mutated_node = node, mutation
             mutant = _build(
-                node,
+                target,
                 mutated_node,
                 operator,
                 lines,
                 module,
                 found,
-                module_level=module_level,
+                deferred=deferred,
             )
             if mutant is not None:
                 found.append(mutant)
@@ -177,24 +193,45 @@ def _mutate_node(
             )
 
 
-def _walk(tree: ast.AST) -> Iterator[ast.AST]:
-    """Yield every node, depth first, left to right.
+def _walk(tree: ast.AST) -> Iterator[tuple[ast.AST, Context]]:
+    """Yield every node with its context, depth first, left to right.
 
     `ast.walk` would do the same job breadth first. The order matters here and
     is not cosmetic: it decides the occurrence index inside a mutant id, and
     an id that changes shape silently invalidates every cache entry.
 
+    Children come from `ast.iter_fields` rather than `ast.iter_child_nodes`,
+    which is the same traversal in the same order -- the latter is written in
+    terms of the former -- but keeps the field name and list position that
+    `iter_child_nodes` throws away. That pair is what tells an operator the
+    difference between the test of an `if` and the value assigned by it.
+
     Iterative rather than recursive (criterion M1.4.8). A recursive walk raises
     RecursionError on deeply nested source at a depth well below what CPython
     itself will parse, and the traceback it produces names this function rather
     than the user's file -- a crash report about us for a property of their code.
+
+    Args:
+        tree: the node to walk from.
+
+    Yields:
+        each node paired with its :class:`~moonbuggy.operators.Context`.
     """
-    stack = [tree]
+    root = Context(parent=None, field=None, index=None, outer=None)
+    stack = [(tree, root)]
     while stack:
-        node = stack.pop()
-        yield node
+        node, context = stack.pop()
+        yield node, context
+        children: list[tuple[ast.AST, Context]] = []
+        for field, value in ast.iter_fields(node):
+            if isinstance(value, ast.AST):
+                children.append((value, Context(node, field, None, context)))
+            elif isinstance(value, list):
+                for index, item in enumerate(value):
+                    if isinstance(item, ast.AST):
+                        children.append((item, Context(node, field, index, context)))
         # Reversed so children are visited left to right despite the LIFO stack.
-        stack.extend(reversed(list(ast.iter_child_nodes(node))))
+        stack.extend(reversed(children))
 
 
 def _build(
@@ -204,7 +241,7 @@ def _build(
     lines: list[str],
     module: str,
     found: list[Mutant],
-    module_level: bool,
+    deferred: set[int],
 ) -> Mutant | None:
     lineno = getattr(node, "lineno", None)
     if lineno is None or lineno > len(lines):
@@ -232,7 +269,10 @@ def _build(
         original=original_line.strip(),
         mutated=mutated_line.strip(),
         suppressed=SUPPRESS_MARKER in original_line,
-        module_level=module_level,
+        # Read off the line actually rewritten, not the line of the node the
+        # operator was handed: a targeted yield can move the edit to a child
+        # on a different line, and scope follows the edit.
+        module_level=lineno not in deferred,
     )
 
 

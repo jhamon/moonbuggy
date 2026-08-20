@@ -11,6 +11,12 @@ An operator is any class decorated with @register that provides:
     name        str -- stable identifier, matches the operator names in oracle.toml
     mutations() takes an AST node, yields replacement nodes (possibly none)
 
+An operator whose decision depends on where the node sits implements
+`mutations_in_context(node, context)` instead, and is handed a :class:`Context`
+describing its parent, the field it occupies, and the chain of enclosing nodes.
+Either method may yield a bare replacement for the node it was given, or a
+`(target, replacement)` pair naming a different node to rewrite.
+
 Operators must not mutate the node they are given. `replace_operator` is the
 supported way to obey that without paying for a deep copy.
 """
@@ -20,11 +26,88 @@ import copy
 import importlib
 import pkgutil
 from collections.abc import Iterator
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+# What an operator yields. A bare node replaces the node the operator was
+# handed; a pair names the node to replace and its replacement.
+#
+# The pair form exists because the node an operator has to *see* to make its
+# decision is not always the node it wants to *edit*. `_splice` rewrites one
+# source line by column offset and so refuses any node spanning several lines,
+# which structurally excludes every compound statement: an operator handed an
+# `ast.If` could never yield a replacement for it. Targeting a child -- the
+# test expression, a single statement in a body -- keeps the edit inside one
+# line while leaving the decision at whatever altitude it needs.
+Mutation = ast.AST | tuple[ast.AST, ast.AST]
 
 
-class Operator(Protocol):
-    """The shape every operator implements.
+@dataclass(frozen=True, slots=True)
+class Context:
+    """Where a node sits in the tree it was walked from.
+
+    Handed to operators that implement `mutations_in_context`. Without it an
+    operator sees a bare `ast.Name` and cannot tell the test of an `if` from
+    the right-hand side of an assignment -- and "negate every name" is absurd
+    where "negate the ones in test position" is exactly right.
+
+    Frozen, and built lazily: `outer` links to the parent node's own context
+    rather than materialising an ancestor tuple per node, so a deeply nested
+    expression costs one small object per node instead of one tuple per node
+    whose length grows with depth.
+    """
+
+    #: The enclosing node, or None for the root of the walk.
+    parent: ast.AST | None
+    #: The field of `parent` holding this node -- "test", "body", "ifs",
+    #: "defaults". None at the root.
+    field: str | None
+    #: This node's position within `field` when that field is a list, and None
+    #: when it holds a single node. "Where am I in the enclosing body?" is
+    #: this, plus `parent`.
+    index: int | None
+    #: The parent node's own context, or None at the root.
+    outer: "Context | None"
+
+    @property
+    def ancestors(self) -> tuple[ast.AST, ...]:
+        """Every enclosing node, outermost first.
+
+        Returns:
+            the chain from the root of the walk down to the immediate parent,
+            empty at the root.
+        """
+        chain = []
+        context: Context | None = self
+        while context is not None and context.parent is not None:
+            chain.append(context.parent)
+            context = context.outer
+        chain.reverse()
+        return tuple(chain)
+
+    def nearest(self, *types: type[ast.AST]) -> ast.AST | None:
+        """The closest enclosing node of any of `types`.
+
+        "What is my nearest enclosing Call?" is the question this answers, and
+        it walks outwards lazily rather than through `ancestors`, so the common
+        case of a hit one or two levels up costs two comparisons.
+
+        Args:
+            *types: AST node classes to look for.
+
+        Returns:
+            the innermost enclosing node matching any of `types`, or None.
+        """
+        context: Context | None = self
+        while context is not None and context.parent is not None:
+            if isinstance(context.parent, types):
+                return context.parent
+            context = context.outer
+        return None
+
+
+class NodeOperator(Protocol):
+    """The shape of an operator that needs nothing but the node.
 
     A class decorated with @register needs a stable `name` and a `mutations`
     method that takes an AST node and yields its mutated replacements (or
@@ -34,9 +117,33 @@ class Operator(Protocol):
 
     name: str
 
-    def mutations(self, node: ast.AST) -> Iterator[ast.AST]:
-        """Yield replacement nodes for `node`, or nothing if none apply."""
+    def mutations(self, node: ast.AST) -> Iterator[Mutation]:
+        """Yield replacements for `node`, or nothing if none apply."""
         ...
+
+
+@runtime_checkable
+class ContextualOperator(Protocol):
+    """The shape of an operator that needs to know where the node sits.
+
+    A second method name rather than a second parameter on `mutations`, so
+    that an operator which does not need context does not have to accept it.
+    The engine tells the two apart by which method is present; nothing else
+    about registration or discovery changes.
+    """
+
+    name: str
+
+    def mutations_in_context(
+        self, node: ast.AST, context: Context
+    ) -> Iterator[Mutation]:
+        """Yield replacements for `node` in `context`, or nothing if none apply."""
+        ...
+
+
+# What the engine holds. Widened rather than replaced: the five operators that
+# predate the context seam are still exactly the shape they were.
+Operator = NodeOperator | ContextualOperator
 
 
 def replace_operator[NodeT: ast.AST](node: NodeT, **changes: object) -> NodeT:

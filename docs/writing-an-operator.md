@@ -24,6 +24,75 @@ The engine asks the registry for `all_operators()` and never learns their names.
 Operators are discovered by importing every module in the package, which is why
 adding a file is enough.
 
+Two further things an operator may ask for, both optional. Neither changes
+registration, discovery, or `all_operators()`.
+
+`mutations_in_context(node, context)`
+: Instead of `mutations`, when the decision depends on where the node sits.
+  The engine hands you a `Context` alongside the node. An operator that does
+  not need context keeps the one-argument `mutations` and is untouched by any
+  of this — which is why there are two method names rather than a second
+  parameter.
+
+`yield target, replacement`
+: Instead of `yield replacement`, when the node you want to *edit* is not the
+  node you had to *see*. The engine rewrites `target` instead of the node it
+  handed you.
+
+## Asking where you are
+
+`Context` answers three questions, and they are the ones that come up:
+
+`context.parent` and `context.field`
+: The enclosing node and the field of it this node occupies. "Am I in test
+  position?" is `context.field == "test"` and `isinstance(context.parent,
+  ast.If)`. Without it you see a bare `ast.Name` and cannot tell the test of an
+  `if` from the right-hand side of an assignment — and negating every name in a
+  module is absurd where negating the ones in test position is exactly right.
+
+`context.index`
+: Position within `field` when that field is a list. "Where am I in the
+  enclosing body?" is this, plus `parent`.
+
+`context.nearest(ast.Call)` and `context.ancestors`
+: The innermost enclosing node of some type, and the whole chain outermost
+  first. The chain is built on demand rather than stored, so asking for it is
+  the only thing that costs anything.
+
+The built-in `condition_negation` is the whole of the pattern:
+
+```{code-block} python
+def mutations_in_context(self, node, context):
+    if not isinstance(node, ast.expr) or not _is_condition(context):
+        return
+    yield ast.UnaryOp(op=ast.Not(), operand=node)
+```
+
+## Targeting a different node
+
+`_splice` rewrites one source line by column offset, and returns nothing for a
+node whose `end_lineno` differs from its `lineno`. That structurally excludes
+every compound statement: an operator handed an `ast.If` can never yield a
+replacement *for the `If`*, because an `if` and its body do not fit on one line.
+
+A pair is the way past that. Yield the child you actually want rewritten:
+
+```{code-block} python
+def mutations(self, node):
+    if isinstance(node, ast.If):
+        # The `If` spans its whole body; its test does not.
+        yield node.test, ast.Constant(value=False)
+```
+
+The same mechanism reaches nodes the walk cannot report on their own.
+`ast.arguments` and `ast.comprehension` carry no `lineno` at all — nothing
+downstream can place a mutant on them — but their children do, and a pair (or
+context, from the child's side) is how an operator gets at a default argument
+or a comprehension guard.
+
+Line, scope and suppression all follow the target, not the node you were
+handed: the mutant is reported on the line it actually changed.
+
 ## A complete example
 
 Say you want to catch tests that do not check what happens when a container is
@@ -114,6 +183,16 @@ mutant of every generated module compiles, and it will find this.
 human could plausibly have written it. `x + 1` → `x - 1` is a plausible typo;
 `x + 1` → `x ** 1` is not, and a survivor from it teaches nobody anything.
 Precision here is what keeps the report worth reading.
+
+The narrowing is often about a node type rather than a whole operator.
+`condition_negation` inverts the test of an `if` and does not touch a `while`,
+for two reasons that are worth reading together. A negated loop test that ran
+under the test now skips, which nearly any assertion catches — no signal. A
+negated loop test that did *not* run, which is what an empty-input case looks
+like, now never terminates: `while queue:` becomes `while not queue:` and the
+mutant burns the entire `--timeout` instead of failing fast. `TIMEOUT` is a
+real status, so this is not wrong; it is just expensive and quiet, and paid on
+every loop in the file. An operator's cost is wall-clock as well as noise.
 
 ## Testing it
 
