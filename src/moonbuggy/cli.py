@@ -134,8 +134,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         argv: command-line arguments, or None to read `sys.argv`.
 
     Returns:
-        The process exit code: 0 for a clean run, 1 when there are survivors,
-        2 when the run could not happen at all, 130 when interrupted.
+        The process exit code: 0 for a run with no findings, 1 when there are
+        findings (SURVIVED or NO_COVERAGE), 2 when the run could not happen at
+        all, 130 when interrupted.
     """
     _harden_streams()
     profiling.active().add("import chain", _IMPORTS_DONE - profiling.active().started)
@@ -184,12 +185,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
 
-# Two things about a run are invisible from the outside and cannot be worked
-# out from a result line: why a mutant was not re-measured, and why it ran the
-# tests it ran. Both used to be discoverable only by controlled experiment. `-h`
-# is the one surface an agent reads before acting, so they live here rather than
-# only in docs/.
+# `-h` is the one surface an agent reads before acting (#13), so anything it
+# has to reason about before it can act belongs here rather than only in docs/.
+#
+# The first two sections are the output contract: the seven words a result line
+# can begin with, and what the process exit code means. Every flag was already
+# documented, but those two -- the only things an agent actually acts on --
+# were discoverable only by running the tool and reading what came back.
+# `KILLED` and `KILLED_BY_ERROR` did not appear in `-h` at all. The last two
+# sections are the machinery behind a result line that a result line cannot
+# show you: why a mutant was not re-measured, and why it ran the tests it ran.
 _EPILOG = """\
+Statuses:
+  Every result line begins with one of these seven words, and the list is
+  closed -- `summary.json` counts all seven on every run.
+
+    KILLED           a selected test failed. The change was noticed.
+    KILLED_BY_ERROR  a selected test errored rather than failed. Still a kill,
+                     but it only proves the tests execute the line, not that
+                     they check it.
+    SURVIVED         every selected test passed with the change in place.
+    NO_COVERAGE      no test reaches the line, so nothing could have killed it.
+    TIMEOUT          the mutant ran past --timeout, usually a loop that no
+                     longer ends.
+    SUSPICIOUS       a test covering the line is flaky, so the verdict cannot
+                     be trusted either way. See --flaky-probe.
+    SKIPPED          never run: the line carries a `# moonbuggy: skip` marker,
+                     or the mutant sits inside a logging call. See
+                     --include-logging-mutants.
+
+  SURVIVED and NO_COVERAGE are the *findings* -- the two that say something
+  about your tests rather than about the run. They are what the exit code
+  gates on, and the only two `moonbuggy accept` will speak for.
+
+Exit codes:
+  0    no findings.
+  1    at least one SURVIVED or NO_COVERAGE. A result, not an error. TIMEOUT,
+       SUSPICIOUS, SKIPPED and KILLED_BY_ERROR never cause it on their own.
+  2    the run could not happen -- no package found, unparseable source, an
+       unreadable ledger. Nothing was measured, so there is nothing to read.
+  130  interrupted. Whatever finished is already in results.jsonl and valid.
+
+  --fail-on-unexplained narrows 1 to the findings the ledger does not explain.
+  Without it, a run whose every finding is accepted still exits 1.
+
 Caching:
   A stored verdict is reused only when nothing it depends on has changed: the
   mutant itself, the full source of the module it mutates, the contents of
@@ -205,17 +244,40 @@ Test selection:
   and each mutant then runs only the tests that execute its line. That is what
   `tests_run=` on a result line counts, and why it differs per mutant.
   tests_run=0 means no test reaches that line at all, which is reported as
-  NO_COVERAGE rather than SURVIVED: nothing could have killed it. The map is
-  rebuilt every run and is never written to disk. `moonbuggy why <id>` prints
-  the selection for one mutant without running anything.
+  NO_COVERAGE rather than SURVIVED: nothing could have killed it. It does not
+  work the other way round -- a SKIPPED mutant also shows tests_run=0, because
+  it was suppressed before selection ever ran. The map is rebuilt every run
+  and is never written to disk. `moonbuggy why <id>` prints the selection for
+  one mutant without running anything.
 """
 
 # Every command that reads or writes a results directory names it the same
 # way, for the same reason `--accept-file` does: a path that means one thing
 # to the writer and another to the reader fails silently.
+#
+# Two strings rather than one, because the writer and the readers do not mean
+# the same thing by it. A run creates the artifacts; `show`, `run <id>`, `why`
+# and `accept` only go looking for results.jsonl, and telling them the flag is
+# about summary.json sends an agent to the wrong flag for the wrong reason.
 _OUTPUT_DIR_HELP = (
-    "the results directory -- results.jsonl, results.txt and summary.json "
+    "where this run's artifacts go -- results.jsonl, results.txt, "
+    "summary.json and cache.json "
     f"(default: {DEFAULT_OUTPUT_DIR}, relative to the project root)"
+)
+
+_READ_OUTPUT_DIR_HELP = (
+    "where the last run left its artifacts; this command reads "
+    f"results.jsonl from it (default: {DEFAULT_OUTPUT_DIR}, relative to the "
+    "project root)"
+)
+
+# `show` is the one subcommand with no --project, so it resolves --output-dir
+# against the working directory. The shared string's "relative to the project
+# root" is true of every other command and false here.
+_SHOW_OUTPUT_DIR_HELP = (
+    "where the last run left its artifacts; `show` reads results.jsonl from "
+    f"it (default: {DEFAULT_OUTPUT_DIR}, relative to the current directory -- "
+    "`show` has no --project)"
 )
 
 
@@ -239,7 +301,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     show = sub.add_parser("show", help="print the full record for one mutant id")
     show.add_argument("mutant_id", help="the mutant to print, as printed in `id=...`")
-    show.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help=_OUTPUT_DIR_HELP)
+    show.add_argument(
+        "--output-dir", default=DEFAULT_OUTPUT_DIR, help=_SHOW_OUTPUT_DIR_HELP
+    )
     show.set_defaults(command="show")
 
     _add_run_one_parser(sub)
@@ -258,15 +322,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     accept.add_argument("--project", default=".", help="project root (default: cwd)")
     accept.add_argument(
-        "--output-dir", default=DEFAULT_OUTPUT_DIR, help=_OUTPUT_DIR_HELP
+        "--output-dir", default=DEFAULT_OUTPUT_DIR, help=_READ_OUTPUT_DIR_HELP
     )
     accept.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
     accept.add_argument(
         "-r",
         "--reason",
         default=None,
-        help="why this mutant is equivalent. Required, and the whole point: "
-        "an acceptance without one is a claim nobody can check",
+        help="why this mutant is equivalent. Required when accepting one "
+        "(not for --list or --remove), and the whole point: an acceptance "
+        "without one is a claim nobody can check",
     )
     accept.add_argument(
         "--list", action="store_true", help="print the ledger, one line per entry"
@@ -284,8 +349,9 @@ def _build_parser() -> argparse.ArgumentParser:
 _ACCEPT_FILE_HELP = (
     "the accepted-equivalents ledger "
     f"(default: {DEFAULT_ACCEPT_FILE}, relative to the project root). "
-    "Deliberately not under --output-dir: it is a checked-in record of human "
-    "decisions, not run output"
+    "--output-dir does not move it: it is a checked-in record of human "
+    "decisions rather than run output, so if you gitignore "
+    f"{DEFAULT_OUTPUT_DIR}/ you want to un-ignore this one file"
 )
 
 
@@ -315,14 +381,18 @@ def _add_run_one_parser(
         nargs="+",
         metavar="ID",
         help="mutant ids, as printed in `id=...`. `-` reads them from stdin, "
-        "one per line, so `grep SURVIVED .moonbuggy/results.txt | moonbuggy "
-        "run -` re-runs the whole survivor set",
+        "one per line, so `grep -E '^(SURVIVED|NO_COVERAGE)' "
+        ".moonbuggy/results.txt | moonbuggy run -` re-runs the whole finding "
+        "set. Matching SURVIVED alone silently drops every NO_COVERAGE "
+        "finding, which this command handles and gates on just the same",
     )
     one.add_argument("--project", default=".", help="project root (default: cwd)")
     one.add_argument(
         "--source", default=None, help="directory to mutate (default: discovered)"
     )
-    one.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help=_OUTPUT_DIR_HELP)
+    one.add_argument(
+        "--output-dir", default=DEFAULT_OUTPUT_DIR, help=_READ_OUTPUT_DIR_HELP
+    )
     one.add_argument(
         "--timeout",
         type=float,
@@ -403,7 +473,9 @@ def _add_why_parser(
     why.add_argument(
         "--source", default=None, help="directory to mutate (default: discovered)"
     )
-    why.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help=_OUTPUT_DIR_HELP)
+    why.add_argument(
+        "--output-dir", default=DEFAULT_OUTPUT_DIR, help=_READ_OUTPUT_DIR_HELP
+    )
     why.add_argument(
         "--timeout",
         type=float,
@@ -442,8 +514,10 @@ def _add_why_parser(
     why.add_argument(
         "--json",
         action="store_true",
-        help="emit one JSON object per mutant, one per line -- the same JSONL "
-        "shape results.jsonl uses, so `jq` reads either the same way",
+        help="emit one JSON object per mutant, one per line, in the same "
+        "JSONL *format* results.jsonl uses. The fields are `why`'s own -- "
+        "selection and cache keys -- not a result record, so there is no "
+        "`status` and no `diff` to filter on",
     )
     why.set_defaults(command="why")
 
@@ -541,11 +615,16 @@ def _operators(args: argparse.Namespace) -> int:
         # rather than as the truth. `deep` was that tier when tiers landed.
         print(f"  {tier}: {count} {noun}" + (" (none yet)" if not members else ""))
     print()
+    # The worked example has to name an operator that is *not* in the default
+    # tier, or it demonstrates a no-op and teaches that `+` means something it
+    # does not. `+boundary` was the example, and boundary is listed as
+    # `default` three lines above it.
     print(
         "Select with --operators: a comma-separated list of names is an exact "
         "set,\na tier name stands for its members, and a `+` prefix adds to "
-        "the default\ntier -- `--operators +boundary` is the default set plus "
-        "boundary."
+        "the rest of\nthe selection -- to `default` when nothing else is "
+        "named, so\n`--operators +statement_deletion` is the default set plus "
+        "that one."
     )
     return 0
 
@@ -602,10 +681,12 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "list of names is an exact set -- `comparison_swap,boundary` is those "
         "two and nothing else. A tier name stands for its members: `default` "
         "is the cheap, high-signal operators, `deep` is the expensive or "
-        "noisy ones, `all` is everything. A `+` prefix adds to the default "
-        "tier instead of replacing it, so `+statement_deletion` is the "
-        "ordinary run plus that one. `moonbuggy operators` lists every name, "
-        "its tier and its cost",
+        "noisy ones, `all` is everything. A `+` prefix adds to the rest of "
+        "the selection rather than replacing it -- to the `default` tier when "
+        "nothing else is named, so `+statement_deletion` is the ordinary run "
+        "plus that one, while `deep,+boundary` is the deep tier plus boundary "
+        "and not the default tier at all. `moonbuggy operators` lists every "
+        "name, its tier and its cost",
     )
     parser.add_argument(
         "--include",
@@ -624,18 +705,20 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="REF",
         help="only mutate lines changed since this git ref, compared against "
-        "the merge base (e.g. --since origin/main). Composes with "
-        "--include/--exclude rather than replacing them",
+        "the merge base (e.g. --since origin/main). The other end of the diff "
+        "is the working tree, not HEAD, so uncommitted edits are in scope, "
+        "and an untracked file is mutated in full rather than line by line. "
+        "Composes with --include/--exclude rather than replacing them",
     )
     _add_logging_arguments(parser)
     parser.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
     parser.add_argument(
         "--fail-on-unexplained",
         action="store_true",
-        help="exit 1 only for findings that are neither killed nor accepted. "
-        "Without it the exit code is unchanged -- a run whose every survivor "
-        "is accepted still exits 1 -- so adding a ledger never silently turns "
-        "a red build green",
+        help="exit 1 only for findings -- SURVIVED and NO_COVERAGE -- that "
+        "the ledger does not account for. Without it the exit code is "
+        "unchanged: a run whose every finding is accepted still exits 1, so "
+        "adding a ledger never silently turns a red build green",
     )
     parser.add_argument(
         "--jobs",
@@ -658,7 +741,11 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "--clear-cache", action="store_true", help="delete the cache, then run"
     )
     parser.add_argument(
-        "--quiet", action="store_true", help="only print the summary line"
+        "--quiet",
+        action="store_true",
+        help="print nothing but the summary line, which goes to stderr like "
+        "the progress it replaces. stdout is left empty -- use --json for a "
+        "payload to capture",
     )
     parser.add_argument(
         "--json",
@@ -2038,10 +2125,11 @@ def _clean_id(token: str) -> str:
     """The mutant id inside one line of input.
 
     Deliberately forgiving about what a pipeline hands over, because the
-    workflow this command exists for is `grep SURVIVED .moonbuggy/results.txt
-    | moonbuggy run -` and the thing on the left of that pipe emits whole
-    result lines. A bare id, an `id=...` token, and a full result line all
-    name the same mutant, so all three are accepted.
+    workflow this command exists for is
+    `grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt | moonbuggy run -`
+    and the thing on the left of that pipe emits whole result lines. A bare
+    id, an `id=...` token, and a full result line all name the same mutant, so
+    all three are accepted.
 
     Args:
         token: one line of input, or one command-line argument.

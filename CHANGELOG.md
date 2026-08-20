@@ -371,6 +371,18 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on the operator itself — adding an operator is still adding a file and
   nothing else. See [Writing an operator](docs/writing-an-operator.md).
 
+- **`moonbuggy -h` now states the output vocabulary and the exit codes.** Two
+  new epilog sections: `Statuses:` names all seven statuses with a line each,
+  and says which two are *findings*; `Exit codes:` gives 0, 1, 2 and 130, says
+  that 1 is a result rather than an error, and says how
+  `--fail-on-unexplained` narrows it. Every flag was already documented, but
+  the two things an agent actually acts on were not: `KILLED` and
+  `KILLED_BY_ERROR` appeared in `-h` zero times, and no exit code appeared
+  outside one clause of `--fail-on-unexplained`'s own help. Issue #13 made
+  `-h` the advertised onboarding path, so a contract discoverable only by
+  experiment was the gap that mattered most. `# moonbuggy: skip` is now named
+  on the help surface too -- it appeared nowhere in any `-h` before.
+
 ### Changed
 
 - **The property suite now runs against every registered operator, not just
@@ -534,6 +546,34 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exist. `verify.py` named a `no mutate` marker that has never existed (it is
   `# moonbuggy: skip`) and a `moonbuggy verify` subcommand that was renamed to
   `run`.
+- **Four help strings that said something false.** `--operators` claimed a `+`
+  prefix "adds to the default tier"; it adds to the rest of the selection, and
+  only falls back to `default` when no bare token is named, so
+  `--operators deep,+boundary` is the deep tier plus boundary with none of the
+  default tier in it. `why --json` claimed "the same JSONL shape
+  results.jsonl uses" -- it is JSONL, but its own record, with no `status` and
+  no `diff` to filter on. `--accept-file` said the ledger was "deliberately not
+  under --output-dir" two clauses after giving a default inside it; the true
+  claim is that `--output-dir` does not move it. And `show --output-dir` said
+  "relative to the project root" when `show` is the one subcommand with no
+  `--project` and resolves it against the working directory.
+- **Help that was true but incomplete enough to mislead.** `tests_run=0` no
+  longer reads as a biconditional (a SKIPPED mutant shows it too, so filtering
+  on it to find coverage gaps mis-classifies every suppressed mutant).
+  `--quiet` now says its one line goes to stderr and leaves stdout empty.
+  `--since` now says the diff's other end is the working tree and that an
+  untracked file is mutated in full. `--fail-on-unexplained` now names the two
+  finding statuses instead of the looser "neither killed nor accepted", which
+  described four statuses that never trigger it. `accept -r` is required when
+  accepting, not for `--list` or `--remove`.
+- **`moonbuggy run -h` no longer teaches a pipeline that drops findings.** Its
+  stdin example was `grep SURVIVED .moonbuggy/results.txt | moonbuggy run -`,
+  which silently misses every `NO_COVERAGE` finding -- which `run` handles and
+  gates on identically, and which moonbuggy's own error message elsewhere in
+  the same file already printed the corrected `grep -E` form for. The worked
+  example in `moonbuggy operators`' footer used `+boundary`, and `boundary` is
+  a `default`-tier operator, so the example was a no-op that taught the wrong
+  model of `+`; it now uses `+statement_deletion`.
 
 ## [0.1.2] - 2026-08-19
 
