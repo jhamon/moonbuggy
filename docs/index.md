@@ -23,6 +23,10 @@ moonbuggy: KILLED=71  SKIPPED=0  SURVIVED=12  SUSPICIOUS=1  TIMEOUT=0  cached=0 
 Each `SURVIVED` line is a change moonbuggy made to your code that no test
 noticed. That is a gap in your suite, named down to the line.
 
+Handing this to an agent takes no install and no setup: run
+`uv run --with moonbuggy moonbuggy -h`, show it the help, and let it drive —
+see the [Quickstart](quickstart.md).
+
 ## Start here
 
 If you have never used mutation testing, read the two pages in order. If you
