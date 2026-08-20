@@ -129,7 +129,7 @@ def test_changing_pytest_args_does_not_serve_the_previous_run_s_verdicts(tmp_pat
     A user runs, gets a survivor, changes the arguments so that the suite can
     actually catch it, reruns -- and is handed the first run's SURVIVED, with
     only a suspiciously high `cached=` count to hint at it. The second run must
-    re-run the mutant and report KILLED.
+    re-run the mutant and report a kill.
     """
     project = write_project(
         tmp_path, {"lib.py": WARNING_LIB, "test_lib.py": WARNING_TEST}
@@ -148,9 +148,9 @@ def test_changing_pytest_args_does_not_serve_the_previous_run_s_verdicts(tmp_pat
         "the second run's arguments differ, so none of the first run's "
         "verdicts may be reused\n" + second.stderr
     )
-    assert status_of_mutation(project, *MUTATION) == "KILLED", (
-        "the warning is an error under these arguments, so the test fails and "
-        "the mutant dies -- unless a stale cache entry answered first"
+    assert status_of_mutation(project, *MUTATION) in ("KILLED", "KILLED_BY_ERROR"), (
+        "the warning is an error under these arguments, so the mutant dies "
+        "-- unless a stale cache entry answered first"
     )
 
 

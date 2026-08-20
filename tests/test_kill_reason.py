@@ -17,6 +17,7 @@ Three layers are pinned here:
   a separate keyword for reading.
 """
 
+import doctest
 import subprocess
 import sys
 import textwrap
@@ -81,6 +82,25 @@ def test_an_uncaught_exception_is_a_crash_kill():
     assert settle(NameError).errored
     assert settle(AttributeError).errored
     assert settle(TypeError).errored
+
+
+def test_a_doctest_mismatch_is_an_ordinary_kill():
+    """A doctest example *is* the assertion. When its output does not match,
+    the doctest checked the mutated behaviour and objected -- which is the
+    thing mutation testing measures, and is not a crash.
+
+    Regression: `doctest.DocTestFailure` is neither an `AssertionError` nor a
+    pytest failure, so the first version of the classifier called every
+    doctest-caught mutant a crash-kill. A project whose suite is mostly
+    doctests would have had its kill quality reported as near-worthless.
+    """
+    assert not settle(doctest.DocTestFailure).errored
+
+
+def test_a_doctest_whose_code_raised_is_a_crash_kill():
+    """The other half of the pair, and the reason the two doctest exceptions
+    are treated differently: the example never got to compare anything."""
+    assert settle(doctest.UnexpectedException).errored
 
 
 def test_a_failure_outside_the_call_phase_is_a_crash_kill():
