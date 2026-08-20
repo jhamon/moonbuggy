@@ -308,13 +308,21 @@ def test_a_misspelled_operator_name_fails_instead_of_running_nothing(throwaway):
     assert "Traceback" not in proc.stderr
 
 
-def test_an_empty_tier_says_so_rather_than_reporting_a_clean_run(throwaway):
-    """No operator declares itself `deep` in this version. Running nothing and
-    exiting 0 would be the worst possible answer."""
-    proc = moonbuggy("--operators", "deep", cwd=throwaway, expect=2)
+def test_the_deep_tier_runs_only_its_own_members(throwaway):
+    """`--operators deep` used to exit 2 with "empty tier" -- the honest state
+    of the version that introduced tiers. It now runs, and runs exactly the
+    deep operators rather than the default set as well."""
+    moonbuggy("--no-cache", "--operators", "deep", cwd=throwaway)
 
-    assert "deep" in proc.stderr
-    assert "Traceback" not in proc.stderr
+    assert {r["operator"] for r in _records(throwaway)} == {"statement_deletion"}
+
+
+def test_a_default_run_runs_no_deep_operator(throwaway):
+    """The point of the tier. A bare `moonbuggy` is the `default` tier, which
+    stopped being "every registered operator" when the first deep one landed."""
+    moonbuggy("--no-cache", cwd=throwaway)
+
+    assert "statement_deletion" not in {r["operator"] for r in _records(throwaway)}
 
 
 def test_the_operators_listing_runs_outside_a_project(tmp_path):
