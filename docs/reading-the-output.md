@@ -45,7 +45,7 @@ Seven keywords, and only seven. Each line of plaintext begins with one, so
 | `SUSPICIOUS` | moonbuggy cannot give a confident answer | investigate the *run*, not the code |
 | `SKIPPED` | the mutant was suppressed: the line carries `# moonbuggy: skip`, or the mutation sits inside a logging call | nothing — but see [Logging calls](equivalent-mutants.md#logging-calls) for the second case |
 
-:::{admonition} Changed in 0.1.3
+:::{admonition} Changed in 0.2.0
 :class: warning
 
 `NO_COVERAGE` is new, and it took cases that used to be `SURVIVED`. A line no

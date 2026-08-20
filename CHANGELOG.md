@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-20
+
 ### Added
 
 - **Three function-interface operators, all in the `deep` tier:
@@ -576,6 +578,9 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   model of `+`; it now uses `+statement_deletion`.
 
 ## [0.1.2] - 2026-08-19
+
+_Prepared but never published: no `v0.1.2` tag was pushed, so this section's
+changes first reached PyPI in 0.2.0._
 
 ### Added
 

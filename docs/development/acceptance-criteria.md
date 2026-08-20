@@ -214,7 +214,7 @@ own fast-path output, A2 has been violated — check `git log` on the oracle fil
   `KILLED`, `KILLED_BY_ERROR`, `SURVIVED`, `NO_COVERAGE`, `TIMEOUT`, `SUSPICIOUS`,
   `SKIPPED`. Verified by
   asserting `grep -c SURVIVED` on the plaintext equals the count of survived records in
-  the JSONL. (`NO_COVERAGE` was added in 0.1.3 and took the uncovered lines that were
+  the JSONL. (`NO_COVERAGE` was added in 0.2.0 and took the uncovered lines that were
   previously `SURVIVED` with `tests_run=0`; `KILLED_BY_ERROR` was added in 0.1.4 and
   took the kills where a test raised rather than asserted. The criterion is about the
   keyword-per-line shape, which is unchanged, not about the size of the vocabulary.)

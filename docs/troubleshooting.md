@@ -174,7 +174,7 @@ genuinely slow, raise it, or `# moonbuggy: skip` the line.
 ## Everything is `NO_COVERAGE`
 
 No test executes those lines at all. The coverage map is empty or nearly so.
-(Before 0.1.3 this arrived as `SURVIVED` with `tests_run=0`.)
+(Before 0.2.0 this arrived as `SURVIVED` with `tests_run=0`.)
 
 A handful of these is a real finding about your suite — write the tests, or
 delete the code. *Everything* is almost always a finding about the run.

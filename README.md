@@ -123,7 +123,7 @@ meaningful kill rate and a flattering one. Before 0.1.4 both were `KILLED`, so
 `SURVIVED` and `NO_COVERAGE` are both findings and both exit `1`. They are
 separate keywords because the fix is different: a survivor needs a stronger
 assertion in a test that already runs, and a `NO_COVERAGE` line needs a test to
-exist at all (or the code to go). Before 0.1.3 the second was reported as
+exist at all (or the code to go). Before 0.2.0 the second was reported as
 `SURVIVED` with `tests_run=0`, so **`grep SURVIVED` no longer catches uncovered
 lines** — grep for both to get every finding:
 
