@@ -40,7 +40,14 @@ from .mutant import Mutant
 # 3: NO_COVERAGE. Mutants no test reaches were stored as "SURVIVED", and a v2
 #    entry replayed under v3 would put them back in the survivor list under the
 #    name the report no longer uses for them.
-CACHE_VERSION = 3
+# 4: KILLED_BY_ERROR. Same argument, one status along. A v3 entry holds
+#    "KILLED" for every kill, including the ones this version calls
+#    KILLED_BY_ERROR -- and unlike NO_COVERAGE this is not confined to a new
+#    operator, because any operator can produce a mutation that makes a test
+#    raise. A warm cache would therefore report a *different* crash-kill count
+#    than a cold one on the same code, which is the one thing a cache must
+#    never do.
+CACHE_VERSION = 4
 
 
 def run_fingerprint(

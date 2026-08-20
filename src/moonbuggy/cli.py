@@ -590,7 +590,7 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "--operators",
         default=None,
         metavar="SELECTION",
-        help="which operators to run (default: all of them). A comma-separated "
+        help="which operators to run (default: the `default` tier). A comma-separated "
         "list of names is an exact set -- `comparison_swap,boundary` is those "
         "two and nothing else. A tier name stands for its members: `default` "
         "is the cheap, high-signal operators, `deep` is the expensive or "
@@ -1101,13 +1101,19 @@ def _exit_code(counts: dict[str, int], acceptance: Acceptance, gating: bool) -> 
 
 
 def _wanted_operators(args: argparse.Namespace) -> set[str] | None:
-    """The operator names this run will keep, or None for every one of them.
+    """The operator names this run will keep, or None for the default tier.
+
+    None rather than the expanded default set, so that "the user did not
+    choose" stays distinguishable from "the user typed out today's default
+    tier by hand" -- `_effective_config` records the selector verbatim, and
+    those two runs should not read identically a year from now.
 
     Args:
         args: the parsed command line.
 
     Returns:
-        The resolved names, or None when `--operators` was not given.
+        The resolved names, or None when `--operators` was not given, which
+        `generate_mutants` reads as the `default` tier.
 
     Raises:
         SelectionError: if the selection names something unknown or resolves
@@ -1264,6 +1270,7 @@ def _settled_line(done: int, total: int, counts: Counter[str], elapsed: float) -
         f"{counts[status]} {status.lower()}"
         for status in (
             "KILLED",
+            "KILLED_BY_ERROR",
             "SURVIVED",
             "NO_COVERAGE",
             "TIMEOUT",
@@ -1363,6 +1370,7 @@ def _collect_mutants(
                 module=relative,
                 on_skip=_note_skip,
                 logging_policy=logging_policy,
+                operators=wanted,
             )
         except (SourceError, GenerationError) as error:
             progress.log(f"moonbuggy: skipping {relative}: {error}")
@@ -1374,7 +1382,7 @@ def _collect_mutants(
                 f"to mutate, first at line {min(skipped)}. Those lines are not "
                 "covered by this run."
             )
-        mutants.extend(m for m in found if wanted is None or m.operator in wanted)
+        mutants.extend(found)
     return mutants, unreadable
 
 

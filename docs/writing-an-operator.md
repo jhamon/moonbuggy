@@ -29,7 +29,7 @@ adding a file is enough.
 Three optional class attributes decide how your operator appears in
 `moonbuggy operators` and which tier selects it. All three are plain class
 attributes with sensible defaults, so an operator that says nothing is a cheap
-`default`-tier one — which every built-in currently is.
+`default`-tier one — which every built-in but `statement_deletion` is.
 
 `tier`
 : `"default"` (the default) or `"deep"`. `default` is what a bare `moonbuggy`
@@ -38,6 +38,12 @@ attributes with sensible defaults, so an operator that says nothing is a cheap
   or `--operators +your_operator`. Put it in `deep` if it multiplies the mutant
   count, if a fair share of its mutants will time out, or if you expect more
   survivors-that-are-noise than survivors-that-are-findings.
+  `statement_deletion` is the worked example: roughly one extra mutant per
+  statement, and a real equivalent-mutant rate even after its heuristic has
+  thrown the provable ones away. Read
+  `src/moonbuggy/operators/deletion.py` before writing a `deep` operator of
+  your own — its module docstring is where the "prove inert, not impactful"
+  argument is written down.
 
 `cost`
 : `"low"` (the default), `"medium"` or `"high"`. A rough ordering for the
@@ -236,7 +242,8 @@ every loop in the file. An operator's cost is wall-clock as well as noise.
 That exclusion is also the shape of thing the `deep` tier exists for. A
 while-negating operator would be a plausible `deep` member — expensive, opted
 into deliberately, useful on a suite you specifically suspect of not testing
-its loops. Nothing here implements one; the tier is the place it would go.
+its loops. Nothing here implements one; the tier is the place it would go, and
+`statement_deletion` is what already lives there.
 
 ## Testing it
 

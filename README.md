@@ -92,16 +92,27 @@ lines no test reaches, and `2` when the run could not start.
 
 ### Reading the output
 
-Every plaintext line begins with one of exactly six keywords:
+Every plaintext line begins with one of exactly seven keywords:
 
 | keyword | meaning |
 |---|---|
-| `KILLED` | a test failed under the mutation — the good outcome |
+| `KILLED` | a test assertion failed under the mutation — the good outcome |
+| `KILLED_BY_ERROR` | a test errored out under the mutation — still a kill, but see below |
 | `SURVIVED` | every selected test passed — a gap, or an equivalent mutant |
 | `NO_COVERAGE` | no test executes the line at all, so nothing could object |
 | `TIMEOUT` | the mutation caused a hang, killed by the time budget |
 | `SUSPICIOUS` | pytest could not complete; needs a look |
 | `SKIPPED` | suppressed: a `# moonbuggy: skip` marker, or a mutation inside a logging call |
+
+`KILLED_BY_ERROR` is a kill: it counts toward the score and it is not a
+finding, so it does not affect the exit code. What it tells you is what the
+kill *proves*. A failed assertion proves a test checked the behaviour the
+mutation changed. A test that raised `NameError` proves only that a test runs
+the line — the mutant broke the code badly enough that touching it explodes,
+and nothing was checked. The distinction is rare under the default operators
+and common under the `deep` tier, where it is the difference between a
+meaningful kill rate and a flattering one. Before 0.1.4 both were `KILLED`, so
+**`grep KILLED` no longer catches every kill** — `grep -E '^KILLED'` does.
 
 `SURVIVED` and `NO_COVERAGE` are both findings and both exit `1`. They are
 separate keywords because the fix is different: a survivor needs a stronger
@@ -263,8 +274,22 @@ A bare list of names is an *exact* set — that has always been true and has not
 changed. Tier names (`default`, `deep`, `all`) and the `+` prefix are syntax on
 top of it. `default` is the cheap, high-signal operators, which is what a bare
 `moonbuggy` runs; `deep` is for operators that are expensive or noisy enough to
-be opted into deliberately, and has no members yet. A name that does not exist
-is an error rather than a run with no mutants in it.
+be opted into deliberately. A name that does not exist is an error rather than
+a run with no mutants in it.
+
+`statement_deletion` is the `deep` tier. It replaces a statement with `pass`,
+which is the highest-yield mutation there is — a survivor means the statement
+can be removed from the program and the suite still passes — and it costs
+roughly one extra mutant per statement, which is why it is opt-in. It pairs
+well with `--since`: the deep tier over changed lines only is affordable on
+every pull request. Statements whose deletion provably changes nothing are
+never mutated: docstrings, `pass`, `...`, `global`/`nonlocal`, imports, a bare
+name or literal on its own line, and a local binding with a pure right-hand
+side that nothing in the function reads again.
+
+Expect crash-kills: deleting a binding leaves everything downstream raising
+`NameError`. Those are reported `KILLED_BY_ERROR` rather than `KILLED` so the
+kill rate keeps meaning something — see the keyword table above.
 
 ### Options
 

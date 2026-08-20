@@ -30,6 +30,7 @@ import time
 from collections.abc import Callable, Iterable
 from typing import Literal, NamedTuple, TypedDict, cast
 
+from .killreason import TESTS_ERRORED, KillReason
 from .mutant import Mutant
 
 FORK_AVAILABLE = hasattr(os, "fork")
@@ -54,7 +55,18 @@ CHILD_CRASHED = 70
 # caller (runner._run_forked_batch) does not -- it builds a Result straight
 # from the returned statuses with no filtering -- so UNAPPLIED can reach a
 # Result on that path today. Pre-existing gap, not introduced or fixed here.
-Status = Literal["SURVIVED", "KILLED", "TIMEOUT", "SUSPICIOUS", "UNAPPLIED"]
+#
+# KILLED_BY_ERROR is a kill like KILLED -- the mutation was noticed -- but the
+# tests errored out rather than objecting. `moonbuggy.killreason` explains why
+# the two are different findings about the suite.
+Status = Literal[
+    "SURVIVED",
+    "KILLED",
+    "KILLED_BY_ERROR",
+    "TIMEOUT",
+    "SUSPICIOUS",
+    "UNAPPLIED",
+]
 
 
 class Job(NamedTuple):
@@ -172,11 +184,13 @@ def _child(
 
         import pytest
 
+        from .killreason import KillReason
+
         # -p no:cov: the mutant run needs no coverage instrumentation, and
         # pytest-cov registers hooks on every session. -x: one failure is
         # already a kill, so there is nothing to learn from the rest.
         began = time.perf_counter()
-        code = pytest.main(_mutant_args(selected, extra_args))
+        code = pytest.main(_mutant_args(selected, extra_args), plugins=[KillReason()])
         micros = int((time.perf_counter() - began) * 1_000_000)
         code = int(code)
     except BaseException:
@@ -226,7 +240,9 @@ def prebuild_mutant_config(extra_args: Iterable[str] = ()) -> object | None:
     try:
         from _pytest.config import _prepareconfig
 
-        return _prepareconfig(_mutant_args((), extra_args, False), [_SELECTED_ONLY])
+        return _prepareconfig(
+            _mutant_args((), extra_args, False), [_SELECTED_ONLY, _KILL_REASON]
+        )
     except BaseException:
         # Private pytest API. If a future version moves it, the fallback is a
         # slower run rather than a wrong one, so this must not be fatal.
@@ -310,6 +326,7 @@ def _run_precollected(config: object, session: object, selected: Iterable[str]) 
     # so it cannot drift from the class the loop raises.
     failed = type(session).Failed  # type: ignore[attr-defined]
 
+    _KILL_REASON.reset()
     wanted = set(selected)
     session.items = [i for i in session.items if i.nodeid in wanted]  # type: ignore[attr-defined]
     session.testscollected = len(session.items)  # type: ignore[attr-defined]
@@ -406,6 +423,11 @@ class _SelectedOnly:
 # `_run_prebuilt`, in that grandchild's own copy of the process.
 _SELECTED_ONLY = _SelectedOnly()
 
+# Also registered in the prebuilt config, and reset by each grandchild in its
+# own copy for the same reason: the host builds the config before any mutation
+# exists, so whatever it left in this object belongs to no mutant.
+_KILL_REASON = KillReason()
+
 
 def _run_prebuilt(config: object, selected: Iterable[str]) -> int:
     """Run one mutant's tests using a config built before the fork.
@@ -417,6 +439,7 @@ def _run_prebuilt(config: object, selected: Iterable[str]) -> int:
     """
     ids = list(selected)
     _SELECTED_ONLY.select(ids)
+    _KILL_REASON.reset()
     config.args = ids  # type: ignore[attr-defined]  # a pytest Config, not typed here
     config.option.file_or_dir = ids  # type: ignore[attr-defined]
     try:
@@ -988,6 +1011,7 @@ _STATUS_BY_CODE: dict[int, Status] = {
     1: "KILLED",
     2: "TIMEOUT",
     3: "SUSPICIOUS",
+    5: "KILLED_BY_ERROR",
     # Not a status the user ever sees. It means the grandchild could not apply
     # its mutation in place, so nothing was measured and the mutant has to be
     # re-run on the cold path. Reporting SUSPICIOUS instead -- which is what
@@ -1159,7 +1183,13 @@ def _grandchild(
 
         began = time.perf_counter()
         if config is None:
-            code = int(pytest.main(_mutant_args(selected, extra_args, False)))
+            _KILL_REASON.reset()
+            code = int(
+                pytest.main(
+                    _mutant_args(selected, extra_args, False),
+                    plugins=[_KILL_REASON],
+                )
+            )
         elif session is None:
             code = int(_run_prebuilt(config, selected))
         else:
@@ -1293,6 +1323,8 @@ def _status_from(read_fd: int) -> tuple[Status, float]:
         return "SURVIVED", seconds
     if code == PYTEST_TESTS_FAILED:
         return "KILLED", seconds
+    if code == TESTS_ERRORED:
+        return "KILLED_BY_ERROR", seconds
     if code == COULD_NOT_APPLY:
         return "UNAPPLIED", seconds
     return "SUSPICIOUS", seconds

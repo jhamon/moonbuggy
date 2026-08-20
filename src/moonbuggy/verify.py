@@ -59,6 +59,7 @@ from .coverage_pass import run_baseline_pass
 from .generate import GenerationError, generate_mutants
 from .logging_policy import LoggingPolicy
 from .mutant import Mutant, parse_id
+from .operators import ALL_TIER, tier_members
 from .report import Record
 from .runner import Result, check_selection_is_runnable, run_one
 from .srcio import SourceError, read_source
@@ -433,7 +434,16 @@ def _mutants_in(
     # index), so a dict loses nothing and makes the per-id lookup free.
     try:
         source = read_source(project_dir / module)
-        found = generate_mutants(source, module=module, logging_policy=logging_policy)
+        # Every operator, not the default tier: the caller is holding an id
+        # a previous run printed, and that run may have been a `--operators
+        # deep` one. Refusing to find a deep-tier mutant here would make
+        # `moonbuggy verify` disagree with the report it was handed.
+        found = generate_mutants(
+            source,
+            module=module,
+            logging_policy=logging_policy,
+            operators=tier_members(ALL_TIER),
+        )
     except (SourceError, GenerationError) as error:
         raise VerifyError(f"cannot read {module}: {error}") from error
     return {mutant.id: mutant for mutant in found}

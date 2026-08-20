@@ -288,7 +288,10 @@ def hunt(target, root, timeout):
     counts = {}
     for record in records:
         counts[record["status"]] = counts.get(record["status"], 0) + 1
-    killed = counts.get("KILLED", 0)
+    # Both kill statuses: a crash-kill is a kill, and leaving KILLED_BY_ERROR
+    # out of the numerator would report a lower score for a suite that did
+    # notice the mutation. Same choice `humanreport.score_text` makes.
+    killed = counts.get("KILLED", 0) + counts.get("KILLED_BY_ERROR", 0)
     # NO_COVERAGE is in the denominator alongside SURVIVED: it is a finding, and
     # dropping it would raise a project's score for having no coverage at all.
     # Same choice the tool's own footer score makes.

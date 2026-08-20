@@ -10,11 +10,18 @@ walks the tree -- adding an operator requires no change here (criterion B4).
 
 import ast
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 
 from .logging_policy import LoggingPolicy, in_logging_call
 from .mutant import Mutant, make_id
-from .operators import Context, ContextualOperator, Operator, all_operators
+from .operators import (
+    DEFAULT_TIER,
+    Context,
+    ContextualOperator,
+    Operator,
+    all_operators,
+    tier_members,
+)
 from .srcio import strip_coding_cookie
 
 # Called as (lineno, reason) for a site that could not be turned into a
@@ -46,6 +53,7 @@ def generate_mutants(
     module: str,
     on_skip: OnSkip | None = None,
     logging_policy: LoggingPolicy | None = None,
+    operators: Collection[str] | None = None,
 ) -> list[Mutant]:
     """Return every mutant for one module's source, in a stable order.
 
@@ -61,6 +69,16 @@ def generate_mutants(
             which tag those mutants and suppress them. The policy never changes
             *which* mutants exist, only how they are labelled -- so mutant ids
             are the same whichever way it is set.
+        operators: the operator names to run. The default, None, is the
+            `default` tier -- what a bare `moonbuggy` does -- and not every
+            registered operator. That distinction only started to matter when
+            the first `deep` operator existed: before that the two sets were
+            equal, and a caller who asked for "all of them" got a cheap run by
+            accident rather than by contract. Filtering here rather than in the
+            caller keeps the cost of a deep operator unpaid when it is not
+            selected; it cannot move an id, because the occurrence index is
+            counted per line *and operator*, so no operator's index depends on
+            which others ran.
 
     Returns:
         a list of :class:`~moonbuggy.mutant.Mutant`, sorted by line then operator then
@@ -82,7 +100,8 @@ def generate_mutants(
         ) from error
 
     lines = source.splitlines()
-    operators = all_operators()
+    wanted = set(tier_members(DEFAULT_TIER) if operators is None else operators)
+    chosen = [op for op in all_operators() if op.name in wanted]
     policy = logging_policy if logging_policy is not None else LoggingPolicy()
     deferred = _function_body_lines(tree)
 
@@ -91,7 +110,7 @@ def generate_mutants(
     sys.setrecursionlimit(max(previous_limit, DEEP_RECURSION_LIMIT))
     try:
         for node, context in _walk(tree):
-            for operator in operators:
+            for operator in chosen:
                 _mutate_node(
                     node,
                     context,

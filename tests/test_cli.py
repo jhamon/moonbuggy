@@ -308,13 +308,21 @@ def test_a_misspelled_operator_name_fails_instead_of_running_nothing(throwaway):
     assert "Traceback" not in proc.stderr
 
 
-def test_an_empty_tier_says_so_rather_than_reporting_a_clean_run(throwaway):
-    """No operator declares itself `deep` in this version. Running nothing and
-    exiting 0 would be the worst possible answer."""
-    proc = moonbuggy("--operators", "deep", cwd=throwaway, expect=2)
+def test_the_deep_tier_runs_only_its_own_members(throwaway):
+    """`--operators deep` used to exit 2 with "empty tier" -- the honest state
+    of the version that introduced tiers. It now runs, and runs exactly the
+    deep operators rather than the default set as well."""
+    moonbuggy("--no-cache", "--operators", "deep", cwd=throwaway)
 
-    assert "deep" in proc.stderr
-    assert "Traceback" not in proc.stderr
+    assert {r["operator"] for r in _records(throwaway)} == {"statement_deletion"}
+
+
+def test_a_default_run_runs_no_deep_operator(throwaway):
+    """The point of the tier. A bare `moonbuggy` is the `default` tier, which
+    stopped being "every registered operator" when the first deep one landed."""
+    moonbuggy("--no-cache", cwd=throwaway)
+
+    assert "statement_deletion" not in {r["operator"] for r in _records(throwaway)}
 
 
 def test_the_operators_listing_runs_outside_a_project(tmp_path):
@@ -486,6 +494,61 @@ def test_an_unreached_line_is_reported_as_no_coverage(tmp_path):
     text = (tmp_path / ".moonbuggy" / "results.txt").read_text()
     assert [line for line in text.splitlines() if line.startswith("NO_COVERAGE")]
     assert "NO_COVERAGE=" in proc.stderr
+
+
+DELETION_PROJECT = """\
+def scaled(value):
+    factor = 2
+    return value * factor
+"""
+
+DELETION_TESTS = """\
+from lib import scaled
+
+
+def test_scaled():
+    assert scaled(3) == 6
+"""
+
+
+def test_a_deep_tier_run_separates_crash_kills_from_assertion_kills(tmp_path):
+    """End to end: `statement_deletion` is off by default, on under
+    `--operators`, and its crash-kills are reported under their own keyword.
+
+    Deleting `factor = 2` leaves `return value * factor` raising `NameError`.
+    The suite notices -- it is a kill -- but nothing about it says the suite
+    *checks* the multiplication, which is the whole distinction. Deleting the
+    `return` instead makes `scaled` return None and the assertion objects, so
+    the same file produces one of each.
+    """
+    (tmp_path / "lib.py").write_text(DELETION_PROJECT)
+    (tmp_path / "test_lib.py").write_text(DELETION_TESTS)
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "conftest.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "sys.path.insert(0, str(Path(__file__).parent))\n"
+    )
+
+    default_run = moonbuggy(cwd=tmp_path, expect=0)
+    default_text = (tmp_path / ".moonbuggy" / "results.txt").read_text()
+    assert "statement_deletion" not in default_text
+
+    # A kill is not a finding, so this still exits 0.
+    proc = moonbuggy("--operators", "+deep", cwd=tmp_path, expect=0)
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / ".moonbuggy" / "results.jsonl").read_text().splitlines()
+    ]
+    by_id = {r["id"]: r["status"] for r in records}
+
+    assert by_id["lib.py:2:statement_deletion:0"] == "KILLED_BY_ERROR"
+    assert by_id["lib.py:3:statement_deletion:0"] == "KILLED"
+    text = (tmp_path / ".moonbuggy" / "results.txt").read_text()
+    assert [line for line in text.splitlines() if line.startswith("KILLED_BY_ERROR")]
+    assert "KILLED_BY_ERROR=1" in proc.stderr
+    # The default run above had no deep operator in it at all.
+    assert "KILLED_BY_ERROR=0" in default_run.stderr
 
 
 def test_a_non_tty_run_puts_no_bare_survived_line_on_stderr(tmp_path, capsys):

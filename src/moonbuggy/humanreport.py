@@ -13,7 +13,7 @@ from collections.abc import Iterable, Mapping, Sequence
 
 from .accepted import Acceptance
 from .diffscope import DiffScope
-from .report import Record, summarise
+from .report import KILL_STATUSES, Record, summarise
 from .terminal import (
     FALLBACK_WIDTH,
     Palette,
@@ -322,6 +322,7 @@ FOOTER_ORDER = (
     "TIMEOUT",
     "SUSPICIOUS",
     "KILLED",
+    "KILLED_BY_ERROR",
     "SKIPPED",
 )
 
@@ -336,6 +337,12 @@ def score_text(counts: Mapping[str, int]) -> str:
     appears in the footer rather than the header: at the top of a report a
     percentage reads as a target, and at the bottom it reads as an observation.
 
+    KILLED_BY_ERROR counts as killed, because it is one: the mutation was
+    noticed. What it does not do is prove the tests *checked* anything, which
+    is why the footer's tally prints it separately rather than folding it in
+    silently -- a deep-tier run whose kills are mostly crashes has a high score
+    and a weak suite, and the reader has to be able to see that.
+
     Args:
         counts: per-status counts, as `report.summarise` returns.
 
@@ -346,7 +353,7 @@ def score_text(counts: Mapping[str, int]) -> str:
     runnable = total - counts.get("SKIPPED", 0)
     if runnable <= 0:
         return "n/a"
-    killed = counts.get("KILLED", 0)
+    killed = sum(counts.get(status, 0) for status in KILL_STATUSES)
     return f"{killed}/{runnable} killed, {round(100 * killed / runnable)}%"
 
 
@@ -371,6 +378,33 @@ def _logging_lines(logging_skipped: int) -> list[str]:
     return [
         f"{logging_skipped} {noun} inside logging calls {verb} skipped "
         "(nothing asserts on log output) -- --include-logging-mutants runs them"
+    ]
+
+
+def _crash_kill_lines(counts: Mapping[str, int]) -> list[str]:
+    """The footer's line about kills that were crashes, or nothing.
+
+    Nothing is the common case for a `default`-tier run, where most mutations
+    leave a program that still runs and merely computes something else. It is
+    the ordinary case under `statement_deletion`, and there it is the line
+    that keeps the score above it honest: a suite that merely *executes* the
+    mutated line kills a deletion mutant with a `NameError` and scores the
+    same as one that checks the result.
+
+    Args:
+        counts: per-status counts, as `report.summarise` returns.
+
+    Returns:
+        Zero or one line, to sit directly under the tally.
+    """
+    crashes = counts.get("KILLED_BY_ERROR", 0)
+    if crashes <= 0:
+        return []
+    total = crashes + counts.get("KILLED", 0)
+    noun = "kill" if total == 1 else "kills"
+    return [
+        f"{crashes} of {total} {noun} came from a test erroring out, not a "
+        "failed assertion -- those tests run the line but do not check it"
     ]
 
 
@@ -482,8 +516,8 @@ def render_footer(
 
     Returns:
         Three newline-separated lines, plus one for a diff-scoped run, one for
-        suppressed logging mutants and one or two for a ledger, with no
-        trailing newline.
+        crash-kills, one for suppressed logging mutants and one or two for a
+        ledger, with no trailing newline.
     """
     tally = ", ".join(
         f"{counts[status]} {status.lower()}"
@@ -493,6 +527,7 @@ def render_footer(
     return "\n".join(
         [
             f"{tally} in {elapsed:.1f}s -- {score_text(counts)}",
+            *_crash_kill_lines(counts),
             *_logging_lines(logging_skipped),
             *([scope.describe()] if scope is not None else []),
             *_acceptance_lines(acceptance),

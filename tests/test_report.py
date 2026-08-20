@@ -97,6 +97,7 @@ def test_plaintext_line_starts_with_a_fixed_status_keyword():
 def test_every_status_keyword_is_in_the_fixed_vocabulary():
     assert {
         "KILLED",
+        "KILLED_BY_ERROR",
         "SURVIVED",
         "NO_COVERAGE",
         "TIMEOUT",

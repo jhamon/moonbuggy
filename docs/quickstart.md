@@ -167,7 +167,7 @@ Run moonbuggy again:
 
 ```{code-block} console
 $ moonbuggy
-moonbuggy: KILLED=72  NO_COVERAGE=0  SKIPPED=0  SURVIVED=11  SUSPICIOUS=1  TIMEOUT=0  cached=71  -> .moonbuggy/results.jsonl
+moonbuggy: KILLED=72  KILLED_BY_ERROR=0  NO_COVERAGE=0  SKIPPED=0  SURVIVED=11  SUSPICIOUS=1  TIMEOUT=0  cached=71  -> .moonbuggy/results.jsonl
 ```
 
 That mutant is now `KILLED`, and `cached=71` means the mutants in files you did

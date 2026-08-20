@@ -197,6 +197,14 @@ def classify(key, ours, theirs):
             "moonbuggy honours `# moonbuggy: skip`; mutmut has no such marker",
         )
 
+    if {mine, yours} == {"KILLED", "KILLED_BY_ERROR"}:
+        return (
+            "vocabulary difference",
+            "both tools killed the mutant. moonbuggy additionally reports "
+            "whether the kill was a failed assertion or a test erroring out; "
+            "mutmut reads only pytest's exit code and has one word for both",
+        )
+
     if "TIMEOUT" in (mine, yours):
         return (
             "genuine semantic difference",

@@ -17,7 +17,7 @@ moonbuggy: 84 mutants across 3 files
 moonbuggy: running coverage pass...
 SURVIVED  app/pricing.py:14 comparison_swap line=14 nearest_test=tests/test_pricing.py::test_discount tests_run=3 id=app/pricing.py:14:comparison_swap:0
 KILLED    app/pricing.py:15 constant_int line=15 nearest_test=- tests_run=3 id=app/pricing.py:15:constant_int:0
-moonbuggy: KILLED=71  NO_COVERAGE=3  SKIPPED=0  SURVIVED=12  SUSPICIOUS=1  TIMEOUT=0  cached=0  -> .moonbuggy/results.jsonl
+moonbuggy: KILLED=71  KILLED_BY_ERROR=0  NO_COVERAGE=3  SKIPPED=0  SURVIVED=12  SUSPICIOUS=1  TIMEOUT=0  cached=0  -> .moonbuggy/results.jsonl
 ```
 
 Each `SURVIVED` line is a change moonbuggy made to your code that no test

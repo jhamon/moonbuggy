@@ -8,6 +8,65 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`statement_deletion`, the `deep` tier's first operator.** Replaces a single
+  statement with `pass` at the same column offset. It is the highest-yield
+  mutation there is -- a survivor means the statement can be removed from the
+  program entirely and the suite still passes -- and it subsumes others for
+  free: `return x` becomes `pass`, which is return-value mutation without a
+  separate operator. Opt in with `--operators +statement_deletion`,
+  `--operators deep` or `--operators all`; it costs roughly one extra mutant
+  per statement, which is why it is not in the default set. It pairs with
+  `--since`: the deep tier over changed lines only is affordable per pull
+  request.
+
+  **The heuristic proves statements inert, not impactful.** Proving a statement
+  matters is the hard direction and a wrong answer there loses a real finding;
+  proving one is inert is the easy direction and a wrong answer there costs one
+  equivalent mutant. So deletion is never generated for a closed list of shapes
+  -- docstrings, `pass`, `...`, `global`/`nonlocal`, `import` (a `NameError`
+  everywhere is a crash-kill carrying no information), a bare `Expr` whose
+  value is a Constant or Name -- plus one dead-store analysis: `x = <expr>`
+  with no call, `await` or `yield` on the right, a plain-name target, and no
+  read of `x` anywhere in the enclosing function. No interprocedural analysis,
+  no type inference. Everything else is mutated, by subtraction.
+
+  **Mutant ids are unchanged for a default run**, verified by regenerating the
+  fixture's ids and diffing: the occurrence index in an id is counted per line
+  *and operator*, so no existing operator's index depends on this one
+  existing. Nothing in `.moonbuggy/cache.json` or in an accepted-equivalents
+  ledger loses its meaning.
+
+- **`KILLED_BY_ERROR`, a seventh status.** *(BREAKING for `grep KILLED`.)* A
+  kill where the test raised rather than asserted is now reported under its own
+  keyword. A failed assertion proves a test *checked* the behaviour the
+  mutation changed; a `NameError` proves only that a test *executes* the line.
+  Reporting both as `KILLED` was tolerable while every operator produced a
+  program that still ran, and stops being tolerable the moment the deep tier is
+  switched on -- delete a binding and everything downstream raises, so a suite
+  that merely executes code would score as well as one that checks it.
+
+  It is a kill: it counts in the mutation score's numerator, it is not a
+  finding, and **the exit code is unchanged**. `pytest.fail()` and a
+  `pytest.raises` block whose exception never arrived both stay `KILLED` --
+  those are the test speaking as deliberately as `assert` is -- while a failure
+  inside a fixture counts as an error.
+
+  `grep KILLED` still matches every kill, since one keyword is a prefix of the
+  other, but `grep -E '^KILLED '` is now needed for only the ordinary ones. The
+  human report's footer says how many of the kills were crashes, so the score
+  above it can be read honestly. Decided in all three runners -- the forked
+  child, the warm grandchild and the `python -m pytest` subprocess -- from one
+  classifier that travels back through pytest's exit code, so a verdict cannot
+  depend on `--jobs`.
+
+  `CACHE_VERSION` is bumped 3 -> 4. A v3 entry holds `KILLED` for every kill,
+  including the ones this version calls `KILLED_BY_ERROR`, and unlike
+  `NO_COVERAGE` this is not confined to a new operator -- any operator can make
+  a test raise. A warm cache would otherwise report a different crash-kill
+  count than a cold one on the same code. Old caches are ignored rather than
+  misread, so the first run after upgrading is cold. `RECORD_SCHEMA` is
+  unchanged: the vocabulary grew, the record's shape did not.
+
 - **A mutation policy for logging calls.** A mutation inside the arguments of a
   logging call -- `logger.debug("retrying in %ds", delay * 2)` -- is unkillable
   by construction: nothing asserts on the contents of a debug line. Those
@@ -260,6 +319,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing else. See [Writing an operator](docs/writing-an-operator.md).
 
 ### Changed
+
+- **A bare `moonbuggy` run is now the `default` tier rather than every
+  registered operator.** Until this release those were the same set, so nothing
+  observable changes for anyone upgrading -- but they are different claims, and
+  `statement_deletion` is the first operator to make the difference real. Ask
+  for everything with `--operators all`.
 
 - **An unknown `--operators` name is now an error.** `--operators
   compaison_swap` used to generate no mutants, report a clean run and exit 0 —

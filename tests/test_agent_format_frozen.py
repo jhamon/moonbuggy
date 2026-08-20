@@ -7,9 +7,10 @@ not have moved any of it. This test exists because "we were careful" is not a
 mechanism.
 
 The vocabulary itself is allowed to grow -- `NO_COVERAGE` was added to it, and
-that is a documented breaking change for anyone whose `grep SURVIVED` used to
-catch uncovered lines. What is frozen is the *shape*: the leading bare keyword,
-the token order, and the bytes of a line whose status has not changed.
+then `KILLED_BY_ERROR`, and each is a documented breaking change for anyone
+whose `grep SURVIVED` used to catch uncovered lines or whose `grep KILLED`
+used to catch every kill. What is frozen is the *shape*: the leading bare
+keyword, the token order, and the bytes of a line whose status has not changed.
 """
 
 from moonbuggy.report import plaintext_from_records, render_line
@@ -62,6 +63,28 @@ def test_a_no_coverage_line_keeps_the_frozen_shape():
     assert line.split()[0] == "NO_COVERAGE"
     assert line.split()[1] == "sample/inventory.py:9"
     assert "nearest_test=-" in line
+
+
+def test_a_killed_by_error_line_keeps_the_frozen_shape():
+    # The longest keyword in the vocabulary, and it overflows the 9-column
+    # status field by six. Same rule as NO_COVERAGE: overflow, never widen.
+    line = render_line({**RECORD, "status": "KILLED_BY_ERROR"})
+
+    assert line.split()[0] == "KILLED_BY_ERROR"
+    assert line.split()[1] == "sample/inventory.py:9"
+    assert line.split()[2] == "comparison_swap"
+    assert line.split()[-1] == "id=sample/inventory.py:9:comparison_swap:0"
+
+
+def test_the_status_column_is_never_widened_by_a_longer_keyword():
+    # The golden SURVIVED line above is the thing this protects: a status
+    # column sized to the longest keyword would push every token on it right.
+    from moonbuggy.report import STATUS_KEYWORDS
+
+    for status in STATUS_KEYWORDS:
+        rendered = render_line({**RECORD, "status": status})
+        assert rendered.startswith(status)
+        assert rendered.split()[1:] == GOLDEN.split()[1:]
 
 
 def test_the_new_operand_fields_do_not_leak_into_the_line():

@@ -120,6 +120,9 @@ def test_an_expression_too_deep_to_rewrite_is_reported_not_crashed(monkeypatch):
         "def add(a, b):\n    return a + b\n",
         module="verydeep.py",
         on_skip=lambda line, reason: skipped.append((line, reason)),
+        # Named explicitly: generation now runs the `default` tier unless
+        # told otherwise, and this stand-in operator is in no tier at all.
+        operators=["exploding"],
     )
 
     assert mutants == []
