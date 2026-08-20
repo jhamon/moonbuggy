@@ -51,6 +51,7 @@ from .report import (
     find_record,
     plaintext_from_records,
     read_jsonl,
+    record_for,
     render_line,
     summarise,
     write_jsonl,
@@ -65,6 +66,7 @@ from .terminal import (
     resolve_format,
     resolve_width,
 )
+from .verify import Verification, VerifyError, resolve_targets, verify
 
 DEFAULT_OUTPUT_DIR = ".moonbuggy"
 
@@ -121,6 +123,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _show(args)
         if args.command == "accept":
             return _accept(args)
+        if args.command == "run-one":
+            return _run_one(args)
         return _run(args)
     except KeyboardInterrupt:
         # An anticipated ending, not a crash. 130 is the shell convention for
@@ -139,6 +143,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         SourceError,
         DiffScopeError,
         AcceptError,
+        VerifyError,
     ) as error:
         # Criteria H5 and M1.4.12: an actionable message, never a traceback.
         # Every failure moonbuggy can anticipate is funnelled through here, so
@@ -164,6 +169,8 @@ def _build_parser() -> argparse.ArgumentParser:
     show.add_argument("mutant_id")
     show.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     show.set_defaults(command="show")
+
+    _add_run_one_parser(sub)
 
     accept = sub.add_parser(
         "accept",
@@ -204,6 +211,88 @@ _ACCEPT_FILE_HELP = (
     "Deliberately not under --output-dir: it is a checked-in record of human "
     "decisions, not run output"
 )
+
+
+def _add_run_one_parser(
+    sub: "argparse._SubParsersAction[argparse.ArgumentParser]",
+) -> None:
+    """Define `moonbuggy run <id>`: the fix-verify loop's one command.
+
+    The internal command name is `run-one` rather than `run`, because bare
+    `moonbuggy` already means "run everything" and its parsed command is
+    already `run`. The subcommand a user types is `run` either way.
+
+    Args:
+        sub: the subparser action to register on.
+    """
+    one = sub.add_parser(
+        "run",
+        help="re-run one mutant by id and print the fresh verdict",
+        description="Re-run one mutant, or several, using the same coverage "
+        "pass, selection and runner a full run uses. The verdict is always "
+        "measured rather than served from the cache -- re-measuring is the "
+        "point -- and results.jsonl is left exactly as the last full run "
+        "wrote it.",
+    )
+    one.add_argument(
+        "mutant_id",
+        nargs="+",
+        metavar="ID",
+        help="mutant ids, as printed in `id=...`. `-` reads them from stdin, "
+        "one per line, so `grep SURVIVED .moonbuggy/results.txt | moonbuggy "
+        "run -` re-runs the whole survivor set",
+    )
+    one.add_argument("--project", default=".", help="project root (default: cwd)")
+    one.add_argument(
+        "--source", default=None, help="directory to mutate (default: discovered)"
+    )
+    one.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    one.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="seconds before a mutant is called TIMEOUT (default: 30)",
+    )
+    one.add_argument(
+        "-n",
+        "--workers",
+        type=int,
+        default=0,
+        help="pytest-xdist workers per mutant run (default: 0, serial)",
+    )
+    one.add_argument(
+        "--pytest-arg",
+        action="append",
+        default=[],
+        metavar="ARG",
+        help="extra argument passed to every pytest run, including the "
+        "coverage pass (repeatable). Pass the same ones your full run uses, "
+        "or you are measuring a different suite",
+    )
+    one.add_argument(
+        "--flaky-probe",
+        type=int,
+        default=1,
+        metavar="N",
+        help="extra unmutated suite runs used to detect flaky tests "
+        "(default: 1, 0 disables)",
+    )
+    one.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
+    one.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="do not record the fresh verdict in the cache. `moonbuggy run` "
+        "never *reads* the cache for its targets, with or without this",
+    )
+    one.add_argument(
+        "--report",
+        choices=["human", "agent"],
+        default=None,
+        help="output format: 'human' for a readable block per mutant, 'agent' "
+        "for the same one-line-per-mutant format results.txt uses "
+        "(default: human at a terminal, agent when piped)",
+    )
+    one.set_defaults(command="run-one")
 
 
 def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1045,6 +1134,206 @@ def _accept_add(
             file=sys.stderr,
         )
     return 0
+
+
+def _run_one(args: argparse.Namespace) -> int:
+    """Re-run the named mutants and report fresh verdicts.
+
+    Args:
+        args: the parsed `moonbuggy run` command line.
+
+    Returns:
+        The process exit code, mirroring a full run's: 0 when every target was
+        killed, 1 when any of them is a finding -- SURVIVED or NO_COVERAGE,
+        both of which mean the mutation went unnoticed. NO_COVERAGE exits 1
+        here for the same reason it does there: a CI gate that failed on
+        survivors must not start passing because a finding was renamed.
+
+    Raises:
+        VerifyError: if there are no ids to run, or the project is not one
+            moonbuggy can run in. Both are turned into an exit 2 with a
+            message by `main`.
+    """
+    project_dir = Path(args.project).resolve()
+    ids = _target_ids(args.mutant_id)
+    if not ids and "-" in args.mutant_id:
+        # Almost always one specific pipeline: `cut -d' ' -f2` over
+        # results.txt, which lands on the empty string because the status
+        # column is space-padded to a fixed width and cut does not fold
+        # repeated delimiters. Naming the fix is worth more here than
+        # repeating the usage line.
+        raise VerifyError(
+            "no mutant ids on stdin. If you cut a column out of results.txt, "
+            "note that its status column is space-padded, so `cut -d' ' -f2` "
+            "is empty -- pipe the whole lines instead: "
+            "`grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt | "
+            "moonbuggy run -`"
+        )
+    if not ids:
+        raise VerifyError(
+            "no mutant ids to run. Pass one or more ids, or `-` with ids on "
+            "stdin, one per line."
+        )
+    if not looks_like_pytest_project(project_dir):
+        raise VerifyError(
+            f"{project_dir} does not look like a pytest project "
+            "(no pytest.ini, pyproject.toml, conftest.py or test_*.py found). "
+            "Run moonbuggy from your project root, or pass --project."
+        )
+
+    source_dir = (
+        Path(args.source).resolve() if args.source else find_source_dir(project_dir)
+    )
+    mutants = resolve_targets(project_dir, ids)
+
+    # Resolved the same way a full run resolves it, so a mutant a human has
+    # already reviewed says so here too. It is an annotation and never a
+    # verdict: the exit code below ignores it, because `--fail-on-unexplained`
+    # is what changes an exit code and this command does not have it.
+    accept_path = _accept_path(args, project_dir)
+    reasons = resolve_accepted(load_accepted(accept_path), mutants).reasons()
+
+    cache = (
+        None
+        if args.no_cache
+        else ResultCache(
+            project_dir / args.output_dir / "cache.json",
+            # The same fingerprint a full run builds, from the same flags. A
+            # second derivation here would be a second answer to "is this
+            # entry still valid", and the two would drift.
+            fingerprint=run_fingerprint(
+                args.pytest_arg, timeout=args.timeout, python=sys.executable
+            ),
+        )
+    )
+
+    verifications = verify(
+        project_dir,
+        mutants,
+        source_dir,
+        timeout=args.timeout,
+        workers=args.workers,
+        probes=args.flaky_probe,
+        extra_args=args.pytest_arg,
+        cache=cache,
+        reasons=reasons,
+    )
+    if cache is not None:
+        cache.save()
+
+    fmt = resolve_format(args.report, os.environ, sys.stdout.isatty())
+    for index, verification in enumerate(verifications):
+        if fmt == "agent":
+            # Byte for byte the line results.txt carries, so the output of one
+            # `moonbuggy run` can be grepped and piped straight into the next.
+            print(render_line(record_for(verification.result, verification.reason)))
+        else:
+            if index:
+                print()
+            _print_verification(verification)
+
+    counts = Counter(v.status for v in verifications)
+    # So the summary lands after the report rather than in the middle of it
+    # when both streams are the same terminal.
+    sys.stdout.flush()
+    print(
+        "moonbuggy: "
+        + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
+        + f"  re-measured={len(verifications)}"
+        + f" ({_display_path(project_dir / args.output_dir, project_dir)}"
+        + "/results.jsonl is unchanged)",
+        file=sys.stderr,
+    )
+    return 1 if any(v.status in FINDING_STATUSES for v in verifications) else 0
+
+
+def _print_verification(verification: Verification) -> None:
+    """Print one mutant's fresh verdict, in `moonbuggy show`'s shape.
+
+    Deliberately the same aligned key/value block, plus the two things only a
+    real run can say: which tests were selected, and which of them failed.
+
+    Args:
+        verification: the mutant's re-measured outcome.
+    """
+    mutant = verification.mutant
+    print(f"id           {mutant.id}")
+    print(f"status       {verification.status}")
+    print(f"location     {mutant.module}:{mutant.line}")
+    print(f"operator     {mutant.operator}")
+    print(f"tests_run    {verification.result.tests_run}")
+    _print_test_list("selected", verification.selected)
+    _print_test_list("failed", verification.failed)
+    if verification.reason is not None:
+        print(f"accepted     {verification.reason}")
+    print("diff")
+    print(f"  - {mutant.original}")
+    print(f"  + {mutant.mutated}")
+
+
+def _print_test_list(label: str, node_ids: Sequence[str]) -> None:
+    # One test per line under a single label, indented to the value column.
+    # Node ids are long and there can be dozens; joining them would produce a
+    # line nobody can read and no terminal can wrap usefully.
+    if not node_ids:
+        print(f"{label:<12} -")
+        return
+    print(f"{label:<12} {node_ids[0]}")
+    for node_id in node_ids[1:]:
+        print(f"{'':<12} {node_id}")
+
+
+def _target_ids(tokens: Sequence[str]) -> list[str]:
+    """The mutant ids to run, with `-` expanded from stdin.
+
+    Args:
+        tokens: the positional arguments as given.
+
+    Returns:
+        Ids in the order they were named, without duplicates -- running the
+        same mutant twice in one invocation would only print it twice.
+    """
+    ids: list[str] = []
+    seen = set()
+    for token in tokens:
+        found = _ids_from_stdin() if token == "-" else [_clean_id(token)]
+        for mutant_id in found:
+            if mutant_id and mutant_id not in seen:
+                seen.add(mutant_id)
+                ids.append(mutant_id)
+    return ids
+
+
+def _ids_from_stdin() -> list[str]:
+    return [_clean_id(line) for line in sys.stdin.read().splitlines()]
+
+
+def _clean_id(token: str) -> str:
+    """The mutant id inside one line of input.
+
+    Deliberately forgiving about what a pipeline hands over, because the
+    workflow this command exists for is `grep SURVIVED .moonbuggy/results.txt
+    | moonbuggy run -` and the thing on the left of that pipe emits whole
+    result lines. A bare id, an `id=...` token, and a full result line all
+    name the same mutant, so all three are accepted.
+
+    Args:
+        token: one line of input, or one command-line argument.
+
+    Returns:
+        The id, or the empty string for a blank line.
+    """
+    token = token.strip()
+    if not token:
+        return ""
+    if " " in token or "\t" in token:
+        # A whole result line. The id is the token that says so; anything else
+        # on the line is a field that is about to be re-measured anyway.
+        for field in token.split():
+            if field.startswith("id="):
+                return field[len("id=") :]
+        return token
+    return token.removeprefix("id=")
 
 
 def _show(args: argparse.Namespace) -> int:
