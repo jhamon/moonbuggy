@@ -561,3 +561,102 @@ def _records_without_timing(project):
         {k: v for k, v in record.items() if k != "duration"}
         for record in _records(project)
     ]
+
+
+ADDED = "\n\ndef doubled(value):\n    return value * 2\n"
+
+
+def _git(repo, *args):
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+@pytest.fixture
+def versioned(throwaway):
+    """The throwaway project committed to git, with one new function on top.
+
+    The added function is uncommitted on purpose: it is the state you are in
+    when a fast run is worth most, and it is what `--since` has to see.
+    """
+    _git(throwaway, "init", "-q", "-b", "main")
+    _git(throwaway, "config", "user.email", "test@example.com")
+    _git(throwaway, "config", "user.name", "Test")
+    _git(throwaway, "add", "-A")
+    _git(throwaway, "commit", "-qm", "first")
+    calc = throwaway / "calc.py"
+    calc.write_text(calc.read_text() + ADDED)
+    return throwaway
+
+
+def test_since_mutates_only_the_changed_lines(versioned):
+    changed_line = len((versioned / "calc.py").read_text().splitlines())
+
+    proc = moonbuggy("--since", "main", cwd=versioned)
+
+    records = [
+        json.loads(line)
+        for line in (versioned / ".moonbuggy" / "results.jsonl")
+        .read_text()
+        .splitlines()
+    ]
+    assert records, proc.stderr
+    assert {r["line"] for r in records} == {changed_line}
+    assert {r["file"] for r in records} == {"calc.py"}
+
+
+def test_since_is_a_filter_not_a_different_mutant_set(versioned):
+    # The scoped mutants must be exactly the full run's mutants for those
+    # lines -- same ids, same operators. A `--since` that generated its own
+    # mutants would report verdicts a full run could never reproduce.
+    moonbuggy("--since", "main", "--output-dir", "scoped", cwd=versioned)
+    moonbuggy("--output-dir", "full", cwd=versioned)
+
+    def ids(where):
+        return {
+            json.loads(line)["id"]
+            for line in (versioned / where / "results.jsonl").read_text().splitlines()
+        }
+
+    scoped, full = ids("scoped"), ids("full")
+    assert scoped
+    assert scoped < full
+
+
+def test_a_diff_scoped_run_reuses_the_full_run_cache(versioned):
+    # Reaching a mutant through a diff scope cannot change its answer, so
+    # `--since` is deliberately not part of the cache fingerprint. If it were,
+    # every PR run would start cold.
+    first = moonbuggy(cwd=versioned)
+    assert "cached=0" in first.stderr
+
+    second = moonbuggy("--since", "main", cwd=versioned)
+
+    assert int(second.stderr.split("cached=")[1].split()[0]) > 0
+
+
+def test_the_report_says_the_run_was_diff_scoped(versioned):
+    proc = moonbuggy("--since", "main", "--report", "human", cwd=versioned)
+
+    assert "Diff-scoped: only lines changed since main" in proc.stdout
+    assert "(diff-scoped since main)" in proc.stdout
+
+
+def test_a_change_with_no_source_lines_is_a_pass_not_a_failure(versioned):
+    # A pull request that touched only docs has nothing to mutate. Exiting 2
+    # for it would teach everyone to stop running the gate.
+    (versioned / "calc.py").write_text(
+        (versioned / "calc.py").read_text().replace(ADDED, "")
+    )
+    (versioned / "README.md").write_text("docs only\n")
+
+    proc = moonbuggy("--since", "main", cwd=versioned, expect=0)
+
+    assert "nothing to mutate" in proc.stderr
+    # Empty artifacts, not the previous run's verdicts: stale results are the
+    # one outcome worse than none.
+    assert (versioned / ".moonbuggy" / "results.jsonl").read_text() == ""
+
+
+def test_since_composes_with_exclude(versioned):
+    proc = moonbuggy("--since", "main", "--exclude", "calc", cwd=versioned, expect=0)
+
+    assert "nothing to mutate" in proc.stderr

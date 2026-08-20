@@ -23,6 +23,7 @@ from . import __version__, profiling
 from .baseline import BaselineError
 from .cache import ResultCache, run_fingerprint
 from .coverage_pass import CoveragePassError, run_baseline_pass
+from .diffscope import DiffScope, DiffScopeError, scope_since
 from .discover import (
     LayoutError,
     find_source_dir,
@@ -116,7 +117,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 130
-    except (LayoutError, CoveragePassError, BaselineError, SourceError) as error:
+    except (
+        LayoutError,
+        CoveragePassError,
+        BaselineError,
+        SourceError,
+        DiffScopeError,
+    ) as error:
         # Criteria H5 and M1.4.12: an actionable message, never a traceback.
         # Every failure moonbuggy can anticipate is funnelled through here, so
         # the CLI has exactly one way of reporting that it cannot proceed.
@@ -172,6 +179,14 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         help="skip paths containing this fragment (repeatable)",
+    )
+    parser.add_argument(
+        "--since",
+        default=None,
+        metavar="REF",
+        help="only mutate lines changed since this git ref, compared against "
+        "the merge base (e.g. --since origin/main). Composes with "
+        "--include/--exclude rather than replacing them",
     )
     parser.add_argument(
         "--jobs",
@@ -295,18 +310,34 @@ def _run(args: argparse.Namespace) -> int:
         return 2
 
     with profiler.span("discovery"):
+        # Before generation, so a failure to resolve the ref costs nothing and
+        # so the file-level half of the filter can drop whole files before
+        # anything is parsed. Raises DiffScopeError, which `main` turns into
+        # exit 2 with a message.
+        scope = scope_since(args.since, project_dir) if args.since else None
         source_dir = (
             Path(args.source).resolve() if args.source else find_source_dir(project_dir)
         )
         source_files = find_source_files(
             source_dir, project_dir, args.include, args.exclude
         )
-    if not source_files:
-        print("moonbuggy: no source files to mutate after filtering.", file=sys.stderr)
-        return 2
+        if scope is not None:
+            # Composed with --include/--exclude, not a replacement for them:
+            # this narrows whatever they left.
+            source_files = [name for name in source_files if scope.touches(name)]
 
     output_dir = project_dir / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not source_files:
+        if scope is not None:
+            # A pull request that touched only docs, tests or a config file is
+            # a normal, passing state -- not a run that could not happen. It
+            # exits 0 and still leaves the artifacts a full run leaves, so a
+            # CI step reading them does not have to special-case the empty PR.
+            return _nothing_in_scope(scope, output_dir, project_dir)
+        print("moonbuggy: no source files to mutate after filtering.", file=sys.stderr)
+        return 2
     with profiler.span("cache I/O"):
         cache = _prepare_cache(args, output_dir)
 
@@ -315,6 +346,14 @@ def _run(args: argparse.Namespace) -> int:
         mutants, unreadable = _collect_mutants(
             project_dir, source_files, wanted, progress
         )
+        if scope is not None:
+            # The line-level half. Generation is untouched -- it produced
+            # exactly the mutants it always does, and this keeps the ones
+            # standing on a changed line.
+            mutants = [m for m in mutants if scope.contains(m.module, m.line)]
+
+    if not mutants and scope is not None and not unreadable:
+        return _nothing_in_scope(scope, output_dir, project_dir)
 
     if not mutants:
         if unreadable:
@@ -332,6 +371,12 @@ def _run(args: argparse.Namespace) -> int:
         return 2
 
     if not args.quiet:
+        if scope is not None:
+            # Said up front as well as in the footer, and in both report
+            # formats: the count on the next line is a scoped count, and a
+            # reader who learns that only at the end has already read it as
+            # the whole codebase.
+            progress.log(f"moonbuggy: {scope.describe()}")
         progress.log(
             f"moonbuggy: {len(mutants)} mutants across {len(source_files)} files"
         )
@@ -476,6 +521,7 @@ def _run(args: argparse.Namespace) -> int:
                         summarise(records),
                         time.perf_counter() - started,
                         _display_path(jsonl_path, project_dir),
+                        scope=scope,
                     )
                 )
             else:
@@ -488,6 +534,7 @@ def _run(args: argparse.Namespace) -> int:
                         timeout=args.timeout,
                         artifact=_display_path(jsonl_path, project_dir),
                         width=width,
+                        scope=scope,
                     )
                 )
         elif not args.quiet:
@@ -518,6 +565,43 @@ def _run(args: argparse.Namespace) -> int:
     # exercises the line -- so a CI gate that failed on survivors before the
     # status existed must not start passing because its findings were renamed.
     return 1 if counts["SURVIVED"] or counts["NO_COVERAGE"] else 0
+
+
+def _nothing_in_scope(
+    scope: DiffScope,
+    output_dir: Path,
+    project_dir: Path,
+) -> int:
+    """Finish a diff-scoped run that found no changed source lines.
+
+    Exit 0, not 2. A pull request touching only docs or tests genuinely has
+    nothing for moonbuggy to mutate, and failing the gate for it would teach
+    everyone to stop running the gate. The empty artifacts are still written,
+    so a CI step that reads `results.jsonl` finds an empty file rather than the
+    previous run's verdicts -- stale results being the one outcome worse than
+    none.
+
+    Args:
+        scope: the run's diff scope, named in the message.
+        output_dir: where the artifacts go.
+        project_dir: the project root, for shortening the artifact path.
+
+    Returns:
+        0.
+    """
+    jsonl_path = output_dir / "results.jsonl"
+    jsonl_path.write_text("", encoding="utf-8")
+    (output_dir / "results.txt").write_text("", encoding="utf-8")
+    print(
+        f"moonbuggy: no changed source lines since {scope.ref} "
+        f"(merge base {scope.merge_base[:7]}), so there is nothing to mutate. "
+        f"Empty results in {_display_path(jsonl_path, project_dir)}",
+        file=sys.stderr,
+    )
+    # Nothing on stdout on purpose. stdout is the report, and in agent format
+    # every line of it begins with a status keyword; a prose line explaining
+    # the empty run would be the one line a parser cannot read.
+    return 0
 
 
 def _measurable_fd(stream: IO[str]) -> int | None:
