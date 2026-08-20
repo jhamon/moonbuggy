@@ -16,7 +16,7 @@ import pytest
 
 from moonbuggy import terminal
 from moonbuggy.cli import main
-from moonbuggy.report import STATUS_KEYWORDS
+from moonbuggy.report import RECORD_SCHEMA, STATUS_KEYWORDS
 
 GOLDEN_DIR = Path(__file__).parent / "fixtures" / "golden"
 SAMPLE_PROJECT = "tests/fixtures/sample_project"
@@ -1168,7 +1168,7 @@ def test_every_record_declares_its_schema(throwaway):
     records = _records(throwaway)
 
     assert records
-    assert {record["schema"] for record in records} == {2}
+    assert {record["schema"] for record in records} == {RECORD_SCHEMA}
 
 
 LOGGING_PROJECT = """\
@@ -1208,11 +1208,6 @@ def logging_project(tmp_path):
         "sys.path.insert(0, str(Path(__file__).parent))\n"
     )
     return tmp_path
-
-
-def _records(project):
-    lines = (project / ".moonbuggy" / "results.jsonl").read_text().splitlines()
-    return [json.loads(line) for line in lines]
 
 
 def test_logging_mutants_are_skipped_and_the_guard_is_not(logging_project):
