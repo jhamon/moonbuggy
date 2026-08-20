@@ -11,6 +11,17 @@ An operator is any class decorated with @register that provides:
     name        str -- stable identifier, matches the operator names in oracle.toml
     mutations() takes an AST node, yields replacement nodes (possibly none)
 
+and may optionally declare, as plain class attributes:
+
+    tier        str -- "default" (the default) or "deep"
+    cost        str -- "low" (the default), "medium" or "high"
+    description str -- one line for the listing, defaulting to the docstring
+
+Tier lives on the operator for the same reason discovery does: a tier table in
+a central file would mean adding an operator required editing two places, and
+the one property this package is built around is that it requires editing
+none.
+
 An operator whose decision depends on where the node sits implements
 `mutations_in_context(node, context)` instead, and is handed a :class:`Context`
 describing its parent, the field it occupies, and the chain of enclosing nodes.
@@ -180,13 +191,238 @@ def replace_operator[NodeT: ast.AST](node: NodeT, **changes: object) -> NodeT:
     return ast.copy_location(replacement, node)
 
 
+#: The tier an operator lands in when it does not say. Every operator that
+#: predates tiers is cheap and high-signal, which is what `default` means, so
+#: silence and the truth coincide.
+DEFAULT_TIER = "default"
+
+#: The tiers an operator may declare itself into, cheapest first.
+#:
+#: `default` is what a bare `moonbuggy` runs: cheap to run, high signal.
+#: `deep` is for operators that are expensive in wall-clock or noisy in
+#: output, and is opted into deliberately. There is no `deep` operator in this
+#: version -- the tier exists so the vocabulary is settled before one is
+#: written, which is the whole reason this landed before #16.
+TIERS = ("default", "deep")
+
+#: Not a tier an operator can declare, but a selector meaning every registered
+#: operator regardless of tier. Kept out of `TIERS` so that "which tier is this
+#: operator in?" and "what can I type after --operators?" stay two questions.
+ALL_TIER = "all"
+
+#: Selector words an operator may not take as its name. Enforced at
+#: registration rather than documented, because the failure it prevents is
+#: silent: an operator file named `deep` would shadow the tier, and every
+#: existing `--operators deep` would quietly start meaning something else.
+RESERVED_SELECTORS = frozenset({*TIERS, ALL_TIER})
+
+#: Rough wall-clock-and-noise cost, for the `moonbuggy operators` listing.
+#: Deliberately three coarse buckets rather than a number: the honest claim is
+#: an ordering, and a measured per-operator cost would be a property of the
+#: project under test, not of the operator.
+COSTS = ("low", "medium", "high")
+
+#: The cost an operator claims when it does not say.
+DEFAULT_COST = "low"
+
+
+class SelectionError(Exception):
+    """A `--operators` selection that cannot be resolved to a set of operators.
+
+    Raised for an unknown name, a malformed `+` token, or a selection that
+    resolves to no operators at all. The last one matters most: before tiers,
+    a typo'd operator name produced a run with zero mutants that exited 0 and
+    read exactly like a clean bill of health.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorInfo:
+    """One operator, as `moonbuggy operators` reports it."""
+
+    #: The name used in mutant ids, in `results.jsonl`, and in `--operators`.
+    name: str
+    #: Which of :data:`TIERS` it belongs to.
+    tier: str
+    #: One line about what it mutates.
+    description: str
+    #: One of :data:`COSTS`.
+    cost: str
+
+
 _REGISTRY: list[type[Operator]] = []
 
 
 def register[OperatorT: type[Operator]](cls: OperatorT) -> OperatorT:
-    """Register an operator class. Used as a decorator."""
+    """Register an operator class. Used as a decorator.
+
+    Args:
+        cls: the operator class.
+
+    Returns:
+        `cls`, unchanged.
+
+    Raises:
+        ValueError: if the name collides with a reserved selector word, or the
+            declared tier or cost is not one this version knows. A contributor
+            error rather than a user error, so it is loud at import time.
+    """
+    name = cls.name
+    if name in RESERVED_SELECTORS:
+        raise ValueError(
+            f"operator name {name!r} is reserved: it is a --operators selector "
+            f"word ({', '.join(sorted(RESERVED_SELECTORS))}). Choose another name."
+        )
+    tier = getattr(cls, "tier", DEFAULT_TIER)
+    if tier not in TIERS:
+        raise ValueError(
+            f"operator {name!r} declares tier {tier!r}; the tiers are "
+            f"{', '.join(TIERS)}."
+        )
+    cost = getattr(cls, "cost", DEFAULT_COST)
+    if cost not in COSTS:
+        raise ValueError(
+            f"operator {name!r} declares cost {cost!r}; the costs are "
+            f"{', '.join(COSTS)}."
+        )
     _REGISTRY.append(cls)
     return cls
+
+
+def describe_operators() -> list[OperatorInfo]:
+    """Every registered operator's name, tier, description and cost.
+
+    What `moonbuggy operators` prints, in both of its forms. The description
+    falls back to the first line of the class docstring, so an operator author
+    who writes the docstring they were going to write anyway gets a usable
+    listing entry for free.
+
+    Returns:
+        One entry per operator, sorted by name -- the same order
+        :func:`all_operators` uses.
+    """
+    _discover()
+    return [
+        OperatorInfo(
+            name=cls.name,
+            tier=getattr(cls, "tier", DEFAULT_TIER),
+            description=_description(cls),
+            cost=getattr(cls, "cost", DEFAULT_COST),
+        )
+        for cls in sorted(_REGISTRY, key=lambda c: c.name)
+    ]
+
+
+def _description(cls: type[Operator]) -> str:
+    explicit = getattr(cls, "description", None)
+    if explicit:
+        return str(explicit).strip()
+    docstring = cls.__doc__ or ""
+    return docstring.strip().splitlines()[0].strip() if docstring.strip() else ""
+
+
+def tier_members(tier: str) -> tuple[str, ...]:
+    """The operator names in `tier`, sorted.
+
+    Args:
+        tier: one of :data:`TIERS`, or :data:`ALL_TIER`.
+
+    Returns:
+        The names, sorted. Empty is a legitimate answer: `deep` has no members
+        in this version.
+    """
+    infos = describe_operators()
+    if tier == ALL_TIER:
+        return tuple(info.name for info in infos)
+    return tuple(info.name for info in infos if info.tier == tier)
+
+
+def resolve_operators(spec: str) -> frozenset[str]:
+    """Turn a `--operators` selection into the set of names it selects.
+
+    The grammar is comma-separated tokens, each either a bare selector or one
+    prefixed with `+`:
+
+    - A bare list of names is an *exact* set. `comparison_swap,boundary` meant
+      exactly those two before tiers existed and means exactly those two now;
+      everything else here is layered on top of that, never underneath it.
+    - A bare tier name expands to that tier's members.
+    - A `+` token adds to a base rather than replacing it. The base is
+      whatever the bare tokens named, or the `default` tier when there are
+      none -- so `+statement_deletion` is "the ordinary run plus this one",
+      which is the case that would otherwise mean typing out the default set
+      by hand.
+
+    Args:
+        spec: the raw `--operators` value.
+
+    Returns:
+        The selected operator names.
+
+    Raises:
+        SelectionError: for an unknown selector, a bare `+`, or a selection
+            that resolves to no operators at all.
+    """
+    known = {info.name for info in describe_operators()}
+    base: set[str] = set()
+    added: set[str] = set()
+    saw_bare = False
+    for raw in spec.split(","):
+        token = raw.strip()
+        if not token:
+            # A trailing or doubled comma is a typo with an obvious intent,
+            # and refusing it teaches nothing.
+            continue
+        if token.startswith("+"):
+            selector = token[1:].strip()
+            if not selector:
+                raise SelectionError(
+                    "`+` in --operators must be followed by an operator or tier "
+                    f"name, as in `+{sorted(known)[0]}`."
+                )
+            added |= _expand(selector, known)
+        else:
+            saw_bare = True
+            base |= _expand(token, known)
+
+    if not saw_bare:
+        base = set(tier_members(DEFAULT_TIER))
+    selected = base | added
+    if not selected:
+        raise SelectionError(
+            f"--operators {spec!r} selects no operators. "
+            + (
+                f"The `{DEFAULT_TIER}` and `deep` tiers are how cost is chosen, and "
+                "no operator in this version declares itself `deep` yet, so `deep` "
+                "is empty. "
+                if _names_an_empty_tier(spec)
+                else ""
+            )
+            + "Run `moonbuggy operators` to see what is available."
+        )
+    return frozenset(selected)
+
+
+def _names_an_empty_tier(spec: str) -> bool:
+    """Whether the selection failed only because a tier has no members yet."""
+    selectors = {token.strip().lstrip("+").strip() for token in spec.split(",")}
+    return any(
+        selector in TIERS and not tier_members(selector) for selector in selectors
+    )
+
+
+def _expand(selector: str, known: set[str]) -> set[str]:
+    """One selector's names: a tier's members, or the single operator it names."""
+    if selector == ALL_TIER or selector in TIERS:
+        return set(tier_members(selector))
+    if selector in known:
+        return {selector}
+    raise SelectionError(
+        f"unknown operator or tier {selector!r}. "
+        f"Operators: {', '.join(sorted(known))}. "
+        f"Tiers: {', '.join([*TIERS, ALL_TIER])}. "
+        "Run `moonbuggy operators` for the full listing."
+    )
 
 
 def all_operators() -> list[Operator]:
