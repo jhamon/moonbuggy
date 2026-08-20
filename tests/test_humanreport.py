@@ -5,6 +5,7 @@ which is what lets the alignment, truncation, and encoding cases be ordinary
 unit tests.
 """
 
+from moonbuggy.accepted import Acceptance, Entry
 from moonbuggy.diffscope import DiffScope
 from moonbuggy.humanreport import (
     changed_span,
@@ -551,3 +552,105 @@ def test_a_diff_scoped_report_says_so_in_its_header_too():
     assert any(
         "Diff-scoped: only lines changed since origin/main" in ln for ln in lines
     )
+
+
+def acceptance(**over):
+    """An `Acceptance` with sane defaults, overridden per test."""
+    base = {
+        "path": ".moonbuggy/accepted.toml",
+        "accepted": (),
+        "unexplained": (),
+        "stale": (),
+        "ambiguous": (),
+        "orphaned": (),
+        "relocated": {},
+        "gating": False,
+    }
+    base.update(over)
+    return Acceptance(**base)
+
+
+def test_a_project_with_no_ledger_gains_no_footer_line():
+    counts = {"KILLED": 3, "SURVIVED": 1}
+    assert render_footer(counts, 1.0, "out.jsonl") == render_footer(
+        counts, 1.0, "out.jsonl", acceptance=acceptance()
+    )
+
+
+def test_the_footer_separates_accepted_findings_from_unexplained_ones():
+    counts = {"KILLED": 3, "SURVIVED": 3}
+    footer = render_footer(
+        {**counts},
+        1.0,
+        "out.jsonl",
+        acceptance=acceptance(accepted=("a", "b"), unexplained=("c",)),
+    )
+
+    assert "2 accepted as equivalent, 1 unexplained" in footer
+    assert ".moonbuggy/accepted.toml" in footer
+
+
+def test_the_footer_names_every_stale_acceptance():
+    stale = Entry(
+        id="lib.py:4:constant_int:0",
+        file="lib.py",
+        operator="constant_int",
+        fingerprint="0" * 16,
+        reason="was equivalent",
+        accepted_at="2026-01-01",
+    )
+    footer = render_footer(
+        {"KILLED": 1, "SURVIVED": 1},
+        1.0,
+        "out.jsonl",
+        acceptance=acceptance(unexplained=("lib.py:4:constant_int:0",), stale=(stale,)),
+    )
+
+    assert "1 acceptance is stale" in footer
+    assert "lib.py:4:constant_int:0" in footer
+
+
+def test_the_exit_line_follows_the_gate_that_is_actually_in_force():
+    # A footer claiming "exit 1" above a process that exited 0 is worse than
+    # no footer at all.
+    counts = {"KILLED": 1, "SURVIVED": 1}
+    gated = render_footer(
+        counts, 1.0, "out.jsonl", acceptance=acceptance(accepted=("a",), gating=True)
+    )
+    ungated = render_footer(
+        counts, 1.0, "out.jsonl", acceptance=acceptance(accepted=("a",), gating=False)
+    )
+
+    assert gated.splitlines()[-1] == "exit 0 -- nothing unexplained survived"
+    assert ungated.splitlines()[-1] == "exit 1 -- survivors"
+
+
+def test_the_exit_line_counts_unexplained_findings_when_gating():
+    footer = render_footer(
+        {"KILLED": 1, "SURVIVED": 2},
+        1.0,
+        "out.jsonl",
+        acceptance=acceptance(unexplained=("a", "b"), gating=True),
+    )
+    assert footer.splitlines()[-1] == "exit 1 -- 2 unexplained findings"
+
+
+def test_an_accepted_survivor_leaves_the_punch_list_but_not_the_report():
+    # Counted separately, never hidden: hiding it is how a real regression
+    # sneaks in behind an old decision.
+    accepted = rec(id="a", line=9, accept_reason="unreachable in this program")
+    unexplained = rec(id="b", line=20)
+    report = render_report(
+        [accepted, unexplained],
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact="out.jsonl",
+        acceptance=acceptance(accepted=("a",), unexplained=("b",)),
+    )
+
+    body, _, footer = report.partition("Accepted as equivalent (1)")
+    assert "sample/inventory.py:20" in body
+    assert "sample/inventory.py:9" not in body
+    assert "unreachable in this program" in footer

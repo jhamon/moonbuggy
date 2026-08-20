@@ -148,6 +148,28 @@ CACHE_SIZE = 128  # moonbuggy: skip -- tuning only, no observable behaviour
 They are then reported `SKIPPED` rather than silently dropped, so the mutant
 count stays honest.
 
+### Accepting one you have already reviewed
+
+A survivor you have reviewed and decided is equivalent goes in a ledger, so
+neither you nor the next reviewer pays for that triage twice:
+
+```bash
+moonbuggy accept 'shipping.py:5:comparison_swap:0' --reason "both branches return the same value for every reachable input"
+moonbuggy accept --list
+moonbuggy accept --remove 'shipping.py:5:comparison_swap:0'
+```
+
+The ledger is `.moonbuggy/accepted.toml`, and it is meant to be committed —
+most projects gitignore `.moonbuggy/`, so exclude `.moonbuggy/*` and add
+`!.moonbuggy/accepted.toml` instead. Accepted mutants still run and are still
+reported; they are counted separately rather than hidden. An acceptance expires
+the moment its line changes, and is then reported as unexplained again.
+
+`moonbuggy --fail-on-unexplained` exits non-zero only for findings that are
+neither killed nor accepted, which is the flag that makes moonbuggy a CI gate
+rather than an audit you read by hand. See
+[Equivalent mutants](docs/equivalent-mutants.md).
+
 ### Options
 
 Nothing below is required.
@@ -159,6 +181,11 @@ Nothing below is required.
 --exclude FRAGMENT   skip paths containing FRAGMENT (repeatable)
 --since REF          only mutate lines changed since a git ref, compared
                      against the merge base (e.g. --since origin/main)
+--accept-file PATH   the accepted-equivalents ledger
+                     (default: .moonbuggy/accepted.toml)
+--fail-on-unexplained
+                     exit 1 only for findings that are neither killed nor
+                     accepted
 --jobs N             mutants to run concurrently (default: CPU count - 1)
 -n, --workers N      pytest-xdist workers per mutant run
 --source DIR         directory to mutate, if discovery guesses wrong

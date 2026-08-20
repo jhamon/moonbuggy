@@ -11,6 +11,7 @@ canonical one, for the same reason the plaintext view cannot.
 
 from collections.abc import Mapping, Sequence
 
+from .accepted import Acceptance
 from .diffscope import DiffScope
 from .report import Record, summarise
 from .terminal import (
@@ -349,12 +350,53 @@ def score_text(counts: Mapping[str, int]) -> str:
     return f"{killed}/{runnable} killed, {round(100 * killed / runnable)}%"
 
 
+def _acceptance_lines(acceptance: Acceptance | None) -> list[str]:
+    """The ledger's part of the footer, or nothing at all.
+
+    A project with no ledger gains no line: the overwhelming majority of runs
+    have never accepted anything, and a footer reporting "0 accepted" would be
+    a line about a file that does not exist.
+
+    Args:
+        acceptance: the run's ledger outcome, or None.
+
+    Returns:
+        Zero or more lines, to sit between the tally and the artifact path.
+    """
+    if acceptance is None or not (
+        acceptance.accepted
+        or acceptance.stale
+        or acceptance.ambiguous
+        or acceptance.relocated
+    ):
+        return []
+    accepted = len(acceptance.accepted)
+    unexplained = len(acceptance.unexplained)
+    lines = [
+        f"{accepted} accepted as equivalent, {unexplained} unexplained "
+        f"-- ledger {acceptance.path}"
+    ]
+    if acceptance.stale:
+        # Named, not just counted: the reader has to go and look at each one,
+        # and a count alone would not tell them where.
+        count = len(acceptance.stale)
+        noun = "acceptance" if count == 1 else "acceptances"
+        verb = "is" if count == 1 else "are"
+        lines.append(
+            f"{count} {noun} {verb} stale (the line changed) and "
+            f"{'counts' if count == 1 else 'count'} as unexplained: "
+            + ", ".join(entry.id for entry in acceptance.stale)
+        )
+    return lines
+
+
 def render_footer(
     counts: Mapping[str, int],
     elapsed: float,
     artifact: str,
     *,
     scope: DiffScope | None = None,
+    acceptance: Acceptance | None = None,
 ) -> str:
     """The report's closing lines: the tally, the artifact, and the exit code.
 
@@ -382,10 +424,14 @@ def render_footer(
             be misread: "3/3 killed, 100%" is a different claim about a
             three-mutant slice of a branch than about a whole codebase, and
             the footer is the last place either reading can be settled.
+        acceptance: the run's accepted-equivalents outcome, or None when there
+            is no ledger to report. It sits below the scope line because it
+            qualifies the same tally: "12 survived" means something different
+            when three of the twelve carry a reviewed explanation.
 
     Returns:
-        Three newline-separated lines, or four for a diff-scoped run, with no
-        trailing newline.
+        Three newline-separated lines, plus one for a diff-scoped run and one
+        or two for a ledger, with no trailing newline.
     """
     tally = ", ".join(
         f"{counts[status]} {status.lower()}"
@@ -396,17 +442,28 @@ def render_footer(
         [
             f"{tally} in {elapsed:.1f}s -- {score_text(counts)}",
             *([scope.describe()] if scope is not None else []),
+            *_acceptance_lines(acceptance),
             f"Full records: {artifact}",
-            _exit_line(counts),
+            _exit_line(counts, acceptance),
         ]
     )
 
 
-def _exit_line(counts: Mapping[str, int]) -> str:
+def _exit_line(counts: Mapping[str, int], acceptance: Acceptance | None = None) -> str:
     # The report ends on the number the shell will see, and it has to name
     # every reason for it. A run whose only finding is an unreached line still
     # exits 1, and a closing line that said "survivors" would send the reader
     # looking for a survivor list that is not there.
+    #
+    # Under --fail-on-unexplained the shell sees a different number, so this
+    # line has to be computed from the same rule the exit code is -- a footer
+    # claiming "exit 1" above a process that exited 0 is worse than no footer.
+    if acceptance is not None and acceptance.gating:
+        count = len(acceptance.unexplained)
+        if not count:
+            return "exit 0 -- nothing unexplained survived"
+        noun = "finding" if count == 1 else "findings"
+        return f"exit 1 -- {count} unexplained {noun}"
     reasons = [
         text
         for status, text in (
@@ -430,6 +487,7 @@ def render_report(
     artifact: str,
     width: int = FALLBACK_WIDTH,
     scope: DiffScope | None = None,
+    acceptance: Acceptance | None = None,
 ) -> str:
     """The whole human report.
 
@@ -452,11 +510,18 @@ def render_report(
         scope: the run's diff scope under `--since`, or None. Named in the
             header as well as forwarded to the footer, so a reader who stops
             after the first line has still been told the run was partial.
+        acceptance: the run's accepted-equivalents outcome, or None. Accepted
+            findings move out of the punch list into their own section rather
+            than disappearing: the punch list is the work, and a mutant
+            somebody has already explained is not work -- but hiding it
+            entirely is how a real regression sneaks in behind an old
+            decision, so it is still printed, with its reason.
 
     Returns:
         The report, newline-separated, with no trailing newline.
     """
     counts = summarise(records)
+    explained = set() if acceptance is None else set(acceptance.accepted)
     mutant_noun = "mutant" if len(records) == 1 else "mutants"
     file_noun = "file" if files == 1 else "files"
     scoped = "" if scope is None else f"  (diff-scoped since {scope.ref})"
@@ -465,8 +530,12 @@ def render_report(
         "",
     ]
 
-    survivors = [r for r in records if r["status"] == "SURVIVED"]
-    uncovered = [r for r in records if r["status"] == "NO_COVERAGE"]
+    survivors = [
+        r for r in records if r["status"] == "SURVIVED" and r["id"] not in explained
+    ]
+    uncovered = [
+        r for r in records if r["status"] == "NO_COVERAGE" and r["id"] not in explained
+    ]
     timeouts = [r for r in records if r["status"] == "TIMEOUT"]
     suspicious = [r for r in records if r["status"] == "SUSPICIOUS"]
 
@@ -506,7 +575,27 @@ def render_report(
             )
             lines.append("")
 
-    lines.append(render_footer(counts, elapsed, artifact, scope=scope))
+    if explained:
+        # Last, and compact: one line per accepted mutant with the reason
+        # somebody wrote for it. No diff -- the diff is what you read when you
+        # are deciding, and this section is for mutants where the deciding is
+        # done. `moonbuggy show <id>` still has it.
+        accepted_records = [r for r in records if r["id"] in explained]
+        lines.extend([f"Accepted as equivalent ({len(accepted_records)})", ""])
+        for record in sorted(accepted_records, key=lambda r: (r["file"], r["line"])):
+            reason = record.get("accept_reason") or ""
+            lines.append(
+                _clip(
+                    f"{' ' * STATUS_INDENT}{record['file']}:{record['line']}  "
+                    f"{record['operator']}  -- {reason}",
+                    width,
+                )
+            )
+        lines.append("")
+
+    lines.append(
+        render_footer(counts, elapsed, artifact, scope=scope, acceptance=acceptance)
+    )
     return "\n".join(lines)
 
 
