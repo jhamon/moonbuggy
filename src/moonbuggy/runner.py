@@ -55,16 +55,18 @@ PYTEST_TESTS_FAILED = 1
 # sets its own `--assert` still wins -- same ordering rule as H12.
 _PLAIN_ASSERT = ("--assert=plain",)
 
-# Almost always a forkserver.Status. SKIPPED is added to the union because
-# `run_one` and `_plan` settle suppressed mutants to it directly -- a status
-# forkserver itself never produces. UNAPPLIED stays in the union too, and
+# Almost always a forkserver.Status. SKIPPED and NO_COVERAGE are added to the
+# union because `run_one` and `_plan` settle mutants to them directly -- a
+# suppressed mutant and one no test reaches are both decided here, before any
+# process starts, so forkserver never produces either. UNAPPLIED stays in the
+# union too, and
 # that is not an oversight: `_run_forked_batch` builds a Result straight from
 # `run_warm_batch`'s statuses with no filtering, unlike `run_session`, which
 # scrubs every UNAPPLIED via `_rerun_unapplied` before a Result is built (see
 # the asymmetry documented on forkserver.Status). That gap is real and
 # pre-existing; this alias names what can actually reach a Result rather than
 # typing the bug away.
-ResultStatus = Status | Literal["SKIPPED"]
+ResultStatus = Status | Literal["SKIPPED", "NO_COVERAGE"]
 
 
 @dataclass(frozen=True)
@@ -309,8 +311,15 @@ def run_one(
     if not selected:
         # No test executes this line. Nothing can kill the mutant, so there is
         # nothing to run -- but it is still a finding (an untested line), not an
-        # exclusion, so it is reported SURVIVED rather than SKIPPED.
-        result = Result(mutant, "SURVIVED", 0, 0.0, nearest_test=None)
+        # exclusion, so it is NO_COVERAGE rather than SKIPPED.
+        #
+        # It is not SURVIVED either, which is what it used to be. A survivor
+        # means tests ran and none objected, so the fix is a stronger
+        # assertion; this means no test was even selected, so the fix is to
+        # write one -- or to find out why selection missed the test that does
+        # cover it. Same exit code, different work, so a different word.
+        # `_plan` settles the same case identically on the batch path.
+        result = Result(mutant, "NO_COVERAGE", 0, 0.0, nearest_test=None)
     else:
         started = time.perf_counter()
         if use_fork:
@@ -736,7 +745,10 @@ def _plan(
                 continue
 
         if not selected:
-            results[index] = Result(mutant, "SURVIVED", 0, 0.0, nearest_test=None)
+            # The batch path's copy of `run_one`'s no-coverage case; see the
+            # reasoning there. A status emitted by only one of the two would be
+            # a verdict that depended on `--jobs`.
+            results[index] = Result(mutant, "NO_COVERAGE", 0, 0.0, nearest_test=None)
         else:
             to_run.append((index, mutant, selected))
 

@@ -204,10 +204,10 @@ def classify(key, ours, theirs):
             "taking ours, so which mutants time out need not match",
         )
 
-    if mine == "SURVIVED" and ours["tests_run"] == 0:
+    if mine == "NO_COVERAGE" or (mine == "SURVIVED" and ours["tests_run"] == 0):
         return (
             "genuine semantic difference",
-            "no test covers this line at all. moonbuggy reports SURVIVED "
+            "no test covers this line at all. moonbuggy reports NO_COVERAGE "
             "because an untested line is a finding -- a different finding "
             "from `tested but not checked`, but a finding. mutmut has no "
             "tests to run for the function and reports the run it could "

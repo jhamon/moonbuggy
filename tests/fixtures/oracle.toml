@@ -19,10 +19,19 @@
 #  on this file is how an evaluator checks the labels were not quietly bent to
 #  match a failing implementation.
 
+#  TWO EXPECTED STATUSES, ON PURPOSE
+#  `status` is what the naive runner must report: it has no coverage map and
+#  runs the whole suite for every mutant, so it cannot tell an unreached line
+#  from an unasserted one. `fast_path_status`, where present, is what
+#  moonbuggy's coverage-guided path must report instead, and the entry's note
+#  says why the two differ. A label without `fast_path_status` means both
+#  engines must agree, which is every mutant but one.
+
 [meta]
 fixture = "sample_project"
 total_mutants = 22
 expected_counts = { KILLED = 15, SURVIVED = 5, TIMEOUT = 1, SKIPPED = 1 }
+expected_counts_fast = { KILLED = 15, SURVIVED = 4, NO_COVERAGE = 1, TIMEOUT = 1, SKIPPED = 1 }
 
 #  OPERATOR SPEC
 #  The inventory below is only well-defined given exact operator semantics, so
@@ -72,7 +81,8 @@ case = "module-level"
 note = """
 MODULE-LEVEL CASE (A3). This line executes at import time, not inside any test
 body, so a line->test map built from test-body execution alone may attribute it
-to no test at all -- and a tool that then runs zero tests would report SURVIVED.
+to no test at all -- and a tool that then runs zero tests would report it as
+uncovered (NO_COVERAGE on the fast path) when the suite kills it outright.
 That is a silent false negative, and this mutant is here to catch it. Correct
 behaviour: a module-level mutant must select every test that (transitively)
 imports the module.
@@ -186,15 +196,23 @@ operator = "constant_int"
 original = "return 0"
 mutated = "return 1"
 status = "SURVIVED"
+fast_path_status = "NO_COVERAGE"
 killed_by = []
 case = "no-covering-test"
 note = """
 NO-COVERAGE CASE. Line 15 is never executed by any test -- restock_amount is
 only ever called with stock < target. The line->test map must yield an EMPTY
-covering set, and moonbuggy must report SURVIVED without running any test.
-Pins a real semantic decision: uncovered mutants are SURVIVED, not SKIPPED.
-SKIPPED means deliberately excluded; an untested line is a finding, not an
-exclusion, and must not be hidden from the report.
+covering set, and moonbuggy must report NO_COVERAGE without running any test.
+Pins a real semantic decision: uncovered mutants are a finding, not an
+exclusion. SKIPPED means deliberately excluded, and must never be used here --
+an untested line must not be hidden from the report.
+
+The two labels differ because the two engines can see different things. The
+naive runner mutates the file and runs the entire suite, which passes, so all
+it can honestly say is SURVIVED; it has no way to know no test touched the
+line. moonbuggy has the coverage map and does know, so it says the more
+specific thing. Both statuses exit 1: the disagreement is about which finding
+this is, never about whether it is one.
 """
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import pytest
 
 from moonbuggy import terminal
 from moonbuggy.cli import main
+from moonbuggy.report import STATUS_KEYWORDS
 
 GOLDEN_DIR = Path(__file__).parent / "fixtures" / "golden"
 SAMPLE_PROJECT = "tests/fixtures/sample_project"
@@ -98,13 +99,7 @@ def test_jsonl_records_are_all_parseable(throwaway):
     assert lines
     for line in lines:
         record = json.loads(line)
-        assert record["status"] in {
-            "KILLED",
-            "SURVIVED",
-            "TIMEOUT",
-            "SUSPICIOUS",
-            "SKIPPED",
-        }
+        assert record["status"] in STATUS_KEYWORDS
 
 
 def test_plaintext_has_one_line_per_jsonl_record(throwaway):
@@ -380,7 +375,61 @@ def test_quiet_in_human_mode_prints_the_footer_and_nothing_else(tmp_path, capsys
     # footer names the absolute path rather than a shortened relative one --
     # the same path the agent-mode summary would name for this run.
     assert lines[1] == f"Full records: {tmp_path / 'results.jsonl'}"
-    assert lines[2] == "exit 1 -- survivors"
+    # The fixture has both findings: survivors, and inventory.py:15, which no
+    # test reaches. The closing line names both rather than only the first.
+    assert lines[2] == "exit 1 -- survivors, and lines no test reaches"
+
+
+UNCOVERED_PROJECT = """\
+def used(value):
+    return value + 1
+
+
+def never_called(value):
+    return value * 2
+"""
+
+UNCOVERED_TESTS = """\
+from lib import used
+
+
+def test_used():
+    assert used(1) == 2
+"""
+
+
+def test_an_unreached_line_is_reported_as_no_coverage(tmp_path):
+    """End to end: the status reaches the artifacts, and keeps the exit code.
+
+    `never_called` is mutated but no test executes it. Before NO_COVERAGE
+    existed this run was a SURVIVED with `tests_run=0`; the finding has not
+    changed, only its name -- and a CI gate keyed on the exit code must not
+    notice the difference.
+    """
+    (tmp_path / "lib.py").write_text(UNCOVERED_PROJECT)
+    (tmp_path / "test_lib.py").write_text(UNCOVERED_TESTS)
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "conftest.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "sys.path.insert(0, str(Path(__file__).parent))\n"
+    )
+
+    proc = moonbuggy(cwd=tmp_path, expect=1)
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / ".moonbuggy" / "results.jsonl").read_text().splitlines()
+    ]
+    uncovered = [r for r in records if r["status"] == "NO_COVERAGE"]
+
+    assert uncovered, [r["status"] for r in records]
+    assert all(r["tests_run"] == 0 and r["nearest_test"] is None for r in uncovered)
+    # Not a survivor any more, and not hidden either: still exit 1 (asserted by
+    # `expect=1` above), still greppable, under its own keyword.
+    assert not [r for r in records if r["status"] == "SURVIVED"]
+    text = (tmp_path / ".moonbuggy" / "results.txt").read_text()
+    assert [line for line in text.splitlines() if line.startswith("NO_COVERAGE")]
+    assert "NO_COVERAGE=" in proc.stderr
 
 
 def test_a_non_tty_run_puts_no_bare_survived_line_on_stderr(tmp_path, capsys):

@@ -78,10 +78,14 @@ caught it. Nothing to do.
 execute line 14, and **all three still passed**. Your suite does not notice that
 change.
 
-Only survivors are worth your attention:
+`NO_COVERAGE` is the third verdict you will meet. It means no test executes
+that line at all, so nothing could have objected. Same exit code as a survivor,
+different fix: write a test rather than strengthen one.
+
+Only the findings are worth your attention:
 
 ```{code-block} console
-$ grep SURVIVED .moonbuggy/results.txt
+$ grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt
 ```
 
 ## 4. Look at one survivor
@@ -120,7 +124,7 @@ Run moonbuggy again:
 
 ```{code-block} console
 $ moonbuggy
-moonbuggy: KILLED=72  SKIPPED=0  SURVIVED=11  SUSPICIOUS=1  TIMEOUT=0  cached=71  -> .moonbuggy/results.jsonl
+moonbuggy: KILLED=72  NO_COVERAGE=0  SKIPPED=0  SURVIVED=11  SUSPICIOUS=1  TIMEOUT=0  cached=71  -> .moonbuggy/results.jsonl
 ```
 
 That mutant is now `KILLED`, and `cached=71` means the mutants in files you did

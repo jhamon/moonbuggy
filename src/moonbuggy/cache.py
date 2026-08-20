@@ -32,10 +32,15 @@ from typing import TypedDict
 
 from .mutant import Mutant
 
-# Bumped whenever the key derivation or record shape changes. An old cache is
-# then ignored rather than misread -- entries keyed by a different algorithm are
-# not wrong-looking, they are silently wrong.
-CACHE_VERSION = 2
+# Bumped whenever the key derivation or record shape changes, or whenever the
+# meaning of a stored value does. An old cache is then ignored rather than
+# misread -- entries keyed by a different algorithm are not wrong-looking, they
+# are silently wrong.
+#
+# 3: NO_COVERAGE. Mutants no test reaches were stored as "SURVIVED", and a v2
+#    entry replayed under v3 would put them back in the survivor list under the
+#    name the report no longer uses for them.
+CACHE_VERSION = 3
 
 
 def run_fingerprint(

@@ -110,7 +110,7 @@ def test_group_header_is_a_clickable_path_and_line():
 
 
 def test_status_is_a_word_not_a_symbol():
-    # The five keywords are the vocabulary of results.txt and of every grep a
+    # The status keywords are the vocabulary of results.txt and of every grep a
     # user writes; a parallel set of glyphs would not transfer.
     assert "  SURVIVED  comparison_swap" in render_group([rec()], PLAIN, timeout=30.0)
 
@@ -156,6 +156,91 @@ def test_the_node_id_gets_its_own_line_and_is_never_truncated():
 
 def test_only_survivors_get_a_coverage_sentence():
     assert coverage_sentence(rec(status="TIMEOUT", nearest_test=None)) == []
+
+
+def test_a_no_coverage_record_still_says_why_nothing_caught_it():
+    # The sentence follows the finding, not the keyword: NO_COVERAGE is where
+    # "no test runs this line at all" ended up when it stopped being SURVIVED.
+    assert coverage_sentence(
+        rec(status="NO_COVERAGE", tests_run=0, nearest_test=None)
+    ) == ["no test runs this line at all"]
+
+
+def test_uncovered_lines_get_their_own_section():
+    records = [
+        rec(),
+        rec(status="NO_COVERAGE", file="sample/restock.py", line=15, tests_run=0),
+        rec(status="NO_COVERAGE", file="sample/restock.py", line=21, tests_run=0),
+    ]
+    report = render_report(
+        records,
+        palette=PLAIN,
+        files=2,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact=".moonbuggy/results.jsonl",
+    )
+
+    # Counted in lines, not mutants: two mutants on one line are one gap.
+    assert "2 lines no test reaches" in report
+    assert report.index("2 lines no test reaches") > report.index("SURVIVED")
+    assert "sample/restock.py:15" in report
+
+
+def test_one_uncovered_line_is_singular():
+    report = render_report(
+        [rec(status="NO_COVERAGE", tests_run=0, nearest_test=None)],
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact=".moonbuggy/results.jsonl",
+    )
+    assert "1 line no test reaches" in report
+
+
+def test_uncovered_lines_are_a_finding_and_keep_the_exit_code():
+    # The whole point of the rename is that it must not loosen a CI gate: a run
+    # with no survivors but an unreached line still exits 1.
+    report = render_report(
+        [rec(status="NO_COVERAGE", tests_run=0, nearest_test=None)],
+        palette=PLAIN,
+        files=1,
+        elapsed=1.0,
+        timeout=30.0,
+        artifact=".moonbuggy/results.jsonl",
+    )
+    assert report.splitlines()[-1] == "exit 1 -- lines no test reaches"
+
+
+def test_the_footer_counts_uncovered_lines_separately():
+    counts = {
+        "KILLED": 3,
+        "SURVIVED": 1,
+        "NO_COVERAGE": 2,
+        "TIMEOUT": 0,
+        "SKIPPED": 0,
+        "SUSPICIOUS": 0,
+    }
+    tally = render_footer(counts, 1.0, ".moonbuggy/results.jsonl").splitlines()[0]
+
+    assert "1 survived" in tally
+    assert "2 no_coverage" in tally
+    assert tally.index("survived") < tally.index("no_coverage") < tally.index("killed")
+
+
+def test_the_footer_names_both_findings_when_there_are_both():
+    counts = {
+        "KILLED": 0,
+        "SURVIVED": 1,
+        "NO_COVERAGE": 1,
+        "TIMEOUT": 0,
+        "SKIPPED": 0,
+        "SUSPICIOUS": 0,
+    }
+    footer = render_footer(counts, 1.0, ".moonbuggy/results.jsonl")
+
+    assert footer.splitlines()[-1] == "exit 1 -- survivors, and lines no test reaches"
 
 
 def test_a_whitespace_only_mutation_says_so():

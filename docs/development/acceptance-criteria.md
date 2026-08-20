@@ -200,9 +200,12 @@ own fast-path output, A2 has been violated — check `git log` on the oracle fil
 - **E3.** The plaintext view is *derived from* the JSONL, not authored separately.
   Verified by regenerating plaintext from a JSONL file and asserting it matches the
   plaintext emitted during the run byte-for-byte.
-- **E4.** Every plaintext line begins with one of exactly five fixed keywords:
-  `KILLED`, `SURVIVED`, `TIMEOUT`, `SUSPICIOUS`, `SKIPPED`. Verified by asserting
-  `grep -c SURVIVED` on the plaintext equals the count of survived records in the JSONL.
+- **E4.** Every plaintext line begins with one of exactly six fixed keywords:
+  `KILLED`, `SURVIVED`, `NO_COVERAGE`, `TIMEOUT`, `SUSPICIOUS`, `SKIPPED`. Verified by
+  asserting `grep -c SURVIVED` on the plaintext equals the count of survived records in
+  the JSONL. (`NO_COVERAGE` was added in 0.1.3 and took the uncovered lines that were
+  previously `SURVIVED` with `tests_run=0`; the criterion is about the keyword-per-line
+  shape, which is unchanged, not about the size of the vocabulary.)
 - **E5.** Plaintext is strictly one line per mutant, with no embedded newlines — the
   diff is not inlined (the §5.3 open question, resolved as the doc's current lean).
   Verified by asserting line count equals mutant count.
@@ -211,7 +214,8 @@ own fast-path output, A2 has been violated — check `git log` on the oracle fil
 - **E7.** A lookup path exists to retrieve a single mutant's full diff by id
   (e.g. `moonbuggy show <id>`), since E5 keeps it out of plaintext.
 - **E8.** `nearest_test` is populated for every `SURVIVED` mutant and names a test that
-  actually covers the mutated line. Verified against the fixture's known mapping.
+  actually covers the mutated line. Verified against the fixture's known mapping. It is
+  null for `NO_COVERAGE`, where by definition there is no covering test to name.
 
 ---
 

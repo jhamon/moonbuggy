@@ -33,10 +33,18 @@ from .srcio import detect_encoding, encode_source, read_source, replace_line
 PYTEST_OK = 0
 PYTEST_TESTS_FAILED = 1
 
-# Mirrors report.py's STATUS_KEYWORDS. Not imported from there because
-# report.py keeps that set untyped as plain strings for the grep-friendly
-# format; this is the one place a mutant's fate is decided, so it is worth
-# a Literal here even though the two are not (yet) the same declaration.
+# Mirrors report.py's STATUS_KEYWORDS, minus NO_COVERAGE. Not imported from
+# there because report.py keeps that set untyped as plain strings for the
+# grep-friendly format; this is the one place a mutant's fate is decided, so it
+# is worth a Literal here even though the two are not (yet) the same
+# declaration.
+#
+# NO_COVERAGE is absent on purpose rather than by omission: the naive runner has
+# no coverage map and runs the entire suite for every mutant, so "no test
+# reaches this line" is not a distinction it is able to draw. An uncovered line
+# whose mutation nothing notices is a SURVIVED here, and that disagreement with
+# the fast path is a known, labelled one -- see `fast_path_status` in
+# tests/fixtures/oracle.toml.
 Status = Literal["SKIPPED", "SURVIVED", "KILLED", "TIMEOUT", "SUSPICIOUS"]
 
 

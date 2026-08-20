@@ -29,6 +29,8 @@ from support import (
     write_project,
 )
 
+from moonbuggy.report import STATUS_KEYWORDS
+
 pytestmark = pytest.mark.slow
 
 
@@ -339,10 +341,7 @@ def test_a_mutant_that_kills_its_own_process_is_still_classified(tmp_path):
     )
     ids = {r["id"] for r in records(project)}
     assert any("exiting.py:15" in i for i in ids), "the sys.exit() branch went missing"
-    assert all(
-        r["status"] in {"KILLED", "SURVIVED", "TIMEOUT", "SUSPICIOUS", "SKIPPED"}
-        for r in records(project)
-    )
+    assert all(r["status"] in STATUS_KEYWORDS for r in records(project))
 
 
 # --------------------------------------------------------------------------
