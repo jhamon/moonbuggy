@@ -200,9 +200,8 @@ DEFAULT_TIER = "default"
 #:
 #: `default` is what a bare `moonbuggy` runs: cheap to run, high signal.
 #: `deep` is for operators that are expensive in wall-clock or noisy in
-#: output, and is opted into deliberately. There is no `deep` operator in this
-#: version -- the tier exists so the vocabulary is settled before one is
-#: written, which is the whole reason this landed before #16.
+#: output, and is opted into deliberately -- `statement_deletion` is its
+#: first member, at roughly one extra mutant per statement.
 TIERS = ("default", "deep")
 
 #: Not a tier an operator can declare, but a selector meaning every registered
@@ -328,8 +327,8 @@ def tier_members(tier: str) -> tuple[str, ...]:
         tier: one of :data:`TIERS`, or :data:`ALL_TIER`.
 
     Returns:
-        The names, sorted. Empty is a legitimate answer: `deep` has no members
-        in this version.
+        The names, sorted. Empty is a legitimate answer -- a tier with no
+        members is a state this version has been in and can be in again.
     """
     infos = describe_operators()
     if tier == ALL_TIER:
@@ -389,13 +388,15 @@ def resolve_operators(spec: str) -> frozenset[str]:
         base = set(tier_members(DEFAULT_TIER))
     selected = base | added
     if not selected:
+        empty = _empty_tiers_named(spec)
         raise SelectionError(
             f"--operators {spec!r} selects no operators. "
             + (
-                f"The `{DEFAULT_TIER}` and `deep` tiers are how cost is chosen, and "
-                "no operator in this version declares itself `deep` yet, so `deep` "
-                "is empty. "
-                if _names_an_empty_tier(spec)
+                f"The tier{'s' if len(empty) > 1 else ''} "
+                f"{', '.join(repr(name) for name in empty)} "
+                f"{'have' if len(empty) > 1 else 'has'} no members in this "
+                "version. "
+                if empty
                 else ""
             )
             + "Run `moonbuggy operators` to see what is available."
@@ -403,11 +404,22 @@ def resolve_operators(spec: str) -> frozenset[str]:
     return frozenset(selected)
 
 
-def _names_an_empty_tier(spec: str) -> bool:
-    """Whether the selection failed only because a tier has no members yet."""
+def _empty_tiers_named(spec: str) -> list[str]:
+    """The tiers this selection named that have no members in this version.
+
+    Args:
+        spec: the raw `--operators` value.
+
+    Returns:
+        The tier names, sorted. Empty when the selection failed for some other
+        reason -- which keeps the error from explaining a tier the user never
+        typed.
+    """
     selectors = {token.strip().lstrip("+").strip() for token in spec.split(",")}
-    return any(
-        selector in TIERS and not tier_members(selector) for selector in selectors
+    return sorted(
+        selector
+        for selector in selectors
+        if selector in TIERS and not tier_members(selector)
     )
 
 

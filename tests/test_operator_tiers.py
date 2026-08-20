@@ -60,12 +60,23 @@ def test_every_built_in_operator_declares_a_tier():
     assert {info.tier for info in describe_operators()} <= set(TIERS)
 
 
-def test_todays_operators_are_all_in_the_default_tier():
-    """There is no deep operator yet. An empty `deep` tier is the honest state
-    of this version, and this test is the thing that will notice when #16 or
-    #19 changes it."""
-    assert set(tier_members("default")) == {info.name for info in describe_operators()}
-    assert tier_members("deep") == ()
+def test_the_tiers_partition_the_operators():
+    """Every operator is in exactly one tier and both tiers have members.
+    This replaced an assertion that `deep` was empty, which was the honest
+    state of the version that introduced tiers and stopped being true the
+    moment `statement_deletion` landed."""
+    default = set(tier_members("default"))
+    deep = set(tier_members("deep"))
+
+    assert default and deep
+    assert not default & deep
+    assert default | deep == {info.name for info in describe_operators()}
+
+
+def test_statement_deletion_is_the_deep_tier():
+    """Named rather than merely counted: `deep` is opt-in, so which operators
+    a bare `moonbuggy` does *not* run is part of the contract."""
+    assert tier_members("deep") == ("statement_deletion",)
 
 
 def test_tier_names_are_reserved_against_a_future_operator():
@@ -98,7 +109,7 @@ def test_a_single_bare_name_is_still_just_that_name():
 
 def test_a_tier_name_expands_to_its_members():
     with probe_operator("zz_deep_probe"):
-        assert names("deep") == ["zz_deep_probe"]
+        assert names("deep") == sorted(["statement_deletion", "zz_deep_probe"])
 
 
 def test_all_is_every_registered_operator():
@@ -117,7 +128,9 @@ def test_plus_means_the_default_set_plus_this_one():
 
 def test_plus_accepts_a_tier_too():
     with probe_operator("zz_deep_probe"):
-        assert names("+deep") == sorted([*tier_members("default"), "zz_deep_probe"])
+        assert names("+deep") == sorted(
+            [*tier_members("default"), *tier_members("deep")]
+        )
 
 
 def test_a_bare_base_and_a_plus_compose():
@@ -144,11 +157,16 @@ def test_an_unknown_name_is_an_error_that_lists_what_is_available():
     assert "moonbuggy operators" in message
 
 
-def test_a_selection_that_resolves_to_nothing_says_so():
-    """`--operators deep` in a version with no deep operator. Not a crash, and
-    not a zero-mutant run that looks like a clean bill of health."""
-    with pytest.raises(SelectionError, match="deep"):
-        resolve_operators("deep")
+def test_a_selection_that_resolves_to_nothing_says_so(monkeypatch):
+    """A tier with no members. `deep` was that tier when tiers landed; now
+    that it has one, the case is provoked rather than found lying around --
+    it must stay a clear error and not a zero-mutant run that looks like a
+    clean bill of health."""
+    monkeypatch.setattr(
+        operators_pkg, "TIERS", (*TIERS, "zz_empty_tier"), raising=True
+    )
+    with pytest.raises(SelectionError, match="zz_empty_tier"):
+        resolve_operators("zz_empty_tier")
 
 
 def test_an_all_plus_syntax_error_is_reported_rather_than_ignored():
@@ -193,7 +211,7 @@ def test_operators_json_is_a_single_object(capsys):
         assert entry["tier"] in TIERS
         assert entry["description"]
         assert entry["cost"]
-    assert payload["tiers"]["deep"] == []
+    assert payload["tiers"]["deep"] == ["statement_deletion"]
     assert payload["tiers"][ALL_TIER] == sorted(listed)
 
 
