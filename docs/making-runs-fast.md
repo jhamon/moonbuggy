@@ -78,6 +78,84 @@ and a frozen heap the garbage collector will not re-walk.
 The coverage pass and the host's warm-up are the same run, which is why the
 table above has one "coverage pass" row and not two.
 
+## Only what you changed
+
+The fastest run is the one that skips almost everything. `--since` generates
+mutants only for lines your branch has touched:
+
+```console
+$ moonbuggy --since origin/main
+moonbuggy: Diff-scoped: only lines changed since origin/main (merge base 4f21c0a) were mutated -- 2 files, 31 lines.
+moonbuggy: 7 mutants across 2 files
+```
+
+On a typical pull request that is a handful of mutants and seconds of runtime,
+which is the difference between mutation testing as an audit you schedule and
+mutation testing as a gate on every PR.
+
+It is a **filter**, not a different tool. The mutants are the ones a full run
+would have produced for those lines, with the same ids and the same verdicts —
+so a scoped run fills and reads the *same cache* as a full one, and a mutant
+already answered by last night's full run is not re-run here. `--since` is
+deliberately not part of the [run fingerprint](#the-cache): how you reached a
+mutant cannot change its answer.
+
+It composes with `--include` and `--exclude` rather than replacing them, so
+`--since origin/main --exclude generated/` means both.
+
+### What is in scope
+
+The diff is taken between the **merge base** of `<ref>` and your branch, and
+your **working tree** — `git diff --unified=0 $(git merge-base <ref> HEAD)`.
+Two consequences worth knowing:
+
+- Commits that landed on `main` after you branched are not your changes and are
+  not scoped in, which is what the merge base is for.
+- Uncommitted edits *are* in scope, because the working tree is what moonbuggy
+  mutates. A scope taken against `HEAD` would carry line numbers for a file
+  that is not the one being read.
+
+Untracked files are entirely in scope: a module you have just written is the
+least-tested code in the tree, and `git diff` cannot see it. Deleted files and
+deleted lines are in scope for nothing — there is nothing left to mutate.
+Renames are scoped under the file's new path.
+
+A branch that changed no source lines — a docs-only PR — exits `0` and writes
+empty results, rather than failing a gate for having nothing to do.
+
+### Reading a scoped report honestly
+
+A scoped run says so twice, in the header and the footer:
+
+```
+moonbuggy  7 mutants across 2 files  (diff-scoped since origin/main)
+...
+6 survived, 1 killed in 4.2s -- 6/7 killed, 86%
+Diff-scoped: only lines changed since origin/main (merge base 4f21c0a) were mutated -- 2 files, 31 lines.
+Full records: .moonbuggy/results.jsonl
+exit 1 -- survivors
+```
+
+That line is the point of the feature's honesty: `7/7 killed, 100%` on three
+changed lines is not the same claim as a clean full run, and nothing should let
+the two be confused.
+
+### In CI
+
+```yaml
+- uses: actions/checkout@v5
+  with:
+    fetch-depth: 0          # --since needs the base branch and its history
+
+- run: uv run --with moonbuggy moonbuggy --since origin/${{ github.base_ref }}
+```
+
+`fetch-depth: 0` is not optional. `actions/checkout` fetches a single commit by
+default, which leaves `origin/main` either absent or with no merge base — and
+moonbuggy exits `2` with a message saying so rather than quietly mutating
+everything or nothing. The other exits-`2` cases are the same shape: not a git
+repository at all, or a ref that does not resolve.
+
 ## Flags that matter
 
 `--jobs N`
@@ -94,8 +172,12 @@ table above has one "coverage pass" row and not two.
   See [What `SUSPICIOUS` means](reading-the-output.md).
 
 `--include` / `--exclude`
-: Restrict which files are mutated, by path fragment. Repeatable. The fastest
-  run is the one that mutates only what you changed.
+: Restrict which files are mutated, by path fragment. Repeatable.
+
+`--since REF`
+: Mutate only the lines changed since a git ref, compared against the merge
+  base. The fastest run is the one that mutates only what you changed — see
+  [above](#only-what-you-changed).
 
 `--timeout N`
 : Seconds before a mutant is called `TIMEOUT`. Mutations that produce infinite

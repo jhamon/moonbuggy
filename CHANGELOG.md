@@ -8,6 +8,34 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--since <ref>`: diff-scoped runs. `moonbuggy --since origin/main` generates
+  mutants only for the lines your branch changed, compared against the merge
+  base — a handful of mutants and seconds of runtime on a typical pull request,
+  which is what makes mutation testing affordable on every PR rather than as a
+  scheduled audit. It is a filter on generation, so the mutants are the ones a
+  full run would produce for those lines, with the same ids and the same
+  verdicts, and it composes with `--include`/`--exclude` rather than replacing
+  them. The scope includes uncommitted edits and untracked files, because the
+  working tree is what moonbuggy mutates; deletions scope in nothing, and a
+  rename is scoped under the file's new path. A run with no changed source
+  lines exits `0` with empty results instead of failing a gate for a docs-only
+  branch. Not a git repository, an unresolvable ref, or a shallow clone with no
+  merge base each exit `2` with a message naming the fix — in CI that is
+  usually `fetch-depth: 0` on `actions/checkout`. See
+  [Making runs fast](docs/making-runs-fast.md).
+
+- A diff-scoped run says so, in the human report's header and its footer:
+  "Diff-scoped: only lines changed since origin/main (merge base 4f21c0a) were
+  mutated -- 2 files, 31 lines." A 100% kill rate on three mutants is never
+  reported in a form that could be mistaken for a clean full run. The agent
+  format's per-mutant lines and its final summary line are unchanged; the
+  scope is announced on stderr before the run.
+
+- `--since` is deliberately **not** part of the cache fingerprint. How a run
+  reached a mutant cannot change that mutant's verdict, so diff-scoped and full
+  runs fill and read the same cache — a mutant answered by last night's full
+  run is not re-run by today's PR run.
+
 - `NO_COVERAGE`, a sixth status. A mutant on a line that no test executes is
   now reported under its own keyword instead of as a survivor. It is a finding,
   not a pass: it exits `1` exactly as `SURVIVED` does, it appears in

@@ -157,6 +157,8 @@ Nothing below is required.
 --operators NAMES    comma-separated subset, e.g. comparison_swap,boundary
 --include FRAGMENT   only mutate paths containing FRAGMENT (repeatable)
 --exclude FRAGMENT   skip paths containing FRAGMENT (repeatable)
+--since REF          only mutate lines changed since a git ref, compared
+                     against the merge base (e.g. --since origin/main)
 --jobs N             mutants to run concurrently (default: CPU count - 1)
 -n, --workers N      pytest-xdist workers per mutant run
 --source DIR         directory to mutate, if discovery guesses wrong

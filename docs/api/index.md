@@ -18,6 +18,9 @@ For the shape of the whole thing rather than the parts, read
 .. automodule:: moonbuggy.discover
    :members:
 
+.. automodule:: moonbuggy.diffscope
+   :members:
+
 .. automodule:: moonbuggy.generate
    :members:
 
