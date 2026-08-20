@@ -24,11 +24,14 @@ from moonbuggy.cli import (
     _display_path,
     _harden_streams,
     _measurable_fd,
+    _operators,
     _prepare_cache,
     _settled_line,
     main,
 )
 from moonbuggy.mutant import Mutant
+from moonbuggy.operators import DEFAULT_TIER, tier_members
+from moonbuggy.report import FINDING_STATUSES, STATUS_KEYWORDS
 
 
 def test_harden_streams_makes_encoding_errors_non_fatal(monkeypatch):
@@ -382,3 +385,163 @@ def test_every_option_the_parser_accepts_carries_help_text():
         if not action.help and not isinstance(action, argparse._SubParsersAction)
     ]
     assert undocumented == []
+
+
+def _subcommand_parser(name):
+    """The parser behind `moonbuggy <name>`."""
+    for action in _build_parser()._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action.choices[name]
+    raise AssertionError("no subparsers on the root parser")
+
+
+def _subcommand_help(name):
+    """`moonbuggy <name> -h`, as argparse would render it."""
+    return _subcommand_parser(name).format_help()
+
+
+def test_help_enumerates_the_whole_status_vocabulary():
+    """The two things an agent acts on are the status on a result line and the
+    exit code, and neither was on the help surface: `KILLED` and
+    `KILLED_BY_ERROR` appeared in `-h` zero times. Driven off STATUS_KEYWORDS
+    rather than a hardcoded list, so an eighth status cannot ship undocumented.
+    """
+    text = _help_text()
+
+    assert "Statuses:" in text
+    for status in STATUS_KEYWORDS:
+        assert status in text, status
+
+
+def test_help_says_which_statuses_are_findings():
+    """`finding` is the word the exit code, `--fail-on-unexplained` and the
+    ledger are all defined in terms of, and it was defined nowhere."""
+    text = _help_text()
+
+    # The sentence that defines the word has to name both findings, and the
+    # exit-code section has to name the four that are not: an agent that reads
+    # TIMEOUT as a gate failure fails a build that passed.
+    definition = [line for line in text.splitlines() if "*findings*" in line]
+    assert definition, text
+    for status in FINDING_STATUSES:
+        assert status in definition[0], status
+
+    exits = text.split("Exit codes:", 1)[1]
+    for status in STATUS_KEYWORDS - set(FINDING_STATUSES) - {"KILLED"}:
+        assert status in exits, status
+
+
+def test_help_states_every_exit_code_main_can_return():
+    """`-h` is the advertised onboarding path (#13) and a CI wrapper written
+    from it has to know that 1 is a result rather than an error, and that 130
+    exists at all."""
+    text = _help_text()
+
+    assert "Exit codes:" in text
+    section = text.split("Exit codes:", 1)[1].split("\n\n\n")[0]
+    for code in ("0", "1", "2", "130"):
+        assert f"\n  {code}" in section, code
+    assert "--fail-on-unexplained" in section
+
+
+def test_help_does_not_read_tests_run_zero_as_a_biconditional():
+    """SKIPPED mutants also carry tests_run=0. An agent filtering on it to find
+    coverage gaps would mis-classify every suppressed mutant."""
+    text = _help_text()
+
+    selection = text.split("Test selection:", 1)[1]
+    assert "SKIPPED" in selection
+    assert "tests_run=0" in selection
+
+
+def test_help_names_the_suppression_marker():
+    """`# moonbuggy: skip` is the only way to silence one mutant, and the
+    string did not occur anywhere in any `-h` output -- SKIPPED was presented
+    as a logging-only status by `--include-logging-mutants`."""
+    assert "# moonbuggy: skip" in _help_text()
+
+
+def test_the_plus_prefix_is_not_described_as_adding_to_the_default_tier():
+    """`+` adds to the rest of the selection, and only falls back to `default`
+    when no bare token is named: `--operators deep,+boundary` resolves to the
+    deep tier plus boundary, with none of the default tier in it."""
+    text = _help_text()
+
+    assert "adds to the default tier" not in text
+    assert "deep,+boundary" in text
+
+
+def test_the_operators_footer_example_is_not_already_in_the_default_tier(capsys):
+    """A worked example naming a `default` member is a no-op that teaches the
+    wrong model of `+`. `+boundary` was the example, and boundary is `default`.
+    """
+    _operators(argparse.Namespace(json=False))
+    footer = capsys.readouterr().out.split("Select with --operators:", 1)[1]
+
+    plussed = {
+        word.strip("`.,")[1:]
+        for word in footer.split()
+        if word.strip("`.,").startswith("+")
+    }
+    assert plussed, footer
+    assert not plussed & set(tier_members(DEFAULT_TIER))
+
+
+def test_the_stdin_pipeline_run_teaches_matches_no_coverage_too():
+    """`grep SURVIVED ... | moonbuggy run -` silently drops every NO_COVERAGE
+    finding, which `run` handles and gates on identically. moonbuggy's own
+    error message elsewhere in cli.py already prints the corrected form."""
+    text = _subcommand_help("run")
+
+    assert "NO_COVERAGE" in text
+    assert "grep SURVIVED" not in text
+
+
+def test_show_does_not_claim_its_output_dir_is_relative_to_the_project_root():
+    """`show` is the one subcommand with no --project; it resolves --output-dir
+    against the working directory."""
+    show = _subcommand_parser("show")
+    assert "project" not in {action.dest for action in show._actions}
+
+    text = show.format_help()
+    assert "current directory" in text
+    assert "relative to the project root" not in text
+
+
+def test_the_accept_file_help_does_not_contradict_its_own_default():
+    """The default ledger path is `.moonbuggy/accepted.toml` and the default
+    output dir is `.moonbuggy`, so "deliberately not under --output-dir" read
+    as false two clauses after being given the default. The true claim is that
+    --output-dir does not move it."""
+    text = _help_text()
+
+    assert "Deliberately not under --output-dir" not in text
+    assert "--output-dir does not move it" in text
+
+
+def test_the_reason_flag_is_not_described_as_unconditionally_required():
+    """`accept --list` and `accept <id> --remove` both work without one."""
+    text = _subcommand_help("accept")
+
+    assert (
+        "--list" in text.split("why this mutant is equivalent", 1)[1].split("\n\n")[0]
+    )
+
+
+def test_quiet_says_where_its_one_line_goes():
+    """The summary line goes to stderr, so an agent capturing stdout for it
+    gets an empty string."""
+    text = _help_text()
+
+    # The last occurrence: the first is in the usage line's flag list.
+    quiet = text.rsplit("--quiet", 1)[1].split("--json")[0]
+    assert "stderr" in quiet
+
+
+def test_why_json_does_not_claim_the_results_record_shape():
+    """It is JSONL, but its own record: no `status`, no `diff`. A `jq`
+    filter written from the old wording matches nothing and says nothing."""
+    text = _subcommand_help("why")
+
+    assert "the same JSONL shape results.jsonl uses" not in text
+    assert "status" in text.split("emit one JSON object per mutant", 1)[1]
