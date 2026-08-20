@@ -138,6 +138,24 @@ set goes back through in one command:
 grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt | moonbuggy run -
 ```
 
+### Asking why a mutant was handled the way it was
+
+A survivor that will not die has two very different causes, and a result line
+cannot tell them apart: selection never picked up your new test, or the verdict
+came from the cache and nothing ran at all.
+
+```bash
+moonbuggy why 'shipping.py:5:comparison_swap:0'
+```
+
+`why` runs no mutant. It reports the decisions instead: which tests selection
+picks and where that set came from, how many there are (that is the
+`tests_run=` on the result line), and whether the cache already holds a verdict
+for those exact inputs — with the key and the files that go into it, so you can
+see what would invalidate it. If nothing is selected it says so outright, and
+says that means no test reaches the line. `--json` gives the same thing as
+JSONL for an agent.
+
 That is the format you get when output is piped or redirected. At a terminal
 you get a human report instead: survivors grouped by file and line, each with
 the code delta and a caret under exactly what changed.

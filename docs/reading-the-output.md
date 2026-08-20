@@ -144,6 +144,116 @@ A mutant a human has accepted as equivalent is annotated with its reason and
 otherwise reported unchanged — the acceptance never alters the verdict or the
 exit code, which is `--fail-on-unexplained`'s job on a full run.
 
+## Why a mutant was handled the way it was
+
+Two very different problems produce the identical symptom — a survivor that
+will not die no matter what you write:
+
+1. **selection never picked up your new test**, so it was never given a chance
+   to object; or
+2. **the verdict came from the cache**, so nothing ran at all.
+
+A result line cannot tell them apart, and reading the source or running a
+controlled experiment to find out costs minutes every time. `moonbuggy why`
+costs one coverage pass and answers both:
+
+```{code-block} console
+$ moonbuggy why app/pricing.py:14:comparison_swap:0
+```
+
+```{code-block} text
+id           app/pricing.py:14:comparison_swap:0
+location     app/pricing.py:14
+operator     comparison_swap
+diff
+  - if quantity > BULK:
+  + if quantity >= BULK:
+selection    the coverage pass saw 2 tests execute app/pricing.py:14
+tests_run    2
+selected     tests/test_pricing.py::test_bulk
+             tests/test_pricing.py::test_single
+cache        hit -- the next run replays SURVIVED (tests_run=2) without measuring it
+cache_key    9ad65041277be0aea5806303770f8bd0acbfa179dffc988287b220cdc933993d
+cache_covers app/pricing.py
+             tests/test_pricing.py
+run_inputs   pytest args: (none)   timeout: 30.0   python: /usr/bin/python3.12
+last_run     SURVIVED  tests_run=2  (.moonbuggy/results.jsonl)
+```
+
+Field by field:
+
+`selection`
+: Where the selected set came from. Usually the coverage pass, run *just now*
+  against the source as it stands — there is no line→test map on disk, and
+  deliberately so: a stored map would answer for the code as it was. A
+  module-level line says so instead, because an import-time line is attributed
+  to no test and widens to the whole suite; a suppressed line says that.
+
+`tests_run`
+: The size of the selected set, and the same number the result line's
+  `tests_run=` token carries. This is where that token comes from.
+
+`selected`
+: Every test node id, one per line. If the test you just wrote is not here,
+  problem 1 is your problem: nothing you assert in it can affect the verdict,
+  because it is never run for this mutant.
+
+`cache`
+: Whether an entry exists **under this mutant's current key**. A `hit` means
+  the next full run replays that verdict without measuring; a `miss` means it
+  measures. `moonbuggy why` only ever reads the cache — it stores nothing,
+  because it measures nothing.
+
+`cache_key` / `cache_covers`
+: The key and the files whose contents go into it. Editing any of them changes
+  the key, and so does a change to the selected set itself, which is why a
+  stale verdict cannot outlive the test that would kill it. `--no-cache` skips
+  the lookup entirely.
+
+`run_inputs`
+: The rest of the key, from
+  [`run_fingerprint`](api/index.md): the `--pytest-arg` values, the `--timeout`
+  and the interpreter. Pass `why` the same flags your real run uses, or it
+  describes a different entry from the one your run would find.
+
+`last_run`
+: What `results.jsonl` recorded, if a run has happened here. Historical, and
+  deliberately separate from `cache` — the two disagree exactly when something
+  has changed since, which is worth seeing.
+
+When nothing is selected, `why` says so outright rather than printing an empty
+list, and says what it means:
+
+```{code-block} text
+selection    the coverage pass saw no test execute lib.py:6
+tests_run    0
+selected     -
+note         no test reaches this line, so a run reports NO_COVERAGE rather than
+             SURVIVED -- nothing could have caught the mutation. Write a test
+             that executes the line, or delete the code.
+```
+
+`why` never runs the mutant — that is what `moonbuggy run <id>` is for — so it
+has no verdict to gate on and **always exits `0`** unless it could not explain
+at all (exit `2`). It takes several ids and `-` on stdin exactly as `run` does,
+and one coverage pass serves all of them.
+
+`--json` emits one JSON object per mutant, one per line: the same JSONL shape
+`results.jsonl` uses, so `jq` reads either the same way.
+
+```{code-block} console
+$ moonbuggy why --json app/pricing.py:14:comparison_swap:0 | jq '{tests_run, cache_hit, next_run}'
+```
+
+The `next_run` key is `why`'s prediction of what a full run would do with this
+mutant now, following the planner's own order of decisions: `skipped`,
+`suspicious`, `cache`, `no_coverage` or `measure`.
+
+Flaky tests in the selection are **not** probed for by default: a probe is
+another whole unmutated suite run, and `why`'s selling point is that it answers
+without measuring. `--flaky-probe N` turns it on, and then a flaky selection is
+reported and `next_run` can be `suspicious`.
+
 ## The human report
 
 The plaintext line above is what you get when output is piped, redirected, or
@@ -427,4 +537,56 @@ The verdict changed; `results.jsonl` did not, because no run has happened:
 ```{doctest}
 >>> [r["status"] for r in records(project) if r["id"] == "lib.py:6:constant_int:0"]
 ['NO_COVERAGE']
+```
+
+## Checking that `why` explains without measuring
+
+The two claims that matter — that `why` names the selected tests, and that it
+reports the cache honestly rather than by re-running — are checked here rather
+than asserted. Start with a mutant no test reaches:
+
+```{doctest}
+>>> project = make_project({
+...     "lib.py": "def used(value):\n    return value + 1\n\n\ndef never_called(value):\n    return value * 2\n",
+...     "test_lib.py": "from lib import used\n\ndef test_used():\n    assert used(1) == 2\n",
+... })
+>>> explained = json.loads(moonbuggy("why", "--json", "lib.py:6:constant_int:0", cwd=project).stdout)
+>>> explained["selected"], explained["tests_run"], explained["next_run"]
+([], 0, 'no_coverage')
+```
+
+No run has happened yet, so there is nothing cached and nothing recorded:
+
+```{doctest}
+>>> explained["cache_hit"], explained["last_run_status"]
+(False, None)
+```
+
+Write the test that reaches the line, and selection picks it up — which is the
+question "is my new test being ignored?" answered without running anything:
+
+```{doctest}
+>>> _ = (project / "test_never.py").write_text(
+...     "from lib import never_called\n\ndef test_never():\n    assert never_called(3) == 6\n")
+>>> explained = json.loads(moonbuggy("why", "--json", "lib.py:6:constant_int:0", cwd=project).stdout)
+>>> explained["selected"], explained["next_run"]
+(['test_never.py::test_never'], 'measure')
+```
+
+Now run for real, and the same question gets the other answer — the verdict
+that comes back next time will be a replay, and `why` says which one:
+
+```{doctest}
+>>> _ = moonbuggy(cwd=project)
+>>> explained = json.loads(moonbuggy("why", "--json", "lib.py:6:constant_int:0", cwd=project).stdout)
+>>> explained["next_run"], explained["cached_status"]
+('cache', 'KILLED')
+```
+
+`why` never wrote to that cache and never ran the mutant: `results.jsonl` still
+holds exactly what the run left there.
+
+```{doctest}
+>>> [r["status"] for r in records(project) if r["id"] == "lib.py:6:constant_int:0"]
+['KILLED']
 ```

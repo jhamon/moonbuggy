@@ -152,6 +152,17 @@ findings in:
 $ grep -E '^(SURVIVED|NO_COVERAGE)' .moonbuggy/results.txt | moonbuggy run -
 ```
 
+If a survivor refuses to die, do not reach for an experiment — ask:
+
+```{code-block} console
+$ moonbuggy why app/pricing.py:14:comparison_swap:0
+```
+
+`why` runs nothing. It prints which tests selection picks for that mutant (if
+your new test is not in the list, that is your answer) and whether the cache
+already holds a verdict for those inputs (if it does, that is the other one).
+See [Reading the output](reading-the-output.md).
+
 Run moonbuggy again:
 
 ```{code-block} console
