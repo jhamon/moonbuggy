@@ -73,10 +73,19 @@ def test_the_tiers_partition_the_operators():
     assert default | deep == {info.name for info in describe_operators()}
 
 
-def test_statement_deletion_is_the_deep_tier():
-    """Named rather than merely counted: `deep` is opt-in, so which operators
-    a bare `moonbuggy` does *not* run is part of the contract."""
-    assert tier_members("deep") == ("statement_deletion",)
+def test_the_deep_tier_membership_is_named_not_counted():
+    """`deep` is opt-in, so which operators a bare `moonbuggy` does *not* run
+    is part of the contract and is written out rather than counted. It has
+    grown once already -- the function-interface operators joined
+    `statement_deletion` there, and they are in `deep` because
+    `docs/writing-an-operator.md` wants evidence from a real codebase before an
+    operator starts costing every user."""
+    assert tier_members("deep") == (
+        "argument_swap",
+        "default_arg",
+        "kwarg_drop",
+        "statement_deletion",
+    )
 
 
 def test_tier_names_are_reserved_against_a_future_operator():
@@ -108,8 +117,9 @@ def test_a_single_bare_name_is_still_just_that_name():
 
 
 def test_a_tier_name_expands_to_its_members():
+    built_in = tier_members("deep")
     with probe_operator("zz_deep_probe"):
-        assert names("deep") == sorted(["statement_deletion", "zz_deep_probe"])
+        assert names("deep") == sorted([*built_in, "zz_deep_probe"])
 
 
 def test_all_is_every_registered_operator():
@@ -196,6 +206,27 @@ def test_operators_subcommand_tells_the_reader_how_to_select(capsys):
     assert "+" in out
 
 
+def test_the_listing_columns_line_up_whatever_a_cost_is_called(capsys):
+    """The column widths come from the vocabularies, not from the values that
+    happen to be in the registry. `COST` was hardcoded at four characters
+    while `low` and `high` were the only costs anyone declared, and the first
+    `medium` operator pushed the MUTATES column two places right on its own
+    row -- in the one output whose whole purpose is being read by an agent."""
+    main(["operators"])
+
+    rows = [
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if line and not line.startswith(" ")
+    ]
+    header, *entries = rows[: 1 + len(describe_operators())]
+    mutates = header.index("MUTATES")
+
+    for entry in entries:
+        assert entry[mutates - 1] == " ", entry
+        assert entry[mutates] != " ", entry
+
+
 def test_operators_json_is_a_single_object(capsys):
     """A single object, like summary.json: there is one listing per
     invocation. JSONL is for per-mutant data, of which there is a stream."""
@@ -209,7 +240,7 @@ def test_operators_json_is_a_single_object(capsys):
         assert entry["tier"] in TIERS
         assert entry["description"]
         assert entry["cost"]
-    assert payload["tiers"]["deep"] == ["statement_deletion"]
+    assert payload["tiers"]["deep"] == sorted(tier_members("deep"))
     assert payload["tiers"][ALL_TIER] == sorted(listed)
 
 

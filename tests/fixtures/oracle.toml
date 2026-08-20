@@ -117,6 +117,79 @@ answer about impact costs a finding.
 """
 rule = "statement -> pass"
 
+[operators.argument_swap]
+description = """
+DEEP TIER, and so absent from every mutant listed below, like statement_deletion
+and for the same reason: the inventory in this file is a bare `moonbuggy` run.
+It also generates nothing anywhere in this fixture's `sample/` modules even
+under `--operators all` -- no call in them passes two positional arguments --
+which is worth writing down, because "this operator produced no mutant here" is
+otherwise indistinguishable from "this operator is broken".
+
+Two *adjacent* positional arguments in a call are exchanged. Adjacent-only, so
+an n-argument call yields n-1 mutants rather than n!, and because transposing
+two neighbours is the mistake people actually make.
+
+Three sites are skipped, all of them cheap certainties rather than inference:
+
+  - a call with fewer than two positional arguments.
+  - a pair where either position is starred. `f(*args, y)` unpacks a sequence
+    of unknown length, so the swap is not "two arguments in the wrong order".
+  - a pair identical as source -- `f(x, x)`, `f(0, 0)`. Equivalent by
+    construction.
+
+Whether two *distinct* arguments are interchangeable is a question about types
+and about the callee, and there is no type inference here to ask it with. Those
+equivalents are the operator's known cost, and the accepted-equivalents ledger
+is where they get retired.
+"""
+rule = "f(a, b) -> f(b, a), adjacent pairs only"
+
+[operators.default_arg]
+description = """
+DEEP TIER, and generating nothing in this fixture: no parameter in `sample/`
+defaults to None.
+
+A parameter default of `None` becomes `0`. The node mutated is the default
+*expression*, not the `ast.arguments` holding it -- which carries no lineno --
+and not the enclosing `def`, which would unparse its whole body onto one line.
+
+Only `None`. Every other default is either already reached or has no narrow
+replacement:
+
+  - an integer or boolean default is reached by constant_int / constant_bool,
+    in the DEFAULT tier. `def fetch(url, retries=3)` -> `retries=4` is a real
+    and wanted mutant and it is already generated; producing it here as well
+    would put two byte-identical survivors in the report under two ids.
+  - a float default is not mutated for the same reason no float is.
+  - a string default cannot be mutated without breaking criterion C2.
+  - a computed default (`clock=time.time`, `items=()`) has no plausible narrow
+    mutation.
+
+`0` rather than any other value because it is falsy like `None`, so it
+separates the two ways code tests a sentinel default: `if timeout is None:`
+takes the other branch and `if not timeout:` does not.
+"""
+rule = "param=None -> param=0"
+
+[operators.kwarg_drop]
+description = """
+DEEP TIER, and generating nothing in this fixture: no call in `sample/` passes
+an explicit keyword argument.
+
+An explicit keyword argument is removed from a call, so the callee's own
+default applies -- `connect(host, timeout=30)` -> `connect(host)`. One mutant
+per named keyword. `**kwargs` is never dropped: it names no parameter, so there
+is no default to fall back to, and it stands for an unknown number of arguments
+at once.
+
+Expected to produce crash-kills where the parameter is required rather than
+defaulted: every test then raises TypeError. Those are reported KILLED_BY_ERROR
+rather than KILLED, which is what keeps the kill rate meaningful and is why
+this operator waited for that status to exist.
+"""
+rule = "f(a, k=v) -> f(a)"
+
 # ---------------------------------------------------------------------------
 # sample/discounts.py
 # ---------------------------------------------------------------------------
