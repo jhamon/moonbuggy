@@ -10,8 +10,10 @@ as still outstanding -- worse than no cache, because it is confidently wrong.
 The key therefore covers everything the outcome depends on:
 
 - the mutant's identity and mutated text,
-- the full source of the module being mutated, and
-- the contents of every test file selected for it.
+- the full source of the module being mutated,
+- the contents of every test file selected for it, and
+- a fingerprint of the run itself -- see `run_fingerprint`, which covers the
+  parts of the command line that decide what pytest does.
 
 Hashing the whole module rather than just the mutated function is deliberately
 coarser than criterion F2 requires. A mutant's behaviour can depend on anything
@@ -33,7 +35,68 @@ from .mutant import Mutant
 # Bumped whenever the key derivation or record shape changes. An old cache is
 # then ignored rather than misread -- entries keyed by a different algorithm are
 # not wrong-looking, they are silently wrong.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
+
+
+def run_fingerprint(
+    pytest_args: Iterable[str] = (),
+    *,
+    timeout: float | None = None,
+    python: str | None = None,
+) -> str:
+    """A digest of the run inputs that can change a mutant's verdict.
+
+    Mixed into every key by :class:`ResultCache`, so a run whose command line
+    differs cannot be served the previous run's answers. Only inputs that can
+    genuinely change an outcome belong here -- each one folded in halves cache
+    reuse for anyone who varies it, and a cache that never hits is its own
+    failure mode.
+
+    What is in, and why:
+
+    - `pytest_args` (`--pytest-arg`): they reach the baseline and every mutant
+      run, and they decide both which tests exist (`--doctest-modules`, `-p`)
+      and whether they pass (`-W error`, `-m`). Hashed in order, because
+      pytest's argument order is meaningful -- the last `-p` wins and `-W`
+      filters match last-first -- unlike test selection, which is sorted.
+    - `timeout` (`--timeout`): TIMEOUT is a verdict about the clock. The same
+      mutant is TIMEOUT at five seconds and KILLED at sixty, so the clock is
+      an input to the answer and not merely to how long it takes to get it.
+    - `python`: a different interpreter is a different language version and a
+      different set of installed packages. A test that is skipped on one and
+      fails on another produces a different verdict from identical source.
+
+    What is deliberately out:
+
+    - `-n/--workers`: xdist changes how the selected tests are distributed
+      across processes, not which of them run or what they assert. A suite
+      whose outcome depends on worker count is order-dependent, which is the
+      flaky-probe's problem (such tests make their mutants SUSPICIOUS) rather
+      than something to encode in the key. Folding it in would cost every
+      cache entry to anyone who flips between serial and parallel runs, and
+      buy no correctness.
+    - `--jobs`: parallelism across mutants. Each mutant still runs alone, in
+      its own process, against its own selection.
+
+    Args:
+        pytest_args: `--pytest-arg` values, in the order they were given.
+        timeout: seconds before a mutant is called TIMEOUT, or None.
+        python: the resolved interpreter for mutant runs, or None.
+
+    Returns:
+        A hex digest, stable for identical inputs and different for any
+        change to them.
+    """
+    digest = hashlib.sha256()
+    for argument in pytest_args:
+        # Length-prefixed, so ["-ab"] and ["-a", "b"] cannot hash alike.
+        digest.update(f"{len(argument)}:".encode())
+        digest.update(argument.encode())
+    digest.update(b"\0timeout\0")
+    digest.update(b"" if timeout is None else repr(float(timeout)).encode())
+    digest.update(b"\0python\0")
+    digest.update(b"" if python is None else python.encode())
+    return digest.hexdigest()
 
 
 class CacheRecord(TypedDict):
@@ -47,8 +110,18 @@ class CacheRecord(TypedDict):
 class ResultCache:
     """Mutant outcomes from previous runs, keyed on everything they depend on."""
 
-    def __init__(self, path: str | os.PathLike[str]) -> None:
+    def __init__(self, path: str | os.PathLike[str], fingerprint: str = "") -> None:
+        """Open the cache at `path`.
+
+        Args:
+            path: the cache file. It need not exist yet.
+            fingerprint: a :func:`run_fingerprint` digest for this run, mixed
+                into every key. The default is empty, which keys purely on the
+                code -- correct only for a caller that never varies the run
+                inputs.
+        """
         self.path = Path(path)
+        self._fingerprint = fingerprint
         self._entries = self._load()
 
     def _load(self) -> dict[str, CacheRecord]:
@@ -78,11 +151,12 @@ class ResultCache:
             selected_tests: the pytest node ids selection chose for it.
 
         Returns:
-            A hex digest covering the mutant, its module's full source, and
-            the contents of every selected test file.
+            A hex digest covering the mutant, its module's full source, the
+            contents of every selected test file, and this run's fingerprint.
         """
         project_dir = Path(project_dir)
         digest = hashlib.sha256()
+        digest.update(self._fingerprint.encode())
         digest.update(mutant.id.encode())
         digest.update(mutant.mutated.encode())
         digest.update(_read_bytes(project_dir / mutant.module))

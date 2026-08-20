@@ -21,7 +21,7 @@ from typing import IO
 
 from . import __version__, profiling
 from .baseline import BaselineError
-from .cache import ResultCache
+from .cache import ResultCache, run_fingerprint
 from .coverage_pass import CoveragePassError, run_baseline_pass
 from .discover import (
     LayoutError,
@@ -628,7 +628,28 @@ def _collect_mutants(
 
 
 def _prepare_cache(args: argparse.Namespace, output_dir: Path) -> ResultCache | None:
-    cache = ResultCache(output_dir / "cache.json")
+    """The results cache for this run, or None under `--no-cache`.
+
+    The fingerprint is what stops a run being served the previous run's
+    verdicts after its command line changed -- `--pytest-arg` reaches every
+    pytest run here, baseline included, so it decides which tests exist and
+    whether they pass. `sys.executable` is the interpreter both run paths end
+    up using: `run_mutants` falls back to it, and the warm session is this
+    process.
+
+    Args:
+        args: the parsed command line.
+        output_dir: where the cache file lives.
+
+    Returns:
+        A :class:`~moonbuggy.cache.ResultCache`, or None if caching is off.
+    """
+    cache = ResultCache(
+        output_dir / "cache.json",
+        fingerprint=run_fingerprint(
+            args.pytest_arg, timeout=args.timeout, python=sys.executable
+        ),
+    )
     if args.clear_cache:
         cache.clear()
     return None if args.no_cache else cache

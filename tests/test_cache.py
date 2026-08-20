@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from moonbuggy.cache import ResultCache
+from moonbuggy.cache import ResultCache, run_fingerprint
 from moonbuggy.mutant import Mutant
 
 
@@ -146,3 +146,87 @@ def test_cache_file_from_a_future_version_is_ignored(tmp_path):
     )
 
     assert ResultCache(path).get("k") is None
+
+
+# --- The run fingerprint -------------------------------------------------
+#
+# The key above covers the code. It does not cover the command line, and the
+# command line decides which tests pytest collects and whether they pass:
+# `--pytest-arg=--doctest-modules` adds a whole class of tests, `-W error`
+# turns a warning into a failure. Two runs with different arguments must not
+# read each other's verdicts.
+
+
+def test_the_fingerprint_is_optional(project, tmp_path):
+    """Fingerprinting is opt-in: a library caller that never varies its run
+    inputs still gets a stable key from the bare constructor."""
+    plain = ResultCache(tmp_path / "a.json")
+    also_plain = ResultCache(tmp_path / "b.json")
+
+    assert key(plain, project) == key(also_plain, project)
+
+
+def test_a_different_pytest_arg_invalidates_every_entry(project, tmp_path):
+    bare = ResultCache(tmp_path / "a.json", fingerprint=run_fingerprint())
+    doctests = ResultCache(
+        tmp_path / "b.json", fingerprint=run_fingerprint(["--doctest-modules"])
+    )
+
+    assert key(bare, project) != key(doctests, project)
+
+
+def test_the_same_pytest_args_keep_hitting(project, tmp_path):
+    """The other half of the bargain. A key that churns is a cache that never
+    hits, which is its own kind of broken."""
+    first = ResultCache(
+        tmp_path / "a.json", fingerprint=run_fingerprint(["-W", "error"])
+    )
+    second = ResultCache(
+        tmp_path / "b.json", fingerprint=run_fingerprint(["-W", "error"])
+    )
+
+    assert key(first, project) == key(second, project)
+
+
+def test_pytest_arg_order_is_part_of_the_fingerprint(project, tmp_path):
+    """Unlike test selection, argument order is meaningful to pytest -- the
+    later `-p` wins, `-W` filters apply last-match-first. So the fingerprint
+    hashes the sequence, not the set."""
+    forward = run_fingerprint(["-p", "no:randomly"])
+    backward = run_fingerprint(["no:randomly", "-p"])
+
+    assert forward != backward
+
+
+def test_a_different_timeout_invalidates_every_entry(project, tmp_path):
+    """TIMEOUT is a verdict about the clock, so the clock is an input."""
+    quick = ResultCache(tmp_path / "a.json", fingerprint=run_fingerprint(timeout=5.0))
+    patient = ResultCache(
+        tmp_path / "b.json", fingerprint=run_fingerprint(timeout=60.0)
+    )
+
+    assert key(quick, project) != key(patient, project)
+
+
+def test_a_different_interpreter_invalidates_every_entry(project, tmp_path):
+    older = ResultCache(
+        tmp_path / "a.json", fingerprint=run_fingerprint(python="/x/py312")
+    )
+    newer = ResultCache(
+        tmp_path / "b.json", fingerprint=run_fingerprint(python="/x/py313")
+    )
+
+    assert key(older, project) != key(newer, project)
+
+
+def test_a_cache_written_under_other_args_is_not_read_back(project, tmp_path):
+    """End to end over one cache file, which is how the bug was reported: the
+    second run's verdicts came from the first run's arguments."""
+    path = tmp_path / "cache.json"
+    first = ResultCache(path, fingerprint=run_fingerprint(["-W", "error"]))
+    first.put(key(first, project), {"status": "SURVIVED"})
+    first.save()
+
+    second = ResultCache(path, fingerprint=run_fingerprint())
+
+    assert second.get(key(second, project)) is None

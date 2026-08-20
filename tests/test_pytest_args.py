@@ -86,3 +86,82 @@ def test_without_the_flag_the_doctest_is_simply_not_part_of_the_suite(tmp_path):
         status_of_mutation(project, "return value * 2", "return value / 2")
         == "SURVIVED"
     )
+
+
+# A module whose mutation is invisible to the suite as it stands, and fatal
+# under one extra pytest argument. `double` warns when its own arithmetic is
+# inconsistent, which only a mutant makes it do; the test calls it and asserts
+# nothing, so a warning passes and an error does not.
+#
+# The scenario matters because the *selection* is identical either way: the
+# same one test file, unedited, covering the same line. Nothing about the code
+# changes between the two runs, so nothing but the command line can invalidate
+# the cache entry -- which is precisely the case the key used to miss.
+WARNING_LIB = """\
+import warnings
+
+
+def double(value):
+    result = value * 2
+    if result != value + value:
+        warnings.warn("doubling is inconsistent", UserWarning)
+    return result
+"""
+
+WARNING_TEST = """\
+from lib import double
+
+
+def test_double_runs():
+    double(3)
+"""
+
+MUTATION = ("result = value * 2", "result = value / 2")
+
+
+def test_changing_pytest_args_does_not_serve_the_previous_run_s_verdicts(tmp_path):
+    """The reported bug, in miniature.
+
+    A user runs, gets a survivor, changes the arguments so that the suite can
+    actually catch it, reruns -- and is handed the first run's SURVIVED, with
+    only a suspiciously high `cached=` count to hint at it. The second run must
+    re-run the mutant and report KILLED.
+    """
+    project = write_project(
+        tmp_path, {"lib.py": WARNING_LIB, "test_lib.py": WARNING_TEST}
+    )
+
+    first = moonbuggy(cwd=project)
+    assert_no_traceback(first)
+    assert status_of_mutation(project, *MUTATION) == "SURVIVED"
+
+    # Two values rather than one token, so argument order is exercised too.
+    second = moonbuggy(
+        "--pytest-arg=-W", "--pytest-arg=error::UserWarning", cwd=project
+    )
+    assert_no_traceback(second)
+    assert "cached=0" in second.stderr, (
+        "the second run's arguments differ, so none of the first run's "
+        "verdicts may be reused\n" + second.stderr
+    )
+    assert status_of_mutation(project, *MUTATION) == "KILLED", (
+        "the warning is an error under these arguments, so the test fails and "
+        "the mutant dies -- unless a stale cache entry answered first"
+    )
+
+
+def test_an_unchanged_command_line_still_hits_the_cache(tmp_path):
+    """The other half. Invalidating on arguments must not invalidate on
+    nothing: a rerun of the same command still skips the work."""
+    project = write_project(
+        tmp_path, {"lib.py": WARNING_LIB, "test_lib.py": WARNING_TEST}
+    )
+    args = ("--pytest-arg=-W", "--pytest-arg=error::UserWarning")
+
+    first = moonbuggy(*args, cwd=project)
+    assert "cached=0" in first.stderr, first.stderr
+
+    second = moonbuggy(*args, cwd=project)
+
+    cached = int(second.stderr.split("cached=")[1].split()[0])
+    assert cached > 0, second.stderr
