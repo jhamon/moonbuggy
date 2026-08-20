@@ -3,7 +3,7 @@
 **Audience:** agent authors and CLI users. Anything that has to consume
 moonbuggy's output programmatically, or read it at 2am.
 
-Every run writes two files into `.moonbuggy/`:
+Every run writes three files into `.moonbuggy/`:
 
 `results.jsonl`
 : The canonical record. One JSON object per line, one line per mutant.
@@ -11,6 +11,11 @@ Every run writes two files into `.moonbuggy/`:
 `results.txt`
 : A plaintext view, **derived from the JSONL** rather than written alongside it,
   so the two cannot drift apart.
+
+`summary.json`
+: The run itself rather than its mutants: one versioned JSON object with the
+  counts, the totals, the wall time and the configuration that produced them.
+  `--json` prints the same object to stdout. See *The run summary* below.
 
 The plaintext is also what moonbuggy prints to stdout whenever the output is
 piped, redirected, or pinned to the agent format, so what you grep in a file is
@@ -371,6 +376,7 @@ lines are stable byte-for-byte for unchanged input.
 
 | key | type | meaning |
 |---|---|---|
+| `schema` | integer | the record schema this line was written in; `2` today |
 | `id` | string | `file:line:operator:index` — stable across runs for unchanged source |
 | `status` | string | one of the six keywords |
 | `file` | string | path relative to the project root |
@@ -397,6 +403,92 @@ The `id` is worth understanding because it is the join key for anything that
 tracks findings over time. It ends in an occurrence index because one line can
 host several mutants — a line with two `+` operators produces two from the same
 operator, and they need separate identities.
+
+`schema` is on every line rather than in a header, because JSONL has no header:
+a reader that has one line should be able to tell what that line means. Schema
+`1` is anything written before the accepted-equivalents ledger existed and has
+no `accepted`/`accept_reason` keys; schema `2` adds them and the `schema` field
+itself. moonbuggy upgrades an older line to today's shape as it reads it, so
+`moonbuggy show` and the human report work on a results file written by an
+older version — but a reader of its own should check the field rather than
+assume, and a line with no `schema` key at all is schema 1 by definition.
+
+## The run summary
+
+Per-mutant data is JSONL because there is one object per mutant. A run has
+exactly one summary, so it is a single JSON object instead: `summary.json`,
+written into the output directory by every run. Nothing is added to
+`results.jsonl` — every line of that file is still a mutant record, and
+`wc -l` is still the mutant count.
+
+`--json` prints that same object to stdout and prints nothing else there, so a
+caller never has to parse totals out of a human sentence:
+
+```{code-block} console
+$ moonbuggy --json | jq '.counts.survived'
+```
+
+The per-mutant views are untouched by the flag: `results.txt` and
+`results.jsonl` are written exactly as they always are, and `grep SURVIVED`
+works the same with it and without it.
+
+```{code-block} json
+{
+  "schema": 1,
+  "record_schema": 2,
+  "moonbuggy": "0.1.2",
+  "total": 84,
+  "cached": 71,
+  "measured": 13,
+  "elapsed": 4.117,
+  "exit_code": 1,
+  "counts": {
+    "killed": 71, "survived": 11, "no_coverage": 0,
+    "timeout": 0, "suspicious": 1, "skipped": 1
+  },
+  "acceptance": {
+    "accepted": 2, "unexplained": 9, "stale": 0, "ambiguous": 0,
+    "orphaned": 0, "relocated": 0,
+    "ledger": ".moonbuggy/accepted.toml", "fail_on_unexplained": false
+  },
+  "scope": {
+    "diff_scoped": true, "since": "origin/main",
+    "merge_base": "9f1c0e2…", "files": 3, "changed_lines": 41
+  },
+  "config": {
+    "operators": null, "include": [], "exclude": [],
+    "pytest_args": ["-p", "no:randomly"], "timeout": 30.0,
+    "jobs": 0, "workers": 0, "flaky_probe": 1, "cache": true
+  }
+}
+```
+
+| key | meaning |
+|---|---|
+| `schema` | the summary's own version — key off this, not off the presence of a field |
+| `record_schema` | the version of the records in `results.jsonl` beside it |
+| `moonbuggy` | the version that produced the run |
+| `total` / `cached` / `measured` | mutants reported, served from the cache, and actually run |
+| `elapsed` | wall time for the whole run, in seconds |
+| `exit_code` | the code the run exited with, so the gate's answer need not be re-derived |
+| `counts` | one key per status keyword, lower-cased; every keyword is present, zeroes included |
+| `acceptance` | the accepted-equivalents ledger's outcome, as the footer reports it |
+| `scope` | whether the run was diff-scoped and against what |
+| `config` | the run's effective configuration |
+
+`config` is what makes a results directory self-describing: which operators
+produced it, which paths were in and out, and what pytest was told — the same
+inputs the cache key covers, so two results files that disagree can be told
+apart by their inputs rather than by guesswork. `operators` is `null` for a
+default run rather than the expanded list, because "all of them" and "all of
+the ones that version had" are different claims. `--since` is deliberately not
+in there: how a run reached a mutant is scope, not configuration, and it is
+reported under `scope`.
+
+A diff-scoped run that finds nothing to mutate still writes a summary and still
+prints one under `--json` — zeroes, not an empty stream. A consumer that asked
+for an object on every run gets one for the pull request that touched only
+docs.
 
 ## Exit codes
 

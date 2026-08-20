@@ -8,6 +8,31 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A machine-readable run summary**, so nothing has to be parsed out of a
+  human sentence. Every run now writes `summary.json` beside `results.jsonl`,
+  and `moonbuggy --json` prints that same object to stdout and nothing else.
+  It carries counts for all six statuses, the accepted/unexplained split from
+  the ledger, total mutants with cached and measured split out, wall time, the
+  exit code, whether the run was diff-scoped and against what, and the run's
+  **effective configuration** — operators, include/exclude, `--pytest-arg`,
+  timeout and the rest. That last part is what makes a results directory
+  self-describing: it is the same set of inputs the cache key covers, so two
+  results files that disagree can be told apart by their inputs. A diff-scoped
+  run with nothing to mutate reports zeroes rather than an empty stream.
+
+  Nothing was added to `results.jsonl`: a run has exactly one summary, that
+  file has exactly one kind of line, and keeping them apart means no consumer
+  needs a discriminator to tell them apart. `results.txt` is byte for byte
+  what it was, with or without `--json`.
+
+- **A schema version on every results record.** Each line of `results.jsonl`
+  now carries `"schema": 2`, and the summary reports both its own `schema` and
+  the `record_schema` of the records beside it, so a consumer can key off a
+  number rather than off which fields happen to be present. Lines written
+  before the accepted-equivalents ledger existed are schema 1; moonbuggy
+  upgrades them to today's shape as it reads them, which is what lets its own
+  reporter index `accepted`/`accept_reason` instead of guessing at them.
+
 - `moonbuggy why <id>`: explain how a mutant is handled, without running it.
   Two very different problems look identical from a result line — selection
   never picked up your new test, or the verdict came from the cache and nothing
