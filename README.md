@@ -241,13 +241,43 @@ neither killed nor accepted, which is the flag that makes moonbuggy a CI gate
 rather than an audit you read by hand. See
 [Equivalent mutants](docs/equivalent-mutants.md).
 
+### Choosing which operators run
+
+`moonbuggy operators` lists every operator with its tier, its rough cost, and
+one line on what it mutates — so you never have to guess a name, and neither
+does an agent. `--json` gives the same listing as one JSON object.
+
+```bash
+moonbuggy operators
+```
+
+`--operators` then takes three shapes:
+
+```bash
+moonbuggy --operators comparison_swap,boundary   # exactly these two
+moonbuggy --operators deep                       # the deep tier's members
+moonbuggy --operators +statement_deletion        # the default tier, plus one
+```
+
+A bare list of names is an *exact* set — that has always been true and has not
+changed. Tier names (`default`, `deep`, `all`) and the `+` prefix are syntax on
+top of it. `default` is the cheap, high-signal operators, which is what a bare
+`moonbuggy` runs; `deep` is for operators that are expensive or noisy enough to
+be opted into deliberately, and has no members yet. A name that does not exist
+is an error rather than a run with no mutants in it.
+
 ### Options
 
 Nothing below is required.
 
 ```
 --timeout SECONDS    before a mutant is called TIMEOUT (default: 30)
---operators NAMES    comma-separated subset, e.g. comparison_swap,boundary
+--operators SELECTION
+                     which operators to run. A comma-separated list of names
+                     is an exact set (comparison_swap,boundary); a tier name
+                     stands for its members (default, deep, all); a `+` prefix
+                     adds to the default tier (+statement_deletion).
+                     `moonbuggy operators` lists them all
 --include FRAGMENT   only mutate paths containing FRAGMENT (repeatable)
 --exclude FRAGMENT   skip paths containing FRAGMENT (repeatable)
 --since REF          only mutate lines changed since a git ref, compared

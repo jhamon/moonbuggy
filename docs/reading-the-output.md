@@ -466,7 +466,8 @@ works the same with it and without it.
     "merge_base": "9f1c0e2…", "files": 3, "changed_lines": 41
   },
   "config": {
-    "operators": null, "include": [], "exclude": [],
+    "operators": null, "operators_selector": null,
+    "include": [], "exclude": [],
     "pytest_args": ["-p", "no:randomly"], "timeout": 30.0,
     "jobs": 0, "workers": 0, "flaky_probe": 1, "cache": true
   }
@@ -491,7 +492,12 @@ produced it, which paths were in and out, and what pytest was told — the same
 inputs the cache key covers, so two results files that disagree can be told
 apart by their inputs rather than by guesswork. `operators` is `null` for a
 default run rather than the expanded list, because "all of them" and "all of
-the ones that version had" are different claims. `--since` is deliberately not
+the ones that version had" are different claims. When `--operators` *was*
+given, `operators` is the resolved set — sorted names, never the shorthand —
+because `deep` and `+boundary` say nothing to a consumer about which operators
+produced these results, and a later version would resolve them differently.
+`operators_selector` carries the shorthand as typed, which is what answers "why
+did this run use these seven?". `--since` is deliberately not
 in there: how a run reached a mutant is scope, not configuration, and it is
 reported under `scope`.
 

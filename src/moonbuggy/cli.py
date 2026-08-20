@@ -50,6 +50,14 @@ from .generate import GenerationError, generate_mutants
 from .humanreport import count_logging_skipped, render_footer, render_report
 from .logging_policy import LoggingPolicy, policy_for
 from .mutant import Mutant
+from .operators import (
+    ALL_TIER,
+    TIERS,
+    SelectionError,
+    describe_operators,
+    resolve_operators,
+    tier_members,
+)
 from .report import (
     FINDING_STATUSES,
     StreamingJSONL,
@@ -132,6 +140,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     profiling.active().add("import chain", _IMPORTS_DONE - profiling.active().started)
     parser = _build_parser()
     args = parser.parse_args(argv)
+    # Before the handler below, which reports an interrupt by naming the
+    # partial results in `args.output_dir`. `operators` reads the registry and
+    # writes nothing, so it has no results directory to name and nothing worth
+    # interrupting.
+    if args.command == "operators":
+        return _operators(args)
     try:
         if args.command == "show":
             return _show(args)
@@ -160,6 +174,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         DiffScopeError,
         AcceptError,
         VerifyError,
+        SelectionError,
     ) as error:
         # Criteria H5 and M1.4.12: an actionable message, never a traceback.
         # Every failure moonbuggy can anticipate is funnelled through here, so
@@ -228,6 +243,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     _add_run_one_parser(sub)
     _add_why_parser(sub)
+    _add_operators_parser(sub)
 
     accept = sub.add_parser(
         "accept",
@@ -431,6 +447,101 @@ def _add_why_parser(
     why.set_defaults(command="why")
 
 
+def _add_operators_parser(
+    sub: "argparse._SubParsersAction[argparse.ArgumentParser]",
+) -> None:
+    """Define `moonbuggy operators`: what `--operators` will accept.
+
+    `--operators` has taken a subset of names since the beginning, but nothing
+    said the names existed. If the advertised onboarding path is showing an
+    agent `moonbuggy -h` (#13), an operator set it cannot enumerate is one it
+    will reverse-engineer by experiment or not use at all.
+
+    Args:
+        sub: the subparser action to register on.
+    """
+    listing = sub.add_parser(
+        "operators",
+        help="list the mutation operators, their tiers and their cost",
+        description="Every operator this version can run. The `tier` column "
+        "is what `--operators default` and `--operators deep` select; `cost` "
+        "is a rough indication of what an operator adds to a run in wall "
+        "clock and in survivors to read, not a measurement -- the real cost "
+        "depends on the code being mutated.",
+    )
+    listing.add_argument(
+        "--json",
+        action="store_true",
+        help="print the listing to stdout as a single JSON object and nothing "
+        "else -- `operators` and `tiers`, so an agent can enumerate rather "
+        "than parse a table",
+    )
+    listing.set_defaults(command="operators")
+
+
+def _operators(args: argparse.Namespace) -> int:
+    """Print the operator listing.
+
+    Args:
+        args: the parsed `moonbuggy operators` command line.
+
+    Returns:
+        0. Nothing here can fail: it reports what is registered.
+    """
+    infos = describe_operators()
+    tiers = {tier: list(tier_members(tier)) for tier in TIERS}
+    tiers[ALL_TIER] = list(tier_members(ALL_TIER))
+
+    if args.json:
+        # A single object, like summary.json and for the same reason: there is
+        # exactly one listing per invocation. JSONL is the shape for per-mutant
+        # data, of which there is a stream.
+        print(
+            json.dumps(
+                {
+                    "operators": [
+                        {
+                            "name": info.name,
+                            "tier": info.tier,
+                            "description": info.description,
+                            "cost": info.cost,
+                        }
+                        for info in infos
+                    ],
+                    "tiers": tiers,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    name_width = max((len(info.name) for info in infos), default=4)
+    tier_width = max(len(tier) for tier in TIERS)
+    print(f"{'NAME':<{name_width}}  {'TIER':<{tier_width}}  COST  MUTATES")
+    for info in infos:
+        print(
+            f"{info.name:<{name_width}}  {info.tier:<{tier_width}}  "
+            f"{info.cost:<4}  {info.description}"
+        )
+    print()
+    for tier in (*TIERS, ALL_TIER):
+        members = tiers[tier]
+        count = len(members)
+        noun = "operator" if count == 1 else "operators"
+        # An empty tier is named rather than hidden. `deep` has no members in
+        # this version, and a reader who cannot see that would read
+        # `--operators deep` failing as a bug rather than as the truth.
+        print(f"  {tier}: {count} {noun}" + (" (none yet)" if not members else ""))
+    print()
+    print(
+        "Select with --operators: a comma-separated list of names is an exact "
+        "set,\na tier name stands for its members, and a `+` prefix adds to "
+        "the default\ntier -- `--operators +boundary` is the default set plus "
+        "boundary."
+    )
+    return 0
+
+
 def _add_logging_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the logging-policy flags to one subcommand's parser.
 
@@ -478,7 +589,15 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--operators",
         default=None,
-        help="comma-separated operator names to use (default: all)",
+        metavar="SELECTION",
+        help="which operators to run (default: all of them). A comma-separated "
+        "list of names is an exact set -- `comparison_swap,boundary` is those "
+        "two and nothing else. A tier name stands for its members: `default` "
+        "is the cheap, high-signal operators, `deep` is the expensive or "
+        "noisy ones, `all` is everything. A `+` prefix adds to the default "
+        "tier instead of replacing it, so `+statement_deletion` is the "
+        "ordinary run plus that one. `moonbuggy operators` lists every name, "
+        "its tier and its cost",
     )
     parser.add_argument(
         "--include",
@@ -594,6 +713,12 @@ def _run(args: argparse.Namespace) -> int:
     profiler = profiling.active()
     started = time.perf_counter()
 
+    # Resolved first, before any file is read: a typo in `--operators` is a
+    # command line that cannot mean anything, and finding that out after a
+    # coverage pass is a minute wasted for no reason. Raises SelectionError,
+    # which `main` turns into exit 2 with a message.
+    _wanted_operators(args)
+
     fmt = resolve_format(args.report, os.environ, sys.stdout.isatty())
     palette = palette_for(resolve_colour(args.color, os.environ, sys.stdout.isatty()))
     width = resolve_width(args.width, os.environ, _measurable_fd(sys.stdout))
@@ -673,7 +798,7 @@ def _run(args: argparse.Namespace) -> int:
     with profiler.span("cache I/O"):
         cache = _prepare_cache(args, output_dir)
 
-    wanted = set(args.operators.split(",")) if args.operators else None
+    wanted = _wanted_operators(args)
     logging_policy = _logging_policy(args)
     with profiler.span("generation"):
         mutants, unreadable = _collect_mutants(
@@ -975,6 +1100,24 @@ def _exit_code(counts: dict[str, int], acceptance: Acceptance, gating: bool) -> 
     return 1 if counts["SURVIVED"] or counts["NO_COVERAGE"] else 0
 
 
+def _wanted_operators(args: argparse.Namespace) -> set[str] | None:
+    """The operator names this run will keep, or None for every one of them.
+
+    Args:
+        args: the parsed command line.
+
+    Returns:
+        The resolved names, or None when `--operators` was not given.
+
+    Raises:
+        SelectionError: if the selection names something unknown or resolves
+            to no operators.
+    """
+    if not args.operators:
+        return None
+    return set(resolve_operators(args.operators))
+
+
 def _effective_config(args: argparse.Namespace) -> dict[str, object]:
     """The run's configuration, as the run actually resolved it.
 
@@ -993,11 +1136,21 @@ def _effective_config(args: argparse.Namespace) -> dict[str, object]:
     Returns:
         A JSON-serialisable mapping of the effective configuration.
     """
+    wanted = _wanted_operators(args)
     return {
-        # None rather than the expanded list, because "all of them" and "all
-        # of the ones that existed in that version" are different claims and
-        # only the first is one this run made.
-        "operators": args.operators.split(",") if args.operators else None,
+        # The *resolved* set, sorted, because that is what the run actually
+        # did: `--operators deep` and `--operators +boundary` say nothing to a
+        # consumer about which operators produced these results, and a version
+        # from six months hence would resolve them differently.
+        #
+        # None rather than the expanded list when no selection was made,
+        # because "all of them" and "all of the ones that existed in that
+        # version" are different claims and only the first is one this run
+        # made.
+        "operators": sorted(wanted) if wanted is not None else None,
+        # And the shorthand as typed, because "why did this run use these
+        # seven?" is answered by the selector and not by its expansion.
+        "operators_selector": args.operators,
         "include": list(args.include),
         "exclude": list(args.exclude),
         "pytest_args": list(args.pytest_arg),
