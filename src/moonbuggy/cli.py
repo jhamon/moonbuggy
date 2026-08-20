@@ -52,6 +52,7 @@ from .logging_policy import LoggingPolicy, policy_for
 from .mutant import Mutant
 from .operators import (
     ALL_TIER,
+    COSTS,
     TIERS,
     SelectionError,
     describe_operators,
@@ -517,20 +518,27 @@ def _operators(args: argparse.Namespace) -> int:
 
     name_width = max((len(info.name) for info in infos), default=4)
     tier_width = max(len(tier) for tier in TIERS)
-    print(f"{'NAME':<{name_width}}  {'TIER':<{tier_width}}  COST  MUTATES")
+    # Widths come from the vocabularies rather than from the values in hand, so
+    # a column cannot silently narrow when no operator happens to claim the
+    # longest word. The cost column was hardcoded at 4 while `low` and `high`
+    # were the only costs anyone declared, and the first `medium` operator
+    # pushed MUTATES two columns right on its own row.
+    cost_width = max(len("COST"), *(len(cost) for cost in COSTS))
+    header = f"{'NAME':<{name_width}}  {'TIER':<{tier_width}}  "
+    print(f"{header}{'COST':<{cost_width}}  MUTATES")
     for info in infos:
         print(
             f"{info.name:<{name_width}}  {info.tier:<{tier_width}}  "
-            f"{info.cost:<4}  {info.description}"
+            f"{info.cost:<{cost_width}}  {info.description}"
         )
     print()
     for tier in (*TIERS, ALL_TIER):
         members = tiers[tier]
         count = len(members)
         noun = "operator" if count == 1 else "operators"
-        # An empty tier is named rather than hidden. `deep` has no members in
-        # this version, and a reader who cannot see that would read
-        # `--operators deep` failing as a bug rather than as the truth.
+        # An empty tier is named rather than hidden. A reader who cannot see
+        # that a tier is empty would read `--operators <tier>` failing as a bug
+        # rather than as the truth. `deep` was that tier when tiers landed.
         print(f"  {tier}: {count} {noun}" + (" (none yet)" if not members else ""))
     print()
     print(

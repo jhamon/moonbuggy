@@ -8,6 +8,59 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Three function-interface operators, all in the `deep` tier:
+  `argument_swap`, `default_arg` and `kwarg_drop`.** Every operator before
+  these worked *inside* an expression -- swap a comparison, bump a constant,
+  flip a boolean. These three work at the boundary between a function and its
+  callers, which is where a large class of real bugs lives and which nothing
+  else in the set reached.
+
+  - `argument_swap` exchanges two *adjacent* positional arguments in a call:
+    `resize(width, height)` becomes `resize(height, width)`. Adjacent-only, so
+    an n-argument call costs n-1 mutants rather than n!. Three sites are
+    skipped as provably or meaninglessly equivalent: a call with fewer than two
+    positional arguments, a pair where either position is starred, and a pair
+    identical as source (`f(x, x)`, `f(0, 0)`).
+  - `default_arg` turns a `None` parameter default into `0` --
+    `def fetch(url, timeout=None)` becomes `timeout=0`, which separates
+    `if timeout is None:` from `if not timeout:`. Only `None`: an integer or
+    boolean default is already reached by `constant_int` and `constant_bool`
+    in the *default* tier, and generating `retries=4` here as well would put
+    two byte-identical survivors in the report under two ids.
+  - `kwarg_drop` removes an explicit keyword argument so the callee's own
+    default applies: `connect(host, timeout=30)` becomes `connect(host)`. It
+    asks whether the value you passed actually matters. `**kwargs` is never
+    dropped -- it names no parameter, so there is no default to fall back to.
+    Expect crash-kills where the parameter is required; they are reported
+    `KILLED_BY_ERROR` rather than `KILLED`, which is why this operator waited
+    for that status to exist.
+
+  **All three are `deep` rather than `default`, and that is the one real
+  decision here.** `docs/writing-an-operator.md` sets the bar for the default
+  set explicitly: run the operator against a real codebase and count real gaps
+  against noise, in the `docs/oss-findings.md` format. No such evidence exists
+  for these yet, and for `argument_swap` in particular nobody knows the
+  equivalent rate -- there is no type inference here, so every call whose two
+  adjacent arguments happen to be interchangeable produces an equivalent
+  mutant. `deep` is where an operator waits for that evidence: opt in with
+  `--operators +argument_swap`, `--operators deep` or `--operators all`.
+  Promoting one to `default` later is a one-line change; demoting one after it
+  has shipped in the default set changes what every existing run reports.
+
+  **Mutant ids are unchanged for a default run**, verified by regenerating the
+  fixture's ids on `main` and on this branch and diffing: identical. Under
+  `--operators all` the new ids are additions only, with no existing id moved,
+  because the occurrence index in an id is counted per line *and operator*.
+  Nothing in `.moonbuggy/cache.json` or in an accepted-equivalents ledger loses
+  its meaning, so `CACHE_VERSION` and `RECORD_SCHEMA` are unchanged.
+
+  Two operators discussed alongside these were deliberately **not** added.
+  `return_value` (`return x` -> `return None`) is already subsumed by
+  `statement_deletion`, which turns `return x` into `pass` -- returning `None`
+  implicitly. `decorator_removal` breaks the one-line-diff invariant: a
+  decorator occupies its own line and `pass` in a decorator position is a
+  syntax error.
+
 - **`statement_deletion`, the `deep` tier's first operator.** Replaces a single
   statement with `pass` at the same column offset. It is the highest-yield
   mutation there is -- a survivor means the statement can be removed from the

@@ -104,7 +104,10 @@ default operators this is rare: most mutations there leave a program that runs
 and merely computes something else. Under the `deep` tier's
 `statement_deletion` it is the common case, since deleting a binding leaves
 everything downstream undefined — which is exactly why the two statuses were
-split before that operator shipped. The human report's footer says how many of
+split before that operator shipped. `kwarg_drop`, in the same tier, is the
+other one to expect it from: dropping a keyword argument the callee actually
+requires makes every test raise `TypeError`, and that kill says nothing about
+whether the tests check anything. The human report's footer says how many of
 the kills were crashes, so the number above it can be read honestly.
 
 `pytest.fail()` and a `pytest.raises` block whose exception never arrived both

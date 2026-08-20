@@ -97,6 +97,24 @@ question in the next section, and when the answer is "nothing observable",
 record it in the ledger rather than deleting the line — the ledger is what
 stops the next run asking you again.
 
+## Swapped arguments
+
+`argument_swap` — also the `deep` tier — has one source of equivalents it
+cannot close, and it is worth knowing about before you read its survivors.
+Swapping two adjacent positional arguments is only observable when the two mean
+different things, and moonbuggy has no type inference with which to ask.
+
+```{code-block} python
+total = add(subtotal, shipping)    # swapping these changes nothing
+```
+
+The operator does skip the cases it can settle for free: a starred position,
+and two arguments identical as source (`f(x, x)`, `f(0, 0)`). Anything past
+that is a judgement about the callee. Apply the test below, and when the answer
+is "the two arguments are interchangeable", put it in the ledger — that is the
+case `moonbuggy accept` exists for, and it is the main reason this operator is
+opt-in rather than part of every run.
+
 ## The test before you dismiss it
 
 Before calling a survivor equivalent, answer this concretely:

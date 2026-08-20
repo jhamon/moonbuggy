@@ -277,7 +277,7 @@ top of it. `default` is the cheap, high-signal operators, which is what a bare
 be opted into deliberately. A name that does not exist is an error rather than
 a run with no mutants in it.
 
-`statement_deletion` is the `deep` tier. It replaces a statement with `pass`,
+The `deep` tier has four members. `statement_deletion` replaces a statement with `pass`,
 which is the highest-yield mutation there is — a survivor means the statement
 can be removed from the program and the suite still passes — and it costs
 roughly one extra mutant per statement, which is why it is opt-in. It pairs
@@ -290,6 +290,31 @@ side that nothing in the function reads again.
 Expect crash-kills: deleting a binding leaves everything downstream raising
 `NameError`. Those are reported `KILLED_BY_ERROR` rather than `KILLED` so the
 kill rate keeps meaning something — see the keyword table above.
+
+The other three are the *function-interface* operators. Every other operator
+mutates something inside an expression; these mutate the boundary between a
+function and its callers, which is a class of bug nothing else reaches.
+
+- `argument_swap` exchanges two adjacent positional arguments —
+  `resize(width, height)` → `resize(height, width)`. Adjacent pairs only, so an
+  n-argument call costs n-1 mutants. It skips a starred position and a pair
+  that is identical as source, but it cannot tell whether two *different*
+  arguments are interchangeable, so expect some equivalent mutants and retire
+  them with `moonbuggy accept`.
+- `default_arg` turns a `None` parameter default into `0` —
+  `def fetch(url, timeout=None)` → `timeout=0`. Only `None`: an integer or
+  boolean default is already mutated by `constant_int` and `constant_bool` in
+  the default tier, and generating the same mutant twice under two ids helps
+  nobody.
+- `kwarg_drop` removes an explicit keyword argument so the callee's default
+  applies — `connect(host, timeout=30)` → `connect(host)`. It asks whether the
+  value you passed actually matters. Expect crash-kills where the parameter
+  turns out to be required.
+
+All three are `deep` rather than `default` because there is no evidence yet
+about how many of their survivors are real gaps and how many are noise — the
+bar `docs/writing-an-operator.md` sets before an operator joins the set every
+run pays for.
 
 ### Options
 

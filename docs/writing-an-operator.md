@@ -29,7 +29,7 @@ adding a file is enough.
 Three optional class attributes decide how your operator appears in
 `moonbuggy operators` and which tier selects it. All three are plain class
 attributes with sensible defaults, so an operator that says nothing is a cheap
-`default`-tier one — which every built-in but `statement_deletion` is.
+`default`-tier one — which every built-in outside the `deep` tier is.
 
 `tier`
 : `"default"` (the default) or `"deep"`. `default` is what a bare `moonbuggy`
@@ -37,7 +37,10 @@ attributes with sensible defaults, so an operator that says nothing is a cheap
   expensive to run or noisy to read, and is opted into with `--operators deep`
   or `--operators +your_operator`. Put it in `deep` if it multiplies the mutant
   count, if a fair share of its mutants will time out, or if you expect more
-  survivors-that-are-noise than survivors-that-are-findings.
+  survivors-that-are-noise than survivors-that-are-findings. Put it there too
+  when you simply do not know yet — see "Deciding whether it earns its place"
+  below, and `src/moonbuggy/operators/function.py`, whose three operators are
+  all in `deep` for exactly that reason.
   `statement_deletion` is the worked example: roughly one extra mutant per
   statement, and a real equivalent-mutant rate even after its heuristic has
   thrown the provable ones away. Read
@@ -243,7 +246,8 @@ That exclusion is also the shape of thing the `deep` tier exists for. A
 while-negating operator would be a plausible `deep` member — expensive, opted
 into deliberately, useful on a suite you specifically suspect of not testing
 its loops. Nothing here implements one; the tier is the place it would go, and
-`statement_deletion` is what already lives there.
+`statement_deletion` plus the three function-interface operators are what
+already live there.
 
 ## Testing it
 
@@ -293,3 +297,13 @@ existing set, and is the format to match.
 An operator that produces many survivors and few real findings makes every other
 finding harder to see. That is a cost, and it is paid by everyone who reads the
 output.
+
+**`deep` is where an operator waits for that evidence.** You do not have to
+choose between "in the default set" and "not merged". `argument_swap`,
+`default_arg` and `kwarg_drop` all landed in `deep` with no `oss-findings.md`
+entry yet: they are opt-in, they cost nothing to anyone who has not asked for
+them, and the run that produces the evidence is `--operators +argument_swap`
+against a real project. Promoting an operator to `default` afterwards is a
+one-line change. Demoting one after it has shipped in the default set changes
+what every existing run reports, which is why the asymmetry is worth
+respecting.
