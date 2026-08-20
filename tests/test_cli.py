@@ -273,6 +273,62 @@ def test_operator_selection_narrows_the_run(throwaway):
     assert {r["operator"] for r in narrowed} == {"comparison_swap"}
 
 
+def test_a_bare_list_of_operator_names_is_still_an_exact_set(throwaway):
+    """The compatibility promise of #15, end to end. Tiers and `+` are syntax
+    layered on top of this; a bare list must not have acquired a tier's
+    expanding behaviour."""
+    moonbuggy("--no-cache", "--operators", "comparison_swap,boundary", cwd=throwaway)
+
+    assert {r["operator"] for r in _records(throwaway)} <= {
+        "comparison_swap",
+        "boundary",
+    }
+
+
+def test_a_tier_selection_reports_its_resolved_set(throwaway):
+    """`--operators all` is a claim about which operators ran, and `"all"` in
+    the summary would not be one a consumer could act on."""
+    moonbuggy("--no-cache", "--operators", "all", cwd=throwaway)
+
+    config = json.loads((throwaway / ".moonbuggy" / "summary.json").read_text())[
+        "config"
+    ]
+
+    assert config["operators_selector"] == "all"
+    assert "comparison_swap" in config["operators"]
+    assert config["operators"] == sorted(config["operators"])
+
+
+def test_a_misspelled_operator_name_fails_instead_of_running_nothing(throwaway):
+    """It used to produce a zero-mutant run that exited 0 -- a typo that reads
+    exactly like a passing suite."""
+    proc = moonbuggy("--operators", "compaison_swap", cwd=throwaway, expect=2)
+
+    assert "comparison_swap" in proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+def test_an_empty_tier_says_so_rather_than_reporting_a_clean_run(throwaway):
+    """No operator declares itself `deep` in this version. Running nothing and
+    exiting 0 would be the worst possible answer."""
+    proc = moonbuggy("--operators", "deep", cwd=throwaway, expect=2)
+
+    assert "deep" in proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+def test_the_operators_listing_runs_outside_a_project(tmp_path):
+    """It reads the registry and nothing else, so it must not require a pytest
+    project -- an agent enumerating operators has not chosen a project yet."""
+    proc = moonbuggy("operators", cwd=tmp_path, expect=0)
+
+    assert "comparison_swap" in proc.stdout
+    listing = json.loads(moonbuggy("operators", "--json", cwd=tmp_path).stdout)
+    assert {entry["name"] for entry in listing["operators"]} == set(
+        listing["tiers"]["all"]
+    )
+
+
 def test_exclude_filters_files(throwaway):
     (throwaway / "helper.py").write_text("def double(x):\n    return x * 2\n")
 
