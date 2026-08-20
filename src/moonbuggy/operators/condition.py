@@ -4,6 +4,13 @@ Wraps the test of an `if`, an `elif`, a conditional expression, or a
 comprehension guard in `not (...)`. One mutant per condition. See
 operators.condition_negation in oracle.toml.
 
+Two deliberate exclusions. A `while` test is never negated: the mutant either
+does nothing observable or loops forever and burns the whole `--timeout`.
+A literal test is never negated: `if True:` already gets `if False:` from
+`constant_bool`, and `if not True:` says the same thing twice. The reasoning
+for each is written at its site -- above `TEST_HOLDERS` and in
+`mutations_in_context` -- and both are enforced, not aspirational.
+
 This is the operator that reaches conditions the other five cannot. They all
 need a specific node type to bite -- a `Compare`, a `BoolOp`, a literal -- so
 `if is_valid(x):`, `if flag:` and `if not ready:` were completely unmutated,
@@ -47,6 +54,9 @@ class ConditionNegation:
     Fires on the test of `if`/`elif`, on the test of a conditional
     expression, and on each `if` clause of a comprehension. A survivor is
     unambiguous: an entire branch was inverted and no test noticed.
+
+    Does not fire on a `while` test or on a literal test; see the module
+    docstring for why.
     """
 
     name = "condition_negation"

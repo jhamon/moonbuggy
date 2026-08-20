@@ -59,6 +59,13 @@ class ArgumentSwap:
     `resize(width, height)` becomes `resize(height, width)`. A survivor means
     nothing in the suite distinguishes the two, which for a call whose
     arguments mean different things is a gap.
+
+    Three sites are skipped. Only *adjacent* pairs are swapped, which is what
+    keeps an n-argument call at n-1 mutants instead of n! (see `mutations`);
+    a pair is skipped when either side is a starred argument, and when the two
+    sides are identical as source. Both of those are provably equivalent
+    swaps rather than judgement calls -- `_is_equivalent_swap` carries the
+    reasoning, including why the guards stop there.
     """
 
     name = "argument_swap"
