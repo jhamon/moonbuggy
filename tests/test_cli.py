@@ -370,7 +370,7 @@ def test_quiet_in_human_mode_prints_the_footer_and_nothing_else(tmp_path, capsys
     assert code == 1
     assert len(lines) == 3
     # The denominator is the point of the score, and it is here in full.
-    assert lines[0].endswith("-- 15/21 killed, 71%")
+    assert lines[0].endswith("-- 21/28 killed, 75%")
     # tmp_path is absolute, so it discards project_dir under `/` (H5) and the
     # footer names the absolute path rather than a shortened relative one --
     # the same path the agent-mode summary would name for this run.
@@ -468,7 +468,7 @@ def test_human_mode_off_a_tty_leaves_exactly_one_durable_final_line(tmp_path, ca
 
     settled = [line for line in err.splitlines() if " settled" in line]
     assert len(settled) == 1
-    assert settled[0].startswith("moonbuggy: 22/22 settled -- ")
+    assert settled[0].startswith("moonbuggy: 29/29 settled -- ")
 
 
 def test_agent_mode_stderr_gains_no_progress_narration(tmp_path, capsys):
@@ -482,7 +482,7 @@ def test_agent_mode_stderr_gains_no_progress_narration(tmp_path, capsys):
     err = capsys.readouterr().err.splitlines()
 
     assert [line for line in err if "settled" in line] == []
-    assert err[0] == "moonbuggy: 22 mutants across 5 files"
+    assert err[0] == "moonbuggy: 29 mutants across 6 files"
     assert err[1] == "moonbuggy: running coverage pass..."
     assert len(err) == 3
     assert err[2].startswith("moonbuggy: KILLED=")

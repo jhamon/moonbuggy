@@ -202,10 +202,10 @@ either side, one pins a money-rounding rule.
 >>> statuses = [r["status"] for r in records(project)]
 >>> killed = statuses.count("KILLED")
 >>> print(f"{killed}/{len(statuses)} killed")
-7/7 killed
+8/8 killed
 ```
 
-Seven mutants, seven killed. Before the three new tests, four of seven.
+Eight mutants, eight killed. Before the three new tests, five of eight.
 
 ## The habit this builds
 

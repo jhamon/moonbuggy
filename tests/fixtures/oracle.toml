@@ -29,9 +29,9 @@
 
 [meta]
 fixture = "sample_project"
-total_mutants = 22
-expected_counts = { KILLED = 15, SURVIVED = 5, TIMEOUT = 1, SKIPPED = 1 }
-expected_counts_fast = { KILLED = 15, SURVIVED = 4, NO_COVERAGE = 1, TIMEOUT = 1, SKIPPED = 1 }
+total_mutants = 29
+expected_counts = { KILLED = 21, SURVIVED = 6, TIMEOUT = 1, SKIPPED = 1 }
+expected_counts_fast = { KILLED = 21, SURVIVED = 5, NO_COVERAGE = 1, TIMEOUT = 1, SKIPPED = 1 }
 
 #  OPERATOR SPEC
 #  The inventory below is only well-defined given exact operator semantics, so
@@ -60,6 +60,28 @@ mapping = { "True" = "False", "False" = "True" }
 [operators.boundary]
 description = "range(n) -> range(n - 1). Only the single-argument form."
 rule = "range(x) -> range(x - 1)"
+
+[operators.condition_negation]
+description = """
+The test of an `if`/`elif`, of a conditional expression, and each `if` clause of
+a comprehension, wrapped in `not (...)`. One mutant per condition, whatever
+shape the condition has -- a call, a name, a `not`, anything. This is the only
+operator that reaches a condition with no comparison, boolean operator or
+literal in it, which is the ordinary shape of `if is_valid(x):`.
+
+Two deliberate exclusions.
+
+`while` tests are NOT negated. Negating a loop test either skips the loop --
+which nearly any assertion catches, so the mutant teaches nothing -- or, when
+the test was false to begin with, never terminates: `while queue:` becomes
+`while not queue:` and burns the entire `--timeout`. Empty-input tests are
+common, so a loop-heavy module would pay that repeatedly for a mutation no
+human plausibly writes.
+
+Literal tests are NOT negated. `if True:` already produces `if False:` from
+constant_bool, and `if not True:` is the same mutation counted twice.
+"""
+rule = "test -> not (test)"
 
 # ---------------------------------------------------------------------------
 # sample/discounts.py
@@ -103,6 +125,25 @@ CROSS-FILE CASE (A3). test_discounts.py is the obvious test file for this
 module and every one of its tests PASSES under this mutation -- it never probes
 the boundary. The only killer lives in test_pricing.py. Selection driven by file
 naming, or by any heuristic short of a real coverage map, reports SURVIVED here.
+"""
+
+[[mutant]]
+id = "discounts-L15-cond"
+module = "sample/discounts.py"
+line = 15
+operator = "condition_negation"
+original = "if qualifies_for_bulk(quantity):"
+mutated = "if not qualifies_for_bulk(quantity):"
+status = "KILLED"
+killed_by = [
+  "tests/test_discounts.py::test_no_discount_for_small_order",
+  "tests/test_pricing.py::test_bulk_discount_is_twenty_percent",
+]
+note = """
+A Call in test position. No other operator touches this line: there is no
+comparison, no boolean operator and no literal in it, so before
+condition_negation the entire branch was unmutated and a suite blind to
+qualifies_for_bulk would have produced no finding at all.
 """
 
 [[mutant]]
@@ -177,6 +218,23 @@ mutated = "if stock <= target:"
 status = "SURVIVED"
 killed_by = []
 note = "No test has stock == target, so the off-by-one at the boundary goes unnoticed."
+
+[[mutant]]
+id = "inventory-L13-cond"
+module = "sample/inventory.py"
+line = 13
+operator = "condition_negation"
+original = "if stock < target:"
+mutated = "if not stock < target:"
+status = "KILLED"
+killed_by = ["tests/test_inventory.py::test_restock_fills_to_target"]
+note = """
+Two mutants on line 13 from two operators, and they are different questions.
+comparison_swap moves the boundary by one and survives, because no test sits on
+it. condition_negation inverts the branch outright and dies immediately. Broad
+and narrow mutations of the same condition are both worth having; only one of
+them is a finding.
+"""
 
 [[mutant]]
 id = "inventory-L14-arith"
@@ -388,3 +446,101 @@ original = "return attempt < MAX_RETRIES"
 mutated = "return attempt <= MAX_RETRIES"
 status = "KILLED"
 killed_by = ["tests/test_config.py::test_retries_stop_at_limit"]
+
+# ---------------------------------------------------------------------------
+# sample/predicates.py
+#
+# One condition of each shape condition_negation recognises. Added with the
+# operator (issue #14): before it, not one of these lines produced a mutant,
+# so a suite could be entirely blind to any of these predicates and moonbuggy
+# would have reported nothing.
+# ---------------------------------------------------------------------------
+
+[[mutant]]
+id = "predicates-L15-cond"
+module = "sample/predicates.py"
+line = 15
+operator = "condition_negation"
+original = "if is_ready(item):"
+mutated = "if not is_ready(item):"
+status = "KILLED"
+killed_by = [
+  "tests/test_predicates.py::test_ready_item_is_described_as_ready",
+  "tests/test_predicates.py::test_unready_item_is_described_as_waiting",
+]
+case = "call-test"
+note = "CALL TEST. The shape the operator exists for: a predicate helper called in test position, with nothing else on the line for any other operator to bite."
+
+[[mutant]]
+id = "predicates-L21-cond"
+module = "sample/predicates.py"
+line = 21
+operator = "condition_negation"
+original = "if flag:"
+mutated = "if not flag:"
+status = "KILLED"
+killed_by = [
+  "tests/test_predicates.py::test_label_is_on_when_the_flag_is_set",
+  "tests/test_predicates.py::test_label_is_off_when_the_flag_is_clear",
+]
+case = "name-test"
+note = "NAME TEST. A bare truthiness check. Pins that the operator fires on a Name in test position and -- per the unit tests -- on no Name anywhere else."
+
+[[mutant]]
+id = "predicates-L27-cond"
+module = "sample/predicates.py"
+line = 27
+operator = "condition_negation"
+original = "if not blocked:"
+mutated = "if not not blocked:"
+status = "KILLED"
+killed_by = [
+  "tests/test_predicates.py::test_gate_is_open_when_not_blocked",
+  "tests/test_predicates.py::test_gate_is_closed_when_blocked",
+]
+case = "unaryop-test"
+note = """
+UNARYOP TEST. Double negation is not a no-op here and is not equivalent:
+`not not blocked` is `bool(blocked)`, the opposite of `not blocked`. Reads
+oddly and is correct, which is why it is written down rather than left to be
+"tidied" later. boolean_swap deliberately does not mutate `not`, so without
+this operator the line had no mutant.
+"""
+
+[[mutant]]
+id = "predicates-L33-cond"
+module = "sample/predicates.py"
+line = 33
+operator = "condition_negation"
+original = 'return "yes" if ok else "no"'
+mutated = 'return "yes" if not ok else "no"'
+status = "KILLED"
+killed_by = [
+  "tests/test_predicates.py::test_verdict_is_yes_when_ok",
+  "tests/test_predicates.py::test_verdict_is_no_when_not_ok",
+]
+case = "ifexp-test"
+note = "CONDITIONAL EXPRESSION. Test position inside an expression rather than a statement, and the two string literals on the line must come through untouched (C2)."
+
+[[mutant]]
+id = "predicates-L37-cond"
+module = "sample/predicates.py"
+line = 37
+operator = "condition_negation"
+original = "return [value for value in values if value]"
+mutated = "return [value for value in values if not value]"
+status = "SURVIVED"
+killed_by = []
+case = "comprehension-guard"
+note = """
+COMPREHENSION GUARD, and a genuine survivor. `wanted` is only ever called with
+an empty list, so both the guard and its negation filter nothing and the test
+cannot tell them apart. A real gap of the ordinary kind: the collection was
+covered, the predicate inside it never was.
+
+Also the structural case for the context seam. `ast.comprehension` carries no
+lineno of its own -- like `ast.arguments` -- so an operator handed that node
+could not produce a spliceable mutant. The guard expression does carry one, and
+the parent-and-field context is what identifies it as a guard rather than as
+some arbitrary Name.
+"""

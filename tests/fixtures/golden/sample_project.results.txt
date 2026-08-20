@@ -1,14 +1,16 @@
-KILLED    sample/config.py:9 constant_int line=9 nearest_test=- tests_run=14 id=sample/config.py:9:constant_int:0
+KILLED    sample/config.py:9 constant_int line=9 nearest_test=- tests_run=23 id=sample/config.py:9:constant_int:0
 SKIPPED   sample/config.py:11 constant_int line=11 nearest_test=- tests_run=0 id=sample/config.py:11:constant_int:0
 KILLED    sample/config.py:15 comparison_swap line=15 nearest_test=- tests_run=2 id=sample/config.py:15:comparison_swap:0
-KILLED    sample/discounts.py:7 constant_int line=7 nearest_test=- tests_run=14 id=sample/discounts.py:7:constant_int:0
+KILLED    sample/discounts.py:7 constant_int line=7 nearest_test=- tests_run=23 id=sample/discounts.py:7:constant_int:0
 KILLED    sample/discounts.py:11 comparison_swap line=11 nearest_test=- tests_run=5 id=sample/discounts.py:11:comparison_swap:0
+KILLED    sample/discounts.py:15 condition_negation line=15 nearest_test=- tests_run=2 id=sample/discounts.py:15:condition_negation:0
 KILLED    sample/discounts.py:16 constant_int line=16 nearest_test=- tests_run=1 id=sample/discounts.py:16:constant_int:0
 KILLED    sample/discounts.py:17 constant_int line=17 nearest_test=- tests_run=1 id=sample/discounts.py:17:constant_int:0
 KILLED    sample/inventory.py:9 boolean_swap line=9 nearest_test=- tests_run=2 id=sample/inventory.py:9:boolean_swap:0
 SURVIVED  sample/inventory.py:9 comparison_swap line=9 nearest_test=tests/test_inventory.py::test_discontinued_item_is_not_available tests_run=2 id=sample/inventory.py:9:comparison_swap:0
 SURVIVED  sample/inventory.py:9 constant_int line=9 nearest_test=tests/test_inventory.py::test_discontinued_item_is_not_available tests_run=2 id=sample/inventory.py:9:constant_int:0
 SURVIVED  sample/inventory.py:13 comparison_swap line=13 nearest_test=tests/test_inventory.py::test_restock_fills_to_target tests_run=1 id=sample/inventory.py:13:comparison_swap:0
+KILLED    sample/inventory.py:13 condition_negation line=13 nearest_test=- tests_run=1 id=sample/inventory.py:13:condition_negation:0
 KILLED    sample/inventory.py:14 arithmetic_swap line=14 nearest_test=- tests_run=1 id=sample/inventory.py:14:arithmetic_swap:0
 NO_COVERAGE sample/inventory.py:15 constant_int line=15 nearest_test=- tests_run=0 id=sample/inventory.py:15:constant_int:0
 KILLED    sample/loops.py:9 constant_int line=9 nearest_test=- tests_run=2 id=sample/loops.py:9:constant_int:0
@@ -20,3 +22,8 @@ KILLED    sample/loops.py:12 constant_int line=12 nearest_test=- tests_run=1 id=
 KILLED    sample/loops.py:17 constant_int line=17 nearest_test=- tests_run=2 id=sample/loops.py:17:constant_int:0
 KILLED    sample/loops.py:18 boundary line=18 nearest_test=- tests_run=2 id=sample/loops.py:18:boundary:0
 KILLED    sample/loops.py:19 arithmetic_swap line=19 nearest_test=- tests_run=1 id=sample/loops.py:19:arithmetic_swap:0
+KILLED    sample/predicates.py:15 condition_negation line=15 nearest_test=- tests_run=2 id=sample/predicates.py:15:condition_negation:0
+KILLED    sample/predicates.py:21 condition_negation line=21 nearest_test=- tests_run=2 id=sample/predicates.py:21:condition_negation:0
+KILLED    sample/predicates.py:27 condition_negation line=27 nearest_test=- tests_run=2 id=sample/predicates.py:27:condition_negation:0
+KILLED    sample/predicates.py:33 condition_negation line=33 nearest_test=- tests_run=2 id=sample/predicates.py:33:condition_negation:0
+SURVIVED  sample/predicates.py:37 condition_negation line=37 nearest_test=tests/test_predicates.py::test_wanted_of_nothing_is_nothing tests_run=1 id=sample/predicates.py:37:condition_negation:0

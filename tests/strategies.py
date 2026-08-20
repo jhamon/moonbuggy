@@ -17,7 +17,8 @@ here, and `test_properties.py` asserts that each is reachable rather than
 trusting this comment:
 
     nested functions, classes, comprehensions, decorators, async defs,
-    chained comparisons, augmented assignment
+    chained comparisons, augmented assignment, conditional expressions,
+    comprehension guards
 
 Two things are generated on purpose that a naive generator would not bother
 with, because they are what criterion M1.2.2 is about:
@@ -102,6 +103,16 @@ def expressions(depth=2):
         ),
         st.builds("range({})".format, inner),
         st.builds("len([{} for {} in range({})])".format, inner, identifiers(), inner),
+        # A comprehension guard and a conditional expression are both test
+        # positions, which is a distinction only the context seam can draw.
+        st.builds(
+            "len([{} for {} in range({}) if {}])".format,
+            inner,
+            identifiers(),
+            inner,
+            inner,
+        ),
+        st.builds("({} if {} else {})".format, inner, inner, inner),
         st.builds(
             "{{{}: {} for {} in range({})}}".format, inner, inner, identifiers(), inner
         ),

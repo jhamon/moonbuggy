@@ -20,6 +20,7 @@ MODULES = [
     "sample/inventory.py",
     "sample/loops.py",
     "sample/config.py",
+    "sample/predicates.py",
 ]
 
 
