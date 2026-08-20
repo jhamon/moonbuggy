@@ -15,10 +15,20 @@ An operator is any class decorated with `@register` that provides:
   `operator` field, and in `--operators`. Changing it invalidates cache entries,
   so choose it once.
 
-`mutations(node)`
-: Takes one AST node, yields zero or more replacement nodes. Called for every
-  node in the tree, so the first thing it does is decide whether this node is
-  its business.
+`mutations(node)` **or** `mutations_in_context(node, context)`
+: One mutation method, in one of two forms. `mutations` takes one AST node and
+  yields zero or more replacement nodes. `mutations_in_context` takes the node
+  plus a `Context` saying where it sits, and is what you write when the
+  decision depends on the surroundings rather than on the node alone — see
+  "Asking where you are" below. Either way it is called for every node in the
+  tree, so the first thing it does is decide whether this node is its business.
+
+  These are alternatives, not a base and an extension: an operator provides one
+  or the other, never both. The type is
+  `Operator = NodeOperator | ContextualOperator` in
+  `src/moonbuggy/operators/__init__.py`, and the contextual half is not a
+  special case — three of the eleven built-ins are contextual:
+  `condition_negation`, `statement_deletion` and `default_arg`.
 
 The engine asks the registry for `all_operators()` and never learns their names.
 Operators are discovered by importing every module in the package, which is why
@@ -69,15 +79,8 @@ means. It also raises for a `tier` or `cost` this version does not know, so a
 typo is a loud import error rather than an operator quietly filed under
 nothing.
 
-Two further things an operator may ask for, both optional. Neither changes
+One further thing an operator may ask for, optional. It does not change
 registration, discovery, or `all_operators()`.
-
-`mutations_in_context(node, context)`
-: Instead of `mutations`, when the decision depends on where the node sits.
-  The engine hands you a `Context` alongside the node. An operator that does
-  not need context keeps the one-argument `mutations` and is untouched by any
-  of this — which is why there are two method names rather than a second
-  parameter.
 
 `yield target, replacement`
 : Instead of `yield replacement`, when the node you want to *edit* is not the
@@ -275,11 +278,25 @@ def test_emptiness_swap_ignores_ordinary_comparisons():
 The second test is the one that matters. An operator that fires too widely
 produces noise, and noise is what stops people reading the report.
 
-**Does it hold the properties?** `make check-properties` runs seven invariants
-over generated modules — every mutant compiles, no mutation touches a string or
-a comment, splicing round-trips byte for byte, ids stay unique. A new operator
-is covered by all of them automatically, and this is where a mistake in
-splicing shows up.
+**Does it hold the properties?** `make check-properties` runs six invariants
+over generated modules — every mutant compiles, no mutation edits a string or a
+comment, splicing round-trips byte for byte, ids stay unique, every mutant
+reports the line it changed, scope classification is sound — plus a seventh
+test that is not an invariant but a check that the generator actually reaches
+every feature those six depend on.
+
+A new operator is covered by all six automatically, and this is where a mistake
+in splicing shows up. "Automatically" is load-bearing and was not always true:
+the suite asks for the `all` tier by name (`EVERY_OPERATOR` in
+`tests/test_properties.py`), because `generate_mutants`'s default is the
+`default` tier, and for a while every property silently exempted the whole
+`deep` tier. If you add a call to `generate_mutants` in that file, go through
+`_mutants` rather than calling it directly.
+
+If your operator legitimately cannot hold one of the six, say so in that
+property's docstring with the reasoning, the way M1.2.2 does for statement
+deletion — do not weaken the property for everyone. A narrowing that is written
+down is a design decision; a narrowing that is not is a hole.
 
 **Does it agree with the slow, obvious implementation?** `make check-oracle`
 runs every fixture mutant through the naive runner — copy the tree, edit the
