@@ -1169,3 +1169,142 @@ def test_every_record_declares_its_schema(throwaway):
 
     assert records
     assert {record["schema"] for record in records} == {2}
+
+
+LOGGING_PROJECT = """\
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def backoff(attempt, base):
+    if attempt > 3:
+        logger.debug("giving up after %d tries", attempt * 2)
+        return None
+    return base * 2
+"""
+
+LOGGING_TESTS = """\
+from backoff import backoff
+
+
+def test_gives_up_eventually():
+    assert backoff(4, 1) is None
+
+
+def test_doubles_the_base():
+    assert backoff(1, 5) == 10
+"""
+
+
+@pytest.fixture
+def logging_project(tmp_path):
+    """A project whose only survivors would be inside a log line."""
+    (tmp_path / "backoff.py").write_text(LOGGING_PROJECT)
+    (tmp_path / "test_backoff.py").write_text(LOGGING_TESTS)
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "conftest.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "sys.path.insert(0, str(Path(__file__).parent))\n"
+    )
+    return tmp_path
+
+
+def _records(project):
+    lines = (project / ".moonbuggy" / "results.jsonl").read_text().splitlines()
+    return [json.loads(line) for line in lines]
+
+
+def test_logging_mutants_are_skipped_and_the_guard_is_not(logging_project):
+    # The whole policy in one run: line 8 is inside `logger.debug(...)` and is
+    # settled without running; line 7 is the `if` around it and is a finding
+    # like any other.
+    moonbuggy(cwd=logging_project)
+
+    records = _records(logging_project)
+    inside = [r for r in records if r["line"] == 8]
+    guard = [r for r in records if r["line"] == 7]
+
+    assert inside
+    assert {r["status"] for r in inside} == {"SKIPPED"}
+    assert all(r["logging_call"] for r in inside)
+    assert guard
+    assert not any(r["logging_call"] for r in guard)
+    assert "SKIPPED" not in {r["status"] for r in guard}
+
+
+def test_the_report_says_it_suppressed_them(logging_project):
+    proc = moonbuggy("--report", "human", cwd=logging_project)
+
+    assert "inside logging calls" in proc.stdout
+    assert "--include-logging-mutants" in proc.stdout
+
+
+def test_including_logging_mutants_runs_them(logging_project):
+    moonbuggy("--include-logging-mutants", cwd=logging_project)
+
+    inside = [r for r in _records(logging_project) if r["line"] == 8]
+
+    assert inside
+    assert "SKIPPED" not in {r["status"] for r in inside}
+    # Still tagged, so triage can filter them even when they are run.
+    assert all(r["logging_call"] for r in inside)
+
+
+def test_suppressed_logging_mutants_stay_in_the_denominator(logging_project):
+    # The honesty rule: skipping must not flatter the score. SKIPPED leaves the
+    # denominator, so the kill rate is the same whether or not they ran -- the
+    # only thing that changes is how many mutants there are to review.
+    moonbuggy(cwd=logging_project)
+    default = _records(logging_project)
+    moonbuggy("--include-logging-mutants", "--clear-cache", cwd=logging_project)
+    included = _records(logging_project)
+
+    assert [r["id"] for r in default] == [r["id"] for r in included]
+    assert sum(r["status"] == "SKIPPED" for r in default) > 0
+
+
+def test_why_explains_a_suppressed_logging_mutant(logging_project):
+    moonbuggy(cwd=logging_project)
+    target = next(
+        r["id"] for r in _records(logging_project) if r["status"] == "SKIPPED"
+    )
+
+    proc = moonbuggy("why", target, cwd=logging_project, expect=0)
+
+    assert "inside a logging call" in proc.stdout
+    assert "--include-logging-mutants" in proc.stdout
+
+
+def test_a_wrapped_logger_can_be_named(tmp_path):
+    (tmp_path / "wrapped.py").write_text(
+        "import logging\n\naudit = logging.getLogger('audit')\n\n\n"
+        "def charge(amount):\n    audit.info('charging %d', amount * 2)\n"
+        "    return amount\n"
+    )
+    (tmp_path / "test_wrapped.py").write_text(
+        "from wrapped import charge\n\n\n"
+        "def test_charge():\n    assert charge(3) == 3\n"
+    )
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "conftest.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "sys.path.insert(0, str(Path(__file__).parent))\n"
+    )
+
+    moonbuggy(cwd=tmp_path)
+    before = [r for r in _records(tmp_path) if r["line"] == 7]
+    moonbuggy("--logger-name", "audit", "--clear-cache", cwd=tmp_path)
+    after = [r for r in _records(tmp_path) if r["line"] == 7]
+
+    assert before and not any(r["logging_call"] for r in before)
+    assert after and all(r["status"] == "SKIPPED" for r in after)
+
+
+def test_the_effective_config_records_the_logging_policy(logging_project):
+    moonbuggy("--logger-name", "audit", cwd=logging_project)
+
+    summary = json.loads((logging_project / ".moonbuggy" / "summary.json").read_text())
+
+    assert summary["config"]["logger_names"] == ["audit"]
+    assert summary["config"]["include_logging_mutants"] is False
