@@ -8,6 +8,44 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `moonbuggy accept <id> --reason "..."`: an accepted-equivalents ledger. A
+  survivor a human has reviewed and decided is equivalent is recorded in
+  `.moonbuggy/accepted.toml` (or `--accept-file`) with the reason for the
+  decision, so neither you nor the next reviewer pays for that triage again.
+  `moonbuggy accept --list` prints the ledger and `moonbuggy accept --remove
+  <id>` takes an entry back out. The ledger is a checked-in file: it records
+  human decisions about your code, not run output, which is why it does not
+  move with `--output-dir` -- and why `moonbuggy accept` warns you when git
+  would ignore it.
+
+- Accepted mutants **still run and are still reported**. They move out of the
+  human report's punch list into an "Accepted as equivalent" section that
+  carries each reason, they are counted separately in the footer
+  ("3 accepted as equivalent, 0 unexplained"), and in `results.jsonl` each one
+  carries `accepted` and `accept_reason`. Hiding them would let a real
+  regression through behind an old decision.
+
+- An acceptance **expires when its line changes**. Each entry stores a
+  fingerprint of the mutation it was made for; edit that line and the entry is
+  stale, reported by id, and counted as unexplained rather than honoured. The
+  fingerprint covers the mutated line rather than the whole module, so an
+  unrelated edit to a comment does not expire every acceptance in the file --
+  a stated trade, since a change elsewhere in the module can still undermine an
+  equivalence argument without expiring the entry.
+
+- An acceptance **survives a line insertion above it**. Mutant ids are
+  `path:line:operator:index`, so an id alone would evaporate on an unrelated
+  edit; content alone could not tell two identical lines apart. Acceptance keys
+  on the id first, then on exactly one same-file mutant with the same
+  fingerprint. Two equally good candidates are refused rather than guessed.
+
+- `--fail-on-unexplained`: exit `1` only for findings that are neither killed
+  nor accepted -- the flag that makes moonbuggy a CI gate rather than an audit
+  you read by hand. Without it the exit codes are exactly what they were, so
+  adding a ledger never silently turns a red build green. Exit `2` still means
+  the run could not happen; an unreadable accept file is now one of the reasons
+  for it.
+
 - `--since <ref>`: diff-scoped runs. `moonbuggy --since origin/main` generates
   mutants only for the lines your branch changed, compared against the merge
   base — a handful of mutants and seconds of runtime on a typical pull request,

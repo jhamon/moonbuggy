@@ -231,6 +231,8 @@ lines are stable byte-for-byte for unchanged input.
 | `original` | string | the source line before mutation, stripped of surrounding whitespace |
 | `mutated` | string | the same line after mutation, stripped the same way |
 | `diff` | string | two lines: `- original` then `+ mutated` |
+| `accepted` | boolean | true when a live entry in the accepted-equivalents ledger covers this mutant |
+| `accept_reason` | string or null | the reason recorded for it, or null |
 
 `original` and `mutated` are the two operands `diff` is assembled from. They
 are carried separately so a reader that wants the delta never has to parse a
@@ -248,7 +250,18 @@ operator, and they need separate identities.
 |---|---|
 | 0 | ran to completion, no findings |
 | 1 | ran to completion, at least one `SURVIVED` or `NO_COVERAGE` |
-| 2 | did not run: bad layout, red baseline, no tests, unreadable source |
+| 2 | did not run: bad layout, red baseline, no tests, unreadable source, unreadable accept file |
+
+With `--fail-on-unexplained`, exit `1` means something narrower: at least one
+finding that is neither killed nor covered by a live entry in the
+accepted-equivalents ledger. A stale acceptance — one whose line has changed
+since it was written — counts as unexplained, so the flag cannot be quietly
+satisfied by an old decision. Without the flag the codes are unchanged, and a
+run whose every survivor is accepted still exits `1`. Exit `2` is unaffected
+either way: it always means the run could not happen.
+
+See [Equivalent mutants](equivalent-mutants.md#recording-the-decision-the-ledger)
+for the ledger itself.
 
 Exit 1 is a *result*, not an error. In CI, `moonbuggy || true` is usually wrong
 and `moonbuggy; test $? -le 1` is usually what you meant — unless you want

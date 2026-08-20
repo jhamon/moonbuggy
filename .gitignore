@@ -9,7 +9,12 @@ build/
 .moonbuggy-cache/
 mutants/
 .mutmut-cache
-.moonbuggy/
+# Run output. The accepted-equivalents ledger is the one file in here that is
+# a human decision rather than run output, so it is committed -- which needs
+# the directory's *contents* excluded rather than the directory itself, since
+# git will not re-include a file below an excluded directory.
+.moonbuggy/*
+!.moonbuggy/accepted.toml
 
 .oss-hunt/
 docs/_build/

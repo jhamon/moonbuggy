@@ -20,6 +20,18 @@ from pathlib import Path
 from typing import IO
 
 from . import __version__, profiling
+from .accepted import (
+    DEFAULT_ACCEPT_FILE,
+    Acceptance,
+    AcceptError,
+    Entry,
+    entry_for,
+    is_git_ignored,
+)
+from .accepted import load as load_accepted
+from .accepted import resolve as resolve_accepted
+from .accepted import save as save_accepted
+from .accepted import tally as tally_accepted
 from .baseline import BaselineError
 from .cache import ResultCache, run_fingerprint
 from .coverage_pass import CoveragePassError, run_baseline_pass
@@ -34,6 +46,7 @@ from .generate import GenerationError, generate_mutants
 from .humanreport import render_footer, render_report
 from .mutant import Mutant
 from .report import (
+    FINDING_STATUSES,
     StreamingJSONL,
     find_record,
     plaintext_from_records,
@@ -106,6 +119,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "show":
             return _show(args)
+        if args.command == "accept":
+            return _accept(args)
         return _run(args)
     except KeyboardInterrupt:
         # An anticipated ending, not a crash. 130 is the shell convention for
@@ -123,6 +138,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         BaselineError,
         SourceError,
         DiffScopeError,
+        AcceptError,
     ) as error:
         # Criteria H5 and M1.4.12: an actionable message, never a traceback.
         # Every failure moonbuggy can anticipate is funnelled through here, so
@@ -148,7 +164,46 @@ def _build_parser() -> argparse.ArgumentParser:
     show.add_argument("mutant_id")
     show.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     show.set_defaults(command="show")
+
+    accept = sub.add_parser(
+        "accept",
+        help="record a mutant as a reviewed equivalent, list the ledger, "
+        "or take an entry back out",
+    )
+    accept.add_argument(
+        "mutant_id",
+        nargs="?",
+        help="the mutant to accept, as printed in `id=...` (omit for --list)",
+    )
+    accept.add_argument("--project", default=".", help="project root (default: cwd)")
+    accept.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    accept.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
+    accept.add_argument(
+        "-r",
+        "--reason",
+        default=None,
+        help="why this mutant is equivalent. Required, and the whole point: "
+        "an acceptance without one is a claim nobody can check",
+    )
+    accept.add_argument(
+        "--list", action="store_true", help="print the ledger, one line per entry"
+    )
+    accept.add_argument(
+        "--remove", action="store_true", help="delete this mutant's entry"
+    )
+    accept.set_defaults(command="accept")
     return parser
+
+
+# Shared by `moonbuggy` and `moonbuggy accept`, because a path that means one
+# file to the command that writes it and another to the command that reads it
+# is the one way this feature can silently do nothing.
+_ACCEPT_FILE_HELP = (
+    "the accepted-equivalents ledger "
+    f"(default: {DEFAULT_ACCEPT_FILE}, relative to the project root). "
+    "Deliberately not under --output-dir: it is a checked-in record of human "
+    "decisions, not run output"
+)
 
 
 def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -187,6 +242,15 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         help="only mutate lines changed since this git ref, compared against "
         "the merge base (e.g. --since origin/main). Composes with "
         "--include/--exclude rather than replacing them",
+    )
+    parser.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
+    parser.add_argument(
+        "--fail-on-unexplained",
+        action="store_true",
+        help="exit 1 only for findings that are neither killed nor accepted. "
+        "Without it the exit code is unchanged -- a run whose every survivor "
+        "is accepted still exits 1 -- so adding a ledger never silently turns "
+        "a red build green",
     )
     parser.add_argument(
         "--jobs",
@@ -370,6 +434,14 @@ def _run(args: argparse.Namespace) -> int:
             print("moonbuggy: no mutants generated.", file=sys.stderr)
         return 2
 
+    # Resolved before the run rather than after it, for two reasons: matching
+    # needs the mutants (a relocated entry is found by content among them,
+    # not among records), and a broken ledger must stop the run at once rather
+    # than after several minutes of work whose verdict it would then decide.
+    accept_path = _accept_path(args, project_dir)
+    resolution = resolve_accepted(load_accepted(accept_path), mutants)
+    reasons = resolution.reasons()
+
     if not args.quiet:
         if scope is not None:
             # Said up front as well as in the footer, and in both report
@@ -390,7 +462,7 @@ def _run(args: argparse.Namespace) -> int:
     # mid-flight leaves whole, parseable lines for everything it did finish
     # (criterion M1.4.13) rather than an empty file or a truncated one.
     try:
-        with StreamingJSONL(jsonl_path) as stream:
+        with StreamingJSONL(jsonl_path, reasons) as stream:
             last_milestone = 0.0
 
             def _settled(result: Result) -> None:
@@ -502,13 +574,20 @@ def _run(args: argparse.Namespace) -> int:
         # Rewritten in canonical mutant order. The streamed file is valid at
         # every instant, but it arrives in completion order, and the reported
         # order has to be stable for unchanged source (criterion C3).
-        write_jsonl(results, jsonl_path)
+        write_jsonl(results, jsonl_path, reasons)
 
         # Derived from the JSONL that was just written, not from the in-memory
         # results, so the two artifacts cannot disagree (criterion E3).
         records = read_jsonl(jsonl_path)
         text_path = output_dir / "results.txt"
         text_path.write_text(plaintext_from_records(records) + "\n", encoding="utf-8")
+
+        acceptance = tally_accepted(
+            records,
+            resolution,
+            path=_display_path(accept_path, project_dir),
+            gating=args.fail_on_unexplained,
+        )
 
         if fmt == "human":
             if args.quiet:
@@ -522,6 +601,7 @@ def _run(args: argparse.Namespace) -> int:
                         time.perf_counter() - started,
                         _display_path(jsonl_path, project_dir),
                         scope=scope,
+                        acceptance=acceptance,
                     )
                 )
             else:
@@ -535,6 +615,7 @@ def _run(args: argparse.Namespace) -> int:
                         artifact=_display_path(jsonl_path, project_dir),
                         width=width,
                         scope=scope,
+                        acceptance=acceptance,
                     )
                 )
         elif not args.quiet:
@@ -552,7 +633,9 @@ def _run(args: argparse.Namespace) -> int:
     counts = summarise(records)
     # The report's own footer already summarises a human run, so this line
     # would be redundant there. In agent mode it stays exactly as it always
-    # was -- Task 11's golden test pins it byte for byte.
+    # was -- Task 11's golden test pins it byte for byte -- so the ledger's
+    # numbers go on a second line rather than into that one, and only when
+    # there is a ledger to report.
     if fmt == "agent":
         print(
             "moonbuggy: "
@@ -561,9 +644,22 @@ def _run(args: argparse.Namespace) -> int:
             + f"  -> {_display_path(jsonl_path, project_dir)}",
             file=sys.stderr,
         )
+        if _has_ledger(acceptance):
+            print(_ledger_line(acceptance), file=sys.stderr)
+    for warning in _ledger_warnings(acceptance):
+        print(warning, file=sys.stderr)
+
+    if args.fail_on_unexplained:
+        # The whole point of the flag: a survivor a human has reviewed and
+        # explained is not a reason to fail a build, and a stale acceptance is
+        # not an explanation -- `tally` has already put those back among the
+        # unexplained.
+        return 1 if acceptance.unexplained else 0
     # NO_COVERAGE counts exactly as SURVIVED does. It is a finding -- nothing
     # exercises the line -- so a CI gate that failed on survivors before the
     # status existed must not start passing because its findings were renamed.
+    # Acceptances do not enter this branch at all: adding a ledger must never
+    # change an existing gate's answer without being asked to.
     return 1 if counts["SURVIVED"] or counts["NO_COVERAGE"] else 0
 
 
@@ -747,6 +843,208 @@ def _prepare_cache(args: argparse.Namespace, output_dir: Path) -> ResultCache | 
     if args.clear_cache:
         cache.clear()
     return None if args.no_cache else cache
+
+
+def _accept_path(args: argparse.Namespace, project_dir: Path) -> Path:
+    # Relative to the project root, not to the cwd, so `moonbuggy --project x`
+    # and `cd x && moonbuggy` read the same ledger. An absolute --accept-file
+    # replaces the root under `/`, which is the behaviour someone passing one
+    # is asking for.
+    return project_dir / (args.accept_file or DEFAULT_ACCEPT_FILE)
+
+
+def _has_ledger(acceptance: Acceptance) -> bool:
+    # "Is there anything to say about the ledger?" -- false for the
+    # overwhelmingly common case of a project that has never accepted
+    # anything, which must not gain a line of output for a file it does not
+    # have.
+    return bool(
+        acceptance.accepted
+        or acceptance.stale
+        or acceptance.ambiguous
+        or acceptance.orphaned
+        or acceptance.relocated
+    )
+
+
+def _ledger_line(acceptance: Acceptance) -> str:
+    # The agent format's second summary line: key=value, like every other line
+    # a parser reads, and printed only when a ledger exists.
+    summary = acceptance.summary()
+    return "moonbuggy: " + "  ".join(
+        [
+            f"accepted={summary['accepted']}",
+            f"unexplained={summary['unexplained']}",
+            f"stale={summary['stale']}",
+            f"-> {acceptance.path}",
+        ]
+    )
+
+
+def _ledger_warnings(acceptance: Acceptance) -> list[str]:
+    """Everything about the ledger that needs saying out loud.
+
+    Stale and ambiguous acceptances are printed in both report formats and
+    under `--quiet`, because both mean a mutant is being reported that somebody
+    believes they already dealt with. That is exactly the surprise a run must
+    not keep to itself.
+
+    Args:
+        acceptance: the run's ledger outcome.
+
+    Returns:
+        Zero or more lines for stderr.
+    """
+    lines = []
+    for entry in acceptance.stale:
+        lines.append(
+            f"moonbuggy: the acceptance for {entry.id} is stale -- that line "
+            "has changed since it was accepted, so it is reported as "
+            "unexplained. Re-review it and `moonbuggy accept` it again if it "
+            "is still equivalent."
+        )
+    for entry in acceptance.ambiguous:
+        lines.append(
+            f"moonbuggy: the acceptance for {entry.id} matches more than one "
+            f"mutant in {entry.file}, so it was not applied to any of them. "
+            "Accept the mutant you mean by its current id."
+        )
+    return lines
+
+
+def _accept(args: argparse.Namespace) -> int:
+    """Add to, list, or remove from the accepted-equivalents ledger.
+
+    Args:
+        args: the parsed `moonbuggy accept` command line.
+
+    Returns:
+        The process exit code: 0 on success, 2 for anything the user has to
+        fix -- an id no run produced, an entry that is not there.
+    """
+    project_dir = Path(args.project).resolve()
+    path = _accept_path(args, project_dir)
+    entries = list(load_accepted(path))
+
+    if args.list:
+        return _accept_list(entries, path)
+    if not args.mutant_id:
+        print(
+            "moonbuggy: accept needs a mutant id (or --list). "
+            "Ids are the `id=...` token on each result line.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.remove:
+        return _accept_remove(entries, args.mutant_id, path, project_dir)
+    if not args.reason:
+        print(
+            "moonbuggy: accept needs --reason. An acceptance without one is a "
+            "claim nobody can check and nobody will revisit.",
+            file=sys.stderr,
+        )
+        return 2
+    return _accept_add(entries, args, path, project_dir)
+
+
+def _accept_list(entries: list[Entry], path: Path) -> int:
+    # One line per entry, `id` first and key=value after it, so the ledger
+    # greps the same way results.txt does.
+    if not entries:
+        print(f"moonbuggy: no accepted mutants in {path}", file=sys.stderr)
+        return 0
+    for entry in entries:
+        print(
+            f"{entry.id}  operator={entry.operator}  "
+            f"accepted_at={entry.accepted_at}  "
+            f"reason={entry.reason}"
+        )
+    return 0
+
+
+def _accept_remove(
+    entries: list[Entry], mutant_id: str, path: Path, project_dir: Path
+) -> int:
+    kept = [entry for entry in entries if entry.id != mutant_id]
+    if len(kept) == len(entries):
+        print(
+            f"moonbuggy: no entry for {mutant_id} in "
+            f"{_display_path(path, project_dir)}",
+            file=sys.stderr,
+        )
+        return 2
+    save_accepted(path, kept)
+    print(
+        f"moonbuggy: removed {mutant_id} from {_display_path(path, project_dir)}. "
+        "It is reported as a finding again from the next run.",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _accept_add(
+    entries: list[Entry], args: argparse.Namespace, path: Path, project_dir: Path
+) -> int:
+    # The mutation's text comes from the last run's records rather than from
+    # re-generating mutants: it is the run the human just read, and it is what
+    # the fingerprint has to be taken from for the acceptance to mean "this
+    # mutation, as reviewed".
+    results = project_dir / args.output_dir / "results.jsonl"
+    if not results.exists():
+        print(
+            f"moonbuggy: no results at {_display_path(results, project_dir)}. "
+            "Run moonbuggy first -- an acceptance records a decision about a "
+            "mutant a run produced.",
+            file=sys.stderr,
+        )
+        return 2
+    record = find_record(read_jsonl(results), args.mutant_id)
+    if record is None:
+        print(
+            f"moonbuggy: no mutant with id {args.mutant_id} in "
+            f"{_display_path(results, project_dir)}",
+            file=sys.stderr,
+        )
+        return 2
+
+    entry = entry_for(
+        record["id"],
+        record["file"],
+        record["operator"],
+        record["original"],
+        record["mutated"],
+        reason=args.reason,
+    )
+    existed = path.exists()
+    kept = [e for e in entries if e.id != entry.id]
+    save_accepted(path, [*kept, entry])
+
+    verb = "updated" if len(kept) != len(entries) else "accepted"
+    print(
+        f"moonbuggy: {verb} {entry.id} in {_display_path(path, project_dir)}. "
+        "It still runs and is still reported; it is counted separately.",
+        file=sys.stderr,
+    )
+    if record["status"] not in FINDING_STATUSES:
+        # Accepting a killed mutant is not an error -- the ledger is about the
+        # mutation, and a test may stop killing it tomorrow -- but silence here
+        # would let someone believe they had explained away a finding they had
+        # not.
+        print(
+            f"moonbuggy: note -- {entry.id} was {record['status']} in that run, "
+            "so the acceptance does nothing until it survives.",
+            file=sys.stderr,
+        )
+    if not existed and is_git_ignored(path):
+        print(
+            f"moonbuggy: warning -- git ignores {_display_path(path, project_dir)}, "
+            "so this decision will not be committed and the next clone will "
+            "not have it. The ledger is meant to be in version control: in "
+            ".gitignore, replace `.moonbuggy/` with `.moonbuggy/*` followed by "
+            "`!.moonbuggy/accepted.toml`.",
+            file=sys.stderr,
+        )
+    return 0
 
 
 def _show(args: argparse.Namespace) -> int:

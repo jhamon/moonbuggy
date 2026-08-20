@@ -660,3 +660,91 @@ def test_since_composes_with_exclude(versioned):
     proc = moonbuggy("--since", "main", "--exclude", "calc", cwd=versioned, expect=0)
 
     assert "nothing to mutate" in proc.stderr
+
+
+def _findings(project):
+    """Every finding from the last run, in file order."""
+    return [
+        json.loads(line)
+        for line in (project / ".moonbuggy" / "results.jsonl").read_text().splitlines()
+        if json.loads(line)["status"] in ("SURVIVED", "NO_COVERAGE")
+    ]
+
+
+@pytest.fixture
+def triaged(throwaway):
+    """A project whose every finding has been accepted, the way triage ends."""
+    moonbuggy(cwd=throwaway)
+    findings = _findings(throwaway)
+    assert findings, "the fixture is meant to leave findings to accept"
+    for record in findings:
+        moonbuggy(
+            "accept",
+            record["id"],
+            "--reason",
+            "reviewed: equivalent for every reachable input",
+            cwd=throwaway,
+            expect=0,
+        )
+    return throwaway
+
+
+def test_an_accepted_run_can_be_green_under_the_gate(triaged):
+    # The end state the ledger exists for: triage happened, the decisions are
+    # on disk, and CI can be a gate rather than an audit somebody reads.
+    proc = moonbuggy("--fail-on-unexplained", cwd=triaged, expect=0)
+
+    assert "unexplained" in proc.stdout + proc.stderr
+
+
+def test_the_same_run_without_the_flag_still_exits_1(triaged):
+    # Adding a ledger must never silently turn an existing red gate green.
+    moonbuggy(cwd=triaged, expect=1)
+
+
+def test_accepted_mutants_still_run_and_are_still_reported(triaged):
+    moonbuggy("--fail-on-unexplained", cwd=triaged, expect=0)
+
+    findings = _findings(triaged)
+
+    assert findings, "an accepted mutant must still be executed and recorded"
+    assert all(record["accepted"] for record in findings)
+    assert all(record["accept_reason"] for record in findings)
+
+
+def test_an_edit_to_the_accepted_line_makes_the_gate_red_again(triaged):
+    # Drift. The acceptance was a decision about code that no longer exists,
+    # and honouring it silently is how a real regression sneaks in behind it.
+    # Rewritten, not broken: the suite still passes and the mutant is still a
+    # survivor. What changed is the line the acceptance was a decision about.
+    source = triaged / "calc.py"
+    source.write_text(
+        source.read_text().replace("if value > ceiling:", "if ceiling < value:")
+    )
+
+    proc = moonbuggy("--fail-on-unexplained", "--no-cache", cwd=triaged, expect=1)
+
+    assert "stale" in proc.stdout + proc.stderr
+
+
+def test_an_insertion_above_does_not_lose_the_acceptance(triaged):
+    # Id stability. Every id below the insertion shifts; the decisions must
+    # not, or an unrelated edit silently empties the ledger.
+    source = triaged / "calc.py"
+    source.write_text(
+        '"""A docstring nobody had written yet."""\n\n' + source.read_text()
+    )
+
+    moonbuggy("--fail-on-unexplained", "--no-cache", cwd=triaged, expect=0)
+
+
+def test_accept_list_and_remove_round_trip(throwaway):
+    moonbuggy(cwd=throwaway)
+    mutant_id = _findings(throwaway)[0]["id"]
+    moonbuggy("accept", mutant_id, "-r", "equivalent", cwd=throwaway, expect=0)
+
+    listed = moonbuggy("accept", "--list", cwd=throwaway, expect=0)
+    assert mutant_id in listed.stdout
+
+    moonbuggy("accept", "--remove", mutant_id, cwd=throwaway, expect=0)
+    assert mutant_id not in moonbuggy("accept", "--list", cwd=throwaway).stdout
