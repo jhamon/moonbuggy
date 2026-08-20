@@ -72,12 +72,20 @@ moonbuggy
 It discovers your source layout, runs one instrumented pass to build a
 line→test map, then runs each mutant against only its covering tests.
 
-Two files land in `.moonbuggy/`:
+Three files land in `.moonbuggy/`:
 
 | file | role |
 |---|---|
 | `results.jsonl` | canonical, one JSON object per mutant |
 | `results.txt` | plaintext view, derived from the JSONL |
+| `summary.json` | the run itself: counts, totals, wall time, effective config |
+
+`moonbuggy --json` prints that summary object to stdout and nothing else, so
+nothing has to be parsed out of the human line:
+
+```console
+$ moonbuggy --json | jq '.counts.survived'
+```
 
 Exit code is `0` when there are no findings, `1` when there are survivors or
 lines no test reaches, and `2` when the run could not start.

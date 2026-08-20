@@ -6,7 +6,9 @@ nothing else is required.
 
 Two artifacts are written per run, per 5.2: results.jsonl is canonical, and
 results.txt is derived from it rather than authored alongside it, so they cannot
-drift apart.
+drift apart. A third, summary.json, describes the run rather than its mutants:
+one object, versioned, carrying the counts and the configuration that produced
+them. `--json` prints that same object to stdout.
 """
 
 import argparse
@@ -37,7 +39,7 @@ from .accepted import tally as tally_accepted
 from .baseline import BaselineError
 from .cache import ResultCache, run_fingerprint
 from .coverage_pass import CoveragePassError, run_baseline_pass
-from .diffscope import DiffScope, DiffScopeError, scope_since
+from .diffscope import DiffScope, DiffScopeError, scope_since, scope_summary
 from .discover import (
     LayoutError,
     find_source_dir,
@@ -55,8 +57,10 @@ from .report import (
     read_jsonl,
     record_for,
     render_line,
+    run_summary,
     summarise,
     write_jsonl,
+    write_summary,
 )
 from .runner import Result, run_mutants, run_session
 from .srcio import SourceError, read_source
@@ -451,6 +455,15 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "--quiet", action="store_true", help="only print the summary line"
     )
     parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print the run summary to stdout as a single JSON object and "
+        "nothing else -- counts, totals, wall time and the run's effective "
+        "configuration, so nothing has to be parsed out of the human line. "
+        "The same object is always written to <output-dir>/summary.json, "
+        "with or without this flag",
+    )
+    parser.add_argument(
         "--pytest-arg",
         action="append",
         default=[],
@@ -575,7 +588,7 @@ def _run(args: argparse.Namespace) -> int:
             # a normal, passing state -- not a run that could not happen. It
             # exits 0 and still leaves the artifacts a full run leaves, so a
             # CI step reading them does not have to special-case the empty PR.
-            return _nothing_in_scope(scope, output_dir, project_dir)
+            return _nothing_in_scope(args, scope, output_dir, project_dir)
         print("moonbuggy: no source files to mutate after filtering.", file=sys.stderr)
         return 2
     with profiler.span("cache I/O"):
@@ -593,7 +606,7 @@ def _run(args: argparse.Namespace) -> int:
             mutants = [m for m in mutants if scope.contains(m.module, m.line)]
 
     if not mutants and scope is not None and not unreadable:
-        return _nothing_in_scope(scope, output_dir, project_dir)
+        return _nothing_in_scope(args, scope, output_dir, project_dir)
 
     if not mutants:
         if unreadable:
@@ -765,7 +778,36 @@ def _run(args: argparse.Namespace) -> int:
             gating=args.fail_on_unexplained,
         )
 
-        if fmt == "human":
+        counts = summarise(records)
+        elapsed = time.perf_counter() - started
+        # Decided before anything is printed, because the summary reports it.
+        # A consumer reading summary.json after the fact then gets the gate's
+        # answer without re-deriving it from the counts -- which is exactly the
+        # derivation `--fail-on-unexplained` changes the rules of.
+        code = _exit_code(counts, acceptance, args.fail_on_unexplained)
+        summary = run_summary(
+            records,
+            elapsed=elapsed,
+            cached=sum(1 for r in results if r.from_cache),
+            config=_effective_config(args),
+            scope=scope_summary(scope),
+            acceptance=acceptance.summary(),
+            exit_code=code,
+        )
+        # Written on every run, not only under --json: a results directory
+        # somebody finds later should say what produced it. It is a separate
+        # file rather than a line in results.jsonl because a run has exactly
+        # one summary and that file has exactly one kind of line -- a mutant
+        # record -- which is worth more than saving a file.
+        write_summary(summary, output_dir / "summary.json")
+
+        if args.json:
+            # stdout is exactly one JSON object. The per-mutant view is not
+            # lost -- it is in results.txt and results.jsonl, as always -- and
+            # printing it here as well would leave stdout something no parser
+            # could read whole.
+            print(json.dumps(summary, sort_keys=True))
+        elif fmt == "human":
             if args.quiet:
                 # --quiet in human mode is the footer, not silence. The agent
                 # path still prints its stderr summary under --quiet, so
@@ -773,8 +815,8 @@ def _run(args: argparse.Namespace) -> int:
                 # nothing at all.
                 print(
                     render_footer(
-                        summarise(records),
-                        time.perf_counter() - started,
+                        counts,
+                        elapsed,
                         _display_path(jsonl_path, project_dir),
                         scope=scope,
                         acceptance=acceptance,
@@ -786,7 +828,7 @@ def _run(args: argparse.Namespace) -> int:
                         records,
                         palette=palette,
                         files=len(source_files),
-                        elapsed=time.perf_counter() - started,
+                        elapsed=elapsed,
                         timeout=args.timeout,
                         artifact=_display_path(jsonl_path, project_dir),
                         width=width,
@@ -806,17 +848,16 @@ def _run(args: argparse.Namespace) -> int:
     profiler.note("source_files", len(source_files))
     profiler.write()
 
-    counts = summarise(records)
     # The report's own footer already summarises a human run, so this line
     # would be redundant there. In agent mode it stays exactly as it always
     # was -- Task 11's golden test pins it byte for byte -- so the ledger's
     # numbers go on a second line rather than into that one, and only when
     # there is a ledger to report.
-    if fmt == "agent":
+    if fmt == "agent" and not args.json:
         print(
             "moonbuggy: "
             + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
-            + f"  cached={sum(1 for r in results if r.from_cache)}"
+            + f"  cached={summary['cached']}"
             + f"  -> {_display_path(jsonl_path, project_dir)}",
             file=sys.stderr,
         )
@@ -825,7 +866,21 @@ def _run(args: argparse.Namespace) -> int:
     for warning in _ledger_warnings(acceptance):
         print(warning, file=sys.stderr)
 
-    if args.fail_on_unexplained:
+    return code
+
+
+def _exit_code(counts: dict[str, int], acceptance: Acceptance, gating: bool) -> int:
+    """The process exit code for a completed run.
+
+    Args:
+        counts: the run's counts per status.
+        acceptance: the run's ledger outcome.
+        gating: whether `--fail-on-unexplained` was passed.
+
+    Returns:
+        1 if the run has something to fail for, 0 otherwise.
+    """
+    if gating:
         # The whole point of the flag: a survivor a human has reviewed and
         # explained is not a reason to fail a build, and a stale acceptance is
         # not an explanation -- `tally` has already put those back among the
@@ -839,7 +894,42 @@ def _run(args: argparse.Namespace) -> int:
     return 1 if counts["SURVIVED"] or counts["NO_COVERAGE"] else 0
 
 
+def _effective_config(args: argparse.Namespace) -> dict[str, object]:
+    """The run's configuration, as the run actually resolved it.
+
+    This is what makes a results directory self-describing: a file somebody
+    finds a week later says which operators produced it, which paths were in
+    and out, and what pytest was told -- the same inputs the cache key covers,
+    so two results files that disagree can be told apart by their inputs
+    rather than by guesswork.
+
+    `--since` is deliberately absent: how a run reached a mutant is scope, not
+    configuration, and it is reported under `scope` by `scope_summary`.
+
+    Args:
+        args: the parsed command line.
+
+    Returns:
+        A JSON-serialisable mapping of the effective configuration.
+    """
+    return {
+        # None rather than the expanded list, because "all of them" and "all
+        # of the ones that existed in that version" are different claims and
+        # only the first is one this run made.
+        "operators": args.operators.split(",") if args.operators else None,
+        "include": list(args.include),
+        "exclude": list(args.exclude),
+        "pytest_args": list(args.pytest_arg),
+        "timeout": args.timeout,
+        "jobs": args.jobs,
+        "workers": args.workers,
+        "flaky_probe": args.flaky_probe,
+        "cache": not args.no_cache,
+    }
+
+
 def _nothing_in_scope(
+    args: argparse.Namespace,
     scope: DiffScope,
     output_dir: Path,
     project_dir: Path,
@@ -854,6 +944,8 @@ def _nothing_in_scope(
     none.
 
     Args:
+        args: the parsed command line, for the effective configuration the
+            summary reports and for `--json`.
         scope: the run's diff scope, named in the message.
         output_dir: where the artifacts go.
         project_dir: the project root, for shortening the artifact path.
@@ -864,15 +956,44 @@ def _nothing_in_scope(
     jsonl_path = output_dir / "results.jsonl"
     jsonl_path.write_text("", encoding="utf-8")
     (output_dir / "results.txt").write_text("", encoding="utf-8")
+    # A summary too, for the same reason as the empty results: a consumer that
+    # reads it must find this run's zeroes rather than the previous run's
+    # numbers. The ledger is reported empty rather than loaded -- nothing ran,
+    # so nothing could be accepted or unexplained, and a run that mutates
+    # nothing must not start failing over a file it never needed to read.
+    summary = run_summary(
+        [],
+        elapsed=0.0,
+        cached=0,
+        config=_effective_config(args),
+        scope=scope_summary(scope),
+        acceptance=Acceptance(
+            path=_display_path(_accept_path(args, project_dir), project_dir),
+            accepted=(),
+            unexplained=(),
+            stale=(),
+            ambiguous=(),
+            orphaned=(),
+            relocated={},
+            gating=args.fail_on_unexplained,
+        ).summary(),
+        exit_code=0,
+    )
+    write_summary(summary, output_dir / "summary.json")
     print(
         f"moonbuggy: no changed source lines since {scope.ref} "
         f"(merge base {scope.merge_base[:7]}), so there is nothing to mutate. "
         f"Empty results in {_display_path(jsonl_path, project_dir)}",
         file=sys.stderr,
     )
-    # Nothing on stdout on purpose. stdout is the report, and in agent format
-    # every line of it begins with a status keyword; a prose line explaining
-    # the empty run would be the one line a parser cannot read.
+    if args.json:
+        # The one thing that does belong on this path's stdout: a consumer
+        # that asked for an object every run must not get an empty stream for
+        # the PR that happened to touch no source.
+        print(json.dumps(summary, sort_keys=True))
+    # Otherwise nothing on stdout, on purpose. stdout is the report, and in
+    # agent format every line of it begins with a status keyword; a prose line
+    # explaining the empty run would be the one line a parser cannot read.
     return 0
 
 

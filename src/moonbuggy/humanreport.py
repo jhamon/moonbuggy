@@ -583,7 +583,10 @@ def render_report(
         accepted_records = [r for r in records if r["id"] in explained]
         lines.extend([f"Accepted as equivalent ({len(accepted_records)})", ""])
         for record in sorted(accepted_records, key=lambda r: (r["file"], r["line"])):
-            reason = record.get("accept_reason") or ""
+            # Indexed, not `.get`: `read_jsonl` upgrades a record written
+            # before this key existed, so every record reaching the reporter
+            # has it whatever version wrote the file.
+            reason = record["accept_reason"] or ""
             lines.append(
                 _clip(
                     f"{' ' * STATUS_INDENT}{record['file']}:{record['line']}  "

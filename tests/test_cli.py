@@ -1025,3 +1025,147 @@ def test_why_reports_an_unknown_id_clearly(throwaway):
 
     assert "is not a mutant id" in proc.stderr
     assert "Traceback (most recent call last)" not in proc.stderr
+
+
+def test_json_puts_exactly_one_object_on_stdout(throwaway):
+    proc = moonbuggy("--json", cwd=throwaway)
+
+    # The whole of stdout parses as one document. Anything else printed there
+    # -- a report line, a prose note -- would break this.
+    summary = json.loads(proc.stdout)
+    assert summary["schema"] == 1
+    assert sum(summary["counts"].values()) == summary["total"]
+    assert summary["total"] == len(_records(throwaway))
+
+
+def test_json_never_moves_the_plaintext_view(throwaway):
+    plain = moonbuggy(cwd=throwaway)
+    text = (throwaway / ".moonbuggy" / "results.txt").read_text()
+
+    moonbuggy("--json", "--output-dir", ".mb-json", cwd=throwaway)
+
+    # `grep SURVIVED` keeps working exactly as documented, with or without the
+    # flag: --json adds a view, it does not replace one.
+    assert (throwaway / ".mb-json" / "results.txt").read_text() == text
+    assert plain.stdout != ""
+
+
+def test_every_run_leaves_a_summary_whether_or_not_json_was_asked_for(throwaway):
+    proc = moonbuggy(cwd=throwaway)
+
+    summary = json.loads((throwaway / ".moonbuggy" / "summary.json").read_text())
+
+    assert summary["exit_code"] == proc.returncode
+    assert summary["counts"]["survived"] + summary["counts"]["no_coverage"] > 0
+    assert summary["moonbuggy"]
+
+
+def test_the_summary_file_and_json_stdout_are_the_same_object(throwaway):
+    proc = moonbuggy("--json", cwd=throwaway)
+
+    on_disk = json.loads((throwaway / ".moonbuggy" / "summary.json").read_text())
+
+    assert on_disk == json.loads(proc.stdout)
+
+
+def test_the_summary_counts_agree_with_the_records(throwaway):
+    moonbuggy(cwd=throwaway)
+
+    summary = json.loads((throwaway / ".moonbuggy" / "summary.json").read_text())
+    records = _records(throwaway)
+
+    for keyword in STATUS_KEYWORDS:
+        expected = sum(1 for record in records if record["status"] == keyword)
+        assert summary["counts"][keyword.lower()] == expected
+
+
+def test_the_summary_reports_the_effective_configuration(throwaway):
+    moonbuggy(
+        "--json",
+        "--operators",
+        "constant_int",
+        "--exclude",
+        "nothing_matches_this",
+        "--pytest-arg=-p",
+        "--pytest-arg=no:cacheprovider",
+        cwd=throwaway,
+    )
+
+    config = json.loads((throwaway / ".moonbuggy" / "summary.json").read_text())[
+        "config"
+    ]
+
+    assert config["operators"] == ["constant_int"]
+    assert config["exclude"] == ["nothing_matches_this"]
+    assert config["include"] == []
+    assert config["pytest_args"] == ["-p", "no:cacheprovider"]
+    assert config["timeout"] == 30.0
+    assert config["cache"] is True
+
+
+def test_the_summary_splits_cached_from_measured(throwaway):
+    moonbuggy(cwd=throwaway)
+
+    moonbuggy(cwd=throwaway)
+    summary = json.loads((throwaway / ".moonbuggy" / "summary.json").read_text())
+
+    assert summary["cached"] > 0
+    assert summary["measured"] == summary["total"] - summary["cached"]
+
+
+def test_the_summary_says_what_the_run_was_scoped_against(versioned):
+    moonbuggy("--since", "main", cwd=versioned)
+
+    summary = json.loads((versioned / ".moonbuggy" / "summary.json").read_text())
+
+    assert summary["scope"]["diff_scoped"] is True
+    assert summary["scope"]["since"] == "main"
+    assert summary["scope"]["changed_lines"] > 0
+
+
+def test_a_full_run_says_it_was_not_diff_scoped(throwaway):
+    moonbuggy(cwd=throwaway)
+
+    summary = json.loads((throwaway / ".moonbuggy" / "summary.json").read_text())
+
+    assert summary["scope"]["diff_scoped"] is False
+    assert summary["scope"]["since"] is None
+
+
+def test_an_empty_diff_scope_still_answers_in_json(versioned):
+    # The PR that touched only docs. A consumer that asked for an object on
+    # every run must not get an empty stream for it.
+    (versioned / "calc.py").write_text(
+        (versioned / "calc.py").read_text().replace(ADDED, "")
+    )
+    (versioned / "README.md").write_text("docs only\n")
+
+    proc = moonbuggy("--since", "main", "--json", cwd=versioned, expect=0)
+
+    summary = json.loads(proc.stdout)
+    assert summary["total"] == 0
+    assert summary["exit_code"] == 0
+    assert summary["scope"]["diff_scoped"] is True
+    assert summary == json.loads(
+        (versioned / ".moonbuggy" / "summary.json").read_text()
+    )
+
+
+def test_the_summary_reports_the_ledger(triaged):
+    moonbuggy("--fail-on-unexplained", cwd=triaged, expect=0)
+
+    summary = json.loads((triaged / ".moonbuggy" / "summary.json").read_text())
+
+    assert summary["acceptance"]["accepted"] > 0
+    assert summary["acceptance"]["unexplained"] == 0
+    assert summary["acceptance"]["fail_on_unexplained"] is True
+    assert summary["exit_code"] == 0
+
+
+def test_every_record_declares_its_schema(throwaway):
+    moonbuggy(cwd=throwaway)
+
+    records = _records(throwaway)
+
+    assert records
+    assert {record["schema"] for record in records} == {2}

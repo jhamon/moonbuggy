@@ -23,7 +23,30 @@ from collections.abc import Iterable, Mapping
 from types import TracebackType
 from typing import IO, Literal, TypedDict
 
+from . import __version__
 from .runner import Result
+
+# The version stamped on every JSONL record, and the one `read_jsonl` upgrades
+# older records to. A line-oriented file has no header to put this in, so each
+# line carries it: a reader that has one line has everything it needs to know
+# what that line means, which is the property JSONL exists for.
+#
+# 1: the original record, before the accepted-equivalents ledger.
+# 2: `accepted` and `accept_reason`, and this field.
+RECORD_SCHEMA = 2
+
+# The version of the run summary -- `summary.json` and `--json`. Separate from
+# RECORD_SCHEMA because they are separate documents that will move for separate
+# reasons; a consumer of one must not be told the other changed.
+#
+# 1: the first machine-readable run summary.
+SUMMARY_SCHEMA = 1
+
+# What a record written before RECORD_SCHEMA existed does not say. Filled in on
+# read so `Record` is honestly total=True: an old file gets today's shape, and
+# every consumer -- moonbuggy's own human report included -- can index the keys
+# instead of guessing at them with `.get()`.
+_SCHEMA_1_DEFAULTS: dict[str, object] = {"accepted": False, "accept_reason": None}
 
 # The whole status vocabulary. Every plaintext line begins with one of these,
 # so adding a keyword is a breaking change for anyone grepping: NO_COVERAGE
@@ -53,8 +76,15 @@ ABSENT = "-"
 
 
 class Record(TypedDict):
-    """The canonical JSONL record for one mutant -- `record_for`'s return shape."""
+    """The canonical JSONL record for one mutant -- `record_for`'s return shape.
 
+    Every key is required, including the ones added after the format shipped.
+    That is what `schema` buys: :func:`read_jsonl` upgrades an older line to
+    this shape as it reads it, so the promise holds for a file written by any
+    version rather than only for a record made in this process.
+    """
+
+    schema: int
     id: str
     status: str
     file: str
@@ -90,6 +120,10 @@ def record_for(result: Result, reason: str | None = None) -> Record:
     """
     mutant = result.mutant
     return {
+        # Written by every record rather than inferred from the keys present:
+        # "this line lacks `accepted`" and "this line was written by a version
+        # that had no ledger" are the same observation only by luck.
+        "schema": RECORD_SCHEMA,
         "id": mutant.id,
         "status": result.status,
         "file": mutant.module,
@@ -195,9 +229,40 @@ class StreamingJSONL:
 
 
 def read_jsonl(path: str | os.PathLike[str]) -> list[Record]:
-    """Read every record back from a JSONL file, in file order."""
+    """Read every record back from a JSONL file, in file order.
+
+    Records written by an older moonbuggy are upgraded to the current shape as
+    they are read, so a caller never has to ask which version wrote the file.
+
+    Args:
+        path: the file to read.
+
+    Returns:
+        The records, each one a complete :class:`Record`.
+    """
     with open(path, encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
+        return [_upgraded(json.loads(line)) for line in handle if line.strip()]
+
+
+def _upgraded(record: dict[str, object]) -> Record:
+    """One record in today's shape, whatever version wrote it.
+
+    Args:
+        record: a record as it was read off disk.
+
+    Returns:
+        The same record with anything its schema predates filled in. Values it
+        does carry are never overwritten -- an upgrade adds, it does not
+        reinterpret.
+    """
+    version = record.get("schema")
+    if version == RECORD_SCHEMA:
+        return record  # type: ignore[return-value]
+    # No `schema` key at all is schema 1 by definition: the field arrived with
+    # schema 2, so its absence is the version rather than a missing value.
+    upgraded = {**_SCHEMA_1_DEFAULTS, **record}
+    upgraded.setdefault("schema", 1)
+    return upgraded  # type: ignore[return-value]
 
 
 def render_line(record: Record) -> str:
@@ -226,6 +291,83 @@ def summarise(records: Iterable[Record]) -> dict[str, int]:
     for record in records:
         counts[record["status"]] = counts.get(record["status"], 0) + 1
     return counts
+
+
+def run_summary(
+    records: Iterable[Record],
+    *,
+    elapsed: float,
+    cached: int,
+    config: Mapping[str, object],
+    scope: Mapping[str, object],
+    acceptance: Mapping[str, object],
+    exit_code: int,
+) -> dict[str, object]:
+    """The whole run as one JSON-serialisable object.
+
+    A run has exactly one of these, which is why it is an object and not a line
+    in `results.jsonl`: that file is one record per mutant, and a reader
+    counting its lines is counting mutants. Keeping the summary out of it means
+    no consumer has to learn a discriminator to avoid mistaking the two.
+
+    The `config`, `scope` and `acceptance` mappings are carried through
+    verbatim from the components that own them --
+    :func:`moonbuggy.diffscope.scope_summary` and
+    :meth:`moonbuggy.accepted.Acceptance.summary` -- so the summary reports
+    what those made of the run rather than a second opinion about it.
+
+    Args:
+        records: the run's records, as `results.jsonl` holds them.
+        elapsed: wall time for the whole run, in seconds.
+        cached: how many verdicts were served from the results cache.
+        config: the run's effective configuration.
+        scope: the run's diff scope, from `scope_summary`.
+        acceptance: the ledger outcome, from `Acceptance.summary`.
+        exit_code: the code the process is about to exit with, so a consumer
+            reading the file afterwards need not re-derive the gate's answer.
+
+    Returns:
+        The summary.
+    """
+    counts = summarise(records)
+    total = sum(counts.values())
+    return {
+        "schema": SUMMARY_SCHEMA,
+        # The results file's version, not this document's. A consumer holding
+        # a summary can tell what shape the records beside it are in without
+        # opening them.
+        "record_schema": RECORD_SCHEMA,
+        "moonbuggy": __version__,
+        "total": total,
+        "cached": cached,
+        # Stated rather than left as a subtraction, because "how much of this
+        # run was actually measured" is the question people ask of a cached
+        # run and getting it wrong by one is easy.
+        "measured": total - cached,
+        "elapsed": round(elapsed, 3),
+        "exit_code": exit_code,
+        # Lower-cased keys: the plaintext keywords are shouted because they
+        # begin a line a human's eye scans, and neither reason applies inside
+        # an object a parser reads.
+        "counts": {status.lower(): count for status, count in counts.items()},
+        "acceptance": dict(acceptance),
+        "scope": dict(scope),
+        "config": dict(config),
+    }
+
+
+def write_summary(summary: Mapping[str, object], path: str | os.PathLike[str]) -> None:
+    """Write one run summary to disk, as a single JSON object.
+
+    Args:
+        summary: the summary, as :func:`run_summary` returns it.
+        path: the file to write.
+    """
+    # Indented and newline-terminated: unlike results.jsonl this is one object
+    # per file, so there is no line-per-record property to preserve and a
+    # human opening it should be able to read it.
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(summary, indent=2, sort_keys=True) + "\n")
 
 
 def find_record(records: Iterable[Record], mutant_id: str) -> Record | None:
