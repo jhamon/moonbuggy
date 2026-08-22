@@ -943,6 +943,174 @@ def _run(args: argparse.Namespace) -> int:
         )
         progress.log("moonbuggy: running coverage pass...")
 
+    jsonl_path, results = _execute_mutants(
+        project_dir=project_dir,
+        source_dir=source_dir,
+        output_dir=output_dir,
+        mutants=mutants,
+        cache=cache,
+        reasons=reasons,
+        progress=progress,
+        narrate=narrate,
+        stderr_fd=stderr_fd,
+        args=args,
+        started=started,
+    )
+
+    with profiler.span("reporting"):
+        # Rewritten in canonical mutant order. The streamed file is valid at
+        # every instant, but it arrives in completion order, and the reported
+        # order has to be stable for unchanged source (criterion C3).
+        write_jsonl(results, jsonl_path, reasons)
+
+        # Derived from the JSONL that was just written, not from the in-memory
+        # results, so the two artifacts cannot disagree (criterion E3).
+        records = read_jsonl(jsonl_path)
+        text_path = output_dir / "results.txt"
+        text_path.write_text(plaintext_from_records(records) + "\n", encoding="utf-8")
+
+        acceptance = tally_accepted(
+            records,
+            resolution,
+            path=_display_path(accept_path, project_dir),
+            gating=args.fail_on_unexplained,
+        )
+
+        counts = summarise(records)
+        elapsed = time.perf_counter() - started
+        # Decided before anything is printed, because the summary reports it.
+        # A consumer reading summary.json after the fact then gets the gate's
+        # answer without re-deriving it from the counts -- which is exactly the
+        # derivation `--fail-on-unexplained` changes the rules of.
+        code = _exit_code(counts, acceptance, args.fail_on_unexplained)
+        summary = run_summary(
+            records,
+            elapsed=elapsed,
+            cached=sum(1 for r in results if r.from_cache),
+            config=_effective_config(args),
+            scope=scope_summary(scope),
+            acceptance=acceptance.summary(),
+            exit_code=code,
+        )
+        # Written on every run, not only under --json: a results directory
+        # somebody finds later should say what produced it. It is a separate
+        # file rather than a line in results.jsonl because a run has exactly
+        # one summary and that file has exactly one kind of line -- a mutant
+        # record -- which is worth more than saving a file.
+        write_summary(summary, output_dir / "summary.json")
+
+        if args.json:
+            # stdout is exactly one JSON object. The per-mutant view is not
+            # lost -- it is in results.txt and results.jsonl, as always -- and
+            # printing it here as well would leave stdout something no parser
+            # could read whole.
+            print(json.dumps(summary, sort_keys=True))
+        elif fmt == "human":
+            if args.quiet:
+                # --quiet in human mode is the footer, not silence. The agent
+                # path still prints its stderr summary under --quiet, so
+                # without this quiet-human would be the only mode that reports
+                # nothing at all.
+                print(
+                    render_footer(
+                        counts,
+                        elapsed,
+                        _display_path(jsonl_path, project_dir),
+                        scope=scope,
+                        acceptance=acceptance,
+                        logging_skipped=count_logging_skipped(records),
+                    )
+                )
+            else:
+                print(
+                    render_report(
+                        records,
+                        palette=palette,
+                        files=len(source_files),
+                        elapsed=elapsed,
+                        timeout=args.timeout,
+                        artifact=_display_path(jsonl_path, project_dir),
+                        width=width,
+                        scope=scope,
+                        acceptance=acceptance,
+                    )
+                )
+        elif not args.quiet:
+            for record in records:
+                print(render_line(record))
+
+    with profiler.span("cache I/O"):
+        if cache is not None:
+            cache.save()
+
+    profiler.note("mutants", len(mutants))
+    profiler.note("source_files", len(source_files))
+    profiler.write()
+
+    # The report's own footer already summarises a human run, so this line
+    # would be redundant there. In agent mode it stays exactly as it always
+    # was -- Task 11's golden test pins it byte for byte -- so the ledger's
+    # numbers go on a second line rather than into that one, and only when
+    # there is a ledger to report.
+    if fmt == "agent" and not args.json:
+        print(
+            "moonbuggy: "
+            + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
+            + f"  cached={summary['cached']}"
+            + f"  -> {_display_path(jsonl_path, project_dir)}",
+            file=sys.stderr,
+        )
+        if _has_ledger(acceptance):
+            print(_ledger_line(acceptance), file=sys.stderr)
+    for warning in _ledger_warnings(acceptance):
+        print(warning, file=sys.stderr)
+
+    return code
+
+
+def _execute_mutants(
+    *,
+    project_dir: Path,
+    source_dir: Path,
+    output_dir: Path,
+    mutants: list[Mutant],
+    cache: ResultCache | None,
+    reasons: dict[str, str],
+    progress: LiveRegion,
+    narrate: bool,
+    stderr_fd: int | None,
+    args: argparse.Namespace,
+    started: float,
+) -> tuple[Path, list[Result]]:
+    """Run every mutant, streaming verdicts to results.jsonl as they settle.
+
+    Each settled verdict is streamed to disk exactly once here (criterion
+    M1.4.13), and every later artifact --- results.txt, summary.json, the
+    in-order rewrite --- is derived from that single file, so the artifacts of
+    one run cannot disagree (criteria C3/E3). Split out of ``_run`` because
+    this is the phase with the most complex surface --- progress streaming,
+    the warm-session vs xdist forks --- and none of it reads or writes state
+    a caller of this function cannot simply pass in.
+
+    Args:
+        project_dir: project root.
+        source_dir: directory coverage is measured against.
+        output_dir: where the run's artifacts live.
+        mutants: every mutant to run, in report order.
+        cache: the run's result cache, or None.
+        reasons: acceptance reasons, used to annotate streamed records.
+        progress: the live-region progress renderer for stderr.
+        narrate: whether human progress narration is wanted at all.
+        stderr_fd: the real stderr fd the live line is measured against.
+        args: the parsed ``moonbuggy run`` command line.
+        started: the monotonic clock at the start of the run, for elapsed
+            reporting.
+
+    Returns:
+        ``(jsonl_path, results)``. ``jsonl_path`` is returned rather than
+        re-derived so the one source naming the streamed file is the one
+        built here.
+    """
     jsonl_path = output_dir / "results.jsonl"
     # Outside the try so the `finally` can name it however far the run got.
     counts_so_far: Counter[str] = Counter()
@@ -1059,115 +1227,7 @@ def _run(args: argparse.Namespace) -> int:
             )
         )
 
-    with profiler.span("reporting"):
-        # Rewritten in canonical mutant order. The streamed file is valid at
-        # every instant, but it arrives in completion order, and the reported
-        # order has to be stable for unchanged source (criterion C3).
-        write_jsonl(results, jsonl_path, reasons)
-
-        # Derived from the JSONL that was just written, not from the in-memory
-        # results, so the two artifacts cannot disagree (criterion E3).
-        records = read_jsonl(jsonl_path)
-        text_path = output_dir / "results.txt"
-        text_path.write_text(plaintext_from_records(records) + "\n", encoding="utf-8")
-
-        acceptance = tally_accepted(
-            records,
-            resolution,
-            path=_display_path(accept_path, project_dir),
-            gating=args.fail_on_unexplained,
-        )
-
-        counts = summarise(records)
-        elapsed = time.perf_counter() - started
-        # Decided before anything is printed, because the summary reports it.
-        # A consumer reading summary.json after the fact then gets the gate's
-        # answer without re-deriving it from the counts -- which is exactly the
-        # derivation `--fail-on-unexplained` changes the rules of.
-        code = _exit_code(counts, acceptance, args.fail_on_unexplained)
-        summary = run_summary(
-            records,
-            elapsed=elapsed,
-            cached=sum(1 for r in results if r.from_cache),
-            config=_effective_config(args),
-            scope=scope_summary(scope),
-            acceptance=acceptance.summary(),
-            exit_code=code,
-        )
-        # Written on every run, not only under --json: a results directory
-        # somebody finds later should say what produced it. It is a separate
-        # file rather than a line in results.jsonl because a run has exactly
-        # one summary and that file has exactly one kind of line -- a mutant
-        # record -- which is worth more than saving a file.
-        write_summary(summary, output_dir / "summary.json")
-
-        if args.json:
-            # stdout is exactly one JSON object. The per-mutant view is not
-            # lost -- it is in results.txt and results.jsonl, as always -- and
-            # printing it here as well would leave stdout something no parser
-            # could read whole.
-            print(json.dumps(summary, sort_keys=True))
-        elif fmt == "human":
-            if args.quiet:
-                # --quiet in human mode is the footer, not silence. The agent
-                # path still prints its stderr summary under --quiet, so
-                # without this quiet-human would be the only mode that reports
-                # nothing at all.
-                print(
-                    render_footer(
-                        counts,
-                        elapsed,
-                        _display_path(jsonl_path, project_dir),
-                        scope=scope,
-                        acceptance=acceptance,
-                        logging_skipped=count_logging_skipped(records),
-                    )
-                )
-            else:
-                print(
-                    render_report(
-                        records,
-                        palette=palette,
-                        files=len(source_files),
-                        elapsed=elapsed,
-                        timeout=args.timeout,
-                        artifact=_display_path(jsonl_path, project_dir),
-                        width=width,
-                        scope=scope,
-                        acceptance=acceptance,
-                    )
-                )
-        elif not args.quiet:
-            for record in records:
-                print(render_line(record))
-
-    with profiler.span("cache I/O"):
-        if cache is not None:
-            cache.save()
-
-    profiler.note("mutants", len(mutants))
-    profiler.note("source_files", len(source_files))
-    profiler.write()
-
-    # The report's own footer already summarises a human run, so this line
-    # would be redundant there. In agent mode it stays exactly as it always
-    # was -- Task 11's golden test pins it byte for byte -- so the ledger's
-    # numbers go on a second line rather than into that one, and only when
-    # there is a ledger to report.
-    if fmt == "agent" and not args.json:
-        print(
-            "moonbuggy: "
-            + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
-            + f"  cached={summary['cached']}"
-            + f"  -> {_display_path(jsonl_path, project_dir)}",
-            file=sys.stderr,
-        )
-        if _has_ledger(acceptance):
-            print(_ledger_line(acceptance), file=sys.stderr)
-    for warning in _ledger_warnings(acceptance):
-        print(warning, file=sys.stderr)
-
-    return code
+    return jsonl_path, results
 
 
 def _exit_code(counts: dict[str, int], acceptance: Acceptance, gating: bool) -> int:
