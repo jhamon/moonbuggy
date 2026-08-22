@@ -281,7 +281,7 @@ def _upgraded(record: dict[str, object]) -> Record:
     """
     version = record.get("schema")
     if version == RECORD_SCHEMA:
-        return record  # type: ignore[return-value]
+        return record  # type: ignore[return-value]  # TypedDict is dict at runtime; cast would be a no-op
     # No `schema` key at all is schema 1 by definition: the field arrived with
     # schema 2, so its absence is the version rather than a missing value.
     #
@@ -291,7 +291,7 @@ def _upgraded(record: dict[str, object]) -> Record:
     # branching on the version number.
     upgraded = {**_SCHEMA_1_DEFAULTS, **_SCHEMA_2_DEFAULTS, **record}
     upgraded.setdefault("schema", 1)
-    return upgraded  # type: ignore[return-value]
+    return upgraded  # type: ignore[return-value]  # same reason as the early-return above
 
 
 def render_line(record: Record) -> str:

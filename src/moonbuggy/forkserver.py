@@ -289,14 +289,14 @@ def precollect(config: object, node_ids: Iterable[str]) -> object | None:
         from _pytest.main import Session
 
         config.args = ids  # type: ignore[attr-defined]  # a pytest Config
-        config.option.file_or_dir = ids  # type: ignore[attr-defined]
-        session = Session.from_config(config)  # type: ignore[arg-type]
+        config.option.file_or_dir = ids  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
+        session = Session.from_config(config)  # type: ignore[arg-type]  # pytest's typeshed omits this runtime attribute
         session.exitstatus = 0
         # Both of these ran once per grandchild before and now run once here.
         # The mirror-image `pytest_sessionfinish` stays in the grandchild, so
         # a plugin still sees exactly one finish per process that runs tests.
-        config._do_configure()  # type: ignore[attr-defined]
-        config.hook.pytest_sessionstart(session=session)  # type: ignore[attr-defined]
+        config._do_configure()  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
+        config.hook.pytest_sessionstart(session=session)  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
         session.perform_collect()
     except BaseException:
         return None
@@ -324,34 +324,34 @@ def _run_precollected(config: object, session: object, selected: Iterable[str]) 
     # killed into a crashed grandchild -- reported SUSPICIOUS, on exactly the
     # shape whose tests can fail. Taken off the session rather than imported,
     # so it cannot drift from the class the loop raises.
-    failed = type(session).Failed  # type: ignore[attr-defined]
+    failed = type(session).Failed  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
 
     _KILL_REASON.reset()
     wanted = set(selected)
-    session.items = [i for i in session.items if i.nodeid in wanted]  # type: ignore[attr-defined]
-    session.testscollected = len(session.items)  # type: ignore[attr-defined]
+    session.items = [i for i in session.items if i.nodeid in wanted]  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
+    session.testscollected = len(session.items)  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
     try:
         try:
-            config.hook.pytest_runtestloop(session=session)  # type: ignore[attr-defined]
+            config.hook.pytest_runtestloop(session=session)  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
         except failed:
             # `-x` stopping the loop. A kill, not a crash.
-            session.exitstatus = ExitCode.TESTS_FAILED  # type: ignore[attr-defined]
+            session.exitstatus = ExitCode.TESTS_FAILED  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
         else:
-            if session.testsfailed:  # type: ignore[attr-defined]
-                session.exitstatus = ExitCode.TESTS_FAILED  # type: ignore[attr-defined]
-            elif session.testscollected == 0:  # type: ignore[attr-defined]
-                session.exitstatus = ExitCode.NO_TESTS_COLLECTED  # type: ignore[attr-defined]
+            if session.testsfailed:  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
+                session.exitstatus = ExitCode.TESTS_FAILED  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
+            elif session.testscollected == 0:  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
+                session.exitstatus = ExitCode.NO_TESTS_COLLECTED  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
             else:
-                session.exitstatus = ExitCode.OK  # type: ignore[attr-defined]
-        config.hook.pytest_sessionfinish(  # type: ignore[attr-defined]
+                session.exitstatus = ExitCode.OK  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
+        config.hook.pytest_sessionfinish(  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
             session=session,
-            exitstatus=session.exitstatus,  # type: ignore[attr-defined]
+            exitstatus=session.exitstatus,  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
         )
-        return int(session.exitstatus)  # type: ignore[attr-defined]
+        return int(session.exitstatus)  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
     finally:
         # Still the unraisable-exception plugin's chance to speak. See
         # `_run_prebuilt` for why that is not optional.
-        config._ensure_unconfigure()  # type: ignore[attr-defined]
+        config._ensure_unconfigure()  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
 
 
 class _SelectedOnly:
@@ -441,15 +441,15 @@ def _run_prebuilt(config: object, selected: Iterable[str]) -> int:
     _SELECTED_ONLY.select(ids)
     _KILL_REASON.reset()
     config.args = ids  # type: ignore[attr-defined]  # a pytest Config, not typed here
-    config.option.file_or_dir = ids  # type: ignore[attr-defined]
+    config.option.file_or_dir = ids  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
     try:
-        return int(config.hook.pytest_cmdline_main(config=config))  # type: ignore[attr-defined]
+        return int(config.hook.pytest_cmdline_main(config=config))  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
     finally:
         # Still run the unconfigure hooks, so the unraisable-exception plugin
         # gets its say. A mutant that manifests only as an unraisable
         # exception would otherwise be reported SURVIVED -- the failure mode
         # H2 was rejected for.
-        config._ensure_unconfigure()  # type: ignore[attr-defined]
+        config._ensure_unconfigure()  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
 
 
 def _mutant_args(

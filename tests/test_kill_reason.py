@@ -181,7 +181,7 @@ def test_the_plugin_module_rewrites_a_real_pytest_run(tmp_path):
         textwrap.dedent(
             """
             def test_crashes():
-                undefined_name  # noqa: B018
+                undefined_name
 
             def test_asserts():
                 assert 1 == 2
