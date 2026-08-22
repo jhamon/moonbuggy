@@ -991,6 +991,13 @@ Two facts fell out of it immediately, both of which this round's register uses:
 | — of which `import pytest`, pulled in transitively through `baseline` | **49ms** |
 | — of which every other moonbuggy module | 6ms |
 
+> (2026-08-22 logging) The numbers above are pinned to the state at `a731cdf`.
+> Since then `cli.py` was split into a `moonbuggy.cli` package (`cli/`), and the
+> import chain was re-measured on this machine: the split version is ~68ms vs
+> ~70–83ms for the pre-split module on the same interpreter — no regression. The
+> structural fact stands unchanged: pytest is still the dominant (~49ms) cost of
+> the chain, pulled in transitively through `baseline`.
+
 **The parent imports pytest on the warm path, and H3 did not stop it.** H3
 removed the explicit `forkserver.warm_up()` call and measured 1.5% on one
 shape, concluding that the import had merely moved into the host. It had not
