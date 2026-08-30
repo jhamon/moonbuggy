@@ -11,7 +11,11 @@ The key therefore covers the inputs a mutation run can be expected to notice:
 
 - the mutant's identity and mutated text,
 - the full source of the module being mutated,
-- the contents of every test file selected for it, and
+- the contents of every test file selected for it,
+- the conftest.py chain those test files pull in (a fixture edit is exactly
+  what changes what a test *does* while its own bytes are unchanged),
+- the mutated module's first-order imports, resolved to files inside the
+  project, and
 - a fingerprint of the run itself -- see `run_fingerprint`, which covers the
   parts of the command line that decide what pytest does.
 
@@ -25,30 +29,30 @@ tighten with evidence.
 What the key cannot see
 -----------------------
 
-Those four bullets are the whole of `key_for`: the only file bytes that reach
-the digest are the mutated module's and, for each selected node id, the test
-file the node id names. Everything else a verdict depends on is outside the
-key, and editing it yields a stale hit -- the exact failure this module opens by
-warning about. Known gaps, in rough order of how often they bite:
+Those bullets are not the whole of `key_for`'s inputs, but they are not the
+whole of reality either. Everything still outside the key yields a stale hit
+when edited, and the boundary is drawn where the reuse it would cost outweighs
+the correctness it buys. Known gaps, kept small on purpose:
 
-- `conftest.py`. Editing a fixture changes what the selected tests actually do
-  while their own file bytes are unchanged, so the key does not move. This is
-  the most likely stale-hit vector in practice.
-- Any *other* module the mutated module imports. The per-function argument
-  above is about depth within one module; it says nothing about a helper in a
-  sibling module, whose edit is invisible here.
-- pytest configuration (`pytest.ini`, `[tool.pytest.ini_options]`) and
-  installed dependency versions. `run_fingerprint` covers the command line, not
-  the config files or the environment behind it.
-- Which tests *inside* an unchanged file were selected. The key hashes the test
-  file, not the node id list, so a change in selection within one file does not
-  move it.
+- **Transitive imports.** Only the mutated module's *first-order* imports are
+  resolved, and only to files inside the project. A helper two levels deep, an
+  installed dependency's source, or a ``from .. import x`` ancestor-relative
+  import is invisible unless it is the mutated module's own direct import.
+- **pytest configuration and dependency versions.** `run_fingerprint` covers
+  the command line, not `pytest.ini`, `[tool.pytest.ini_options]`, or the
+  installed environment behind them. A dependency bump invalidating everything
+  is arguably *right* rather than a cost, but it has not been measured, so it
+  is not wired in yet.
+- **Which tests *inside* an unchanged file were selected.** The key hashes the
+  test file, not the node id list, so a change in selection within one file
+  does not move it.
 
-Widening the key would be a behaviour change with a real cost in cache reuse
-and would need a `CACHE_VERSION` bump; it has not been made. Until it is,
-`--no-cache` is the answer when one of the above has changed.
+A key that covers everything is not the goal -- it would cost the reuse the
+cache exists to buy. When one of the above has changed, `--no-cache` is the
+answer, as it always has been.
 """
 
+import ast
 import hashlib
 import json
 import os
@@ -80,7 +84,11 @@ from .mutant import Mutant
 #    carry any of these -- so this bump costs one cold run to nobody outside
 #    this repository, and buys not replaying a verdict this version disagrees
 #    with.
-CACHE_VERSION = 5
+# 6: conftest.py chain and first-order imports joined the key. A v5 entry was
+#    computed without either, so it would serve a stale verdict the moment a
+#    fixture or an imported helper changed. Both are new inputs to the digest,
+#    so every old entry must be ignored rather than misread.
+CACHE_VERSION = 6
 
 
 def run_fingerprint(
@@ -201,7 +209,9 @@ class ResultCache:
 
         Returns:
             A hex digest covering the mutant, its module's full source, the
-            contents of every selected test file, and this run's fingerprint.
+            contents of every selected test file, the conftest.py chain each
+            test file pulls in, the mutant's first-order imports, and this
+            run's fingerprint.
         """
         project_dir = Path(project_dir)
         digest = hashlib.sha256()
@@ -209,11 +219,23 @@ class ResultCache:
         digest.update(mutant.id.encode())
         digest.update(mutant.mutated.encode())
         digest.update(_read_bytes(project_dir / mutant.module))
+        conftests: set[str] = set()
         # Sorted so selection order cannot change the key.
         for test_id in sorted(selected_tests):
             test_file = test_id.split("::")[0]
             digest.update(test_file.encode())
             digest.update(_read_bytes(project_dir / test_file))
+            conftests.update(_conftest_paths(test_file))
+        # conftest.py from rootdir down to each test file, and the mutated
+        # module's first-order imports. Both are hashed as path + bytes so a
+        # missing file differs from an empty one, and a file that moves to a
+        # different directory changes the key.
+        for conftest in sorted(conftests):
+            digest.update(("conftest\0" + conftest).encode())
+            digest.update(_read_bytes(project_dir / conftest))
+        for imported in _imported_project_files(project_dir, mutant.module):
+            digest.update(("import\0" + imported).encode())
+            digest.update(_read_bytes(project_dir / imported))
         return digest.hexdigest()
 
     def get(self, key: str) -> CacheRecord | None:
@@ -257,3 +279,101 @@ def _read_bytes(path: str | os.PathLike[str]) -> bytes:
         # A missing file is a real state, not an error: hash it as such so the
         # key changes if it later appears.
         return b"\0missing\0"
+
+
+def _conftest_paths(test_file: str) -> list[str]:
+    """Project-relative ``conftest.py`` paths pytest loads for `test_file`.
+
+    pytest collects conftest.py from the rootdir down through every directory
+    on the path to a test file, so a ``tests/test_x.py`` pulls in the root
+    ``conftest.py`` and ``tests/conftest.py`` alike. The list runs root-to-leaf
+    and always includes the root itself, so a test file at the project root
+    still sees ``conftest.py``.
+    """
+    directories: list[Path] = []
+    current = Path(test_file).parent
+    while True:
+        directories.append(current)
+        if current == Path("."):
+            break
+        current = current.parent
+    return [str(directory / "conftest.py") for directory in directories]
+
+
+# The mutated module is the same for every mutant that mutates it, so its first
+# order imports are resolved once and reused. Keyed by (path, mtime, size) like
+# :data:`moonbuggy.srcio._SOURCE_CACHE`: an edit during a run is a miss rather
+# than a stale hit. ``key_for`` then hashes each resolved file's bytes, which
+# the OS page cache and the loop above make cheap to read again.
+_IMPORT_RESOLUTION_CACHE: dict[tuple[str, int, int], tuple[str, ...]] = {}
+
+
+def _imported_project_files(
+    project_dir: str | os.PathLike[str], module: str
+) -> tuple[str, ...]:
+    """Project-relative files the mutated module's first-order imports resolve to.
+
+    Resolution is static (AST), never by importing the code -- importing
+    arbitrary project code to compute a cache key is its own hazard. A name
+    that resolves to nothing inside the project (stdlib, site-packages, or a
+    file that does not exist) contributes nothing to the key: those edits are
+    deliberately out of scope and documented as a known gap.
+
+    Args:
+        project_dir: the project root, used to resolve relative paths.
+        module: the mutated module's path, relative to `project_dir`.
+
+    Returns:
+        The resolved files, sorted, as project-relative paths. Empty when the
+        module cannot be parsed or imports nothing inside the project.
+    """
+    module_path = Path(project_dir) / module
+    try:
+        stat = os.stat(module_path)
+        stat_key = (str(module_path), stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return ()
+    cached = _IMPORT_RESOLUTION_CACHE.get(stat_key)
+    if cached is not None:
+        return cached
+
+    try:
+        tree = ast.parse(module_path.read_bytes())
+    except (OSError, SyntaxError, ValueError):
+        # Unreadable or unparseable: the module's own bytes are already hashed,
+        # so nothing more can be learned here. Return empty rather than guess.
+        return ()
+
+    source_parent = Path(module).parent
+    targets: list[tuple[Path, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets.extend((Path("."), alias.name) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module:
+                targets.append((Path("."), node.module))
+            elif node.level == 1:
+                # A single-dot relative import resolves inside the mutated
+                # module's own package. ``from . import x`` leaves `module`
+                # empty and names the submodule in `names`.
+                if node.module is not None:
+                    targets.append((source_parent, node.module))
+                else:
+                    targets.extend((source_parent, alias.name) for alias in node.names)
+            # ``from .. import x`` (level > 1) is deliberately left out: it
+            # resolves against an ancestor package, which is rare inside a
+            # project and cheap for the user to cover with --no-cache.
+
+    found: set[str] = set()
+    for base, dotted in targets:
+        relative = Path(*dotted.split("."))
+        for candidate in (
+            base / relative.with_suffix(".py"),
+            base / relative / "__init__.py",
+        ):
+            if (Path(project_dir) / candidate).is_file():
+                found.add(str(candidate))
+
+    resolved = tuple(sorted(found))
+    _IMPORT_RESOLUTION_CACHE[stat_key] = resolved
+    return resolved

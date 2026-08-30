@@ -6,6 +6,32 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The results cache now sees `conftest.py` and the mutated module's
+  first-order imports.** The cache key hashed the mutant, the full source of
+  its module, the contents of every selected test file, and a fingerprint of
+  the run — but not the fixtures those tests pull in, nor the helper modules
+  the mutated module imports. Editing a fixture in `conftest.py`, or a sibling
+  helper the module imports, changed what a test *does* without moving the key,
+  so a second run served a stale verdict — a survivor reported *after* the user
+  added the fixture that kills it. Reported in #37.
+
+  The key now folds in every `conftest.py` from the root down to each selected
+  test file, and the mutated module's first-order imports resolved statically
+  (AST, never by importing the code) to files inside the project. `CACHE_VERSION`
+  is bumped 5 -> 6, so old entries are ignored rather than misread and the first
+  run after upgrading is cold.
+
+  The widening is deliberately bounded: only *first-order* imports, only
+  *project* files — no transitive closure, no `pytest.ini`, no installed
+  dependency versions. What stays outside the key is documented in
+  `src/moonbuggy/cache.py` under "What the key cannot see", with the reason. A
+  rerun that changed nothing still hits at the current rate, because the new
+  inputs hash their *bytes* and those bytes are unchanged between two such runs
+  — the reuse is paid only on a real edit, which is exactly when invalidation
+  is correct rather than a cost.
+
 ## [0.2.0] - 2026-08-20
 
 ### Added

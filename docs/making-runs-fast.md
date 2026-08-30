@@ -196,8 +196,11 @@ repository at all, or a ref that does not resolve.
 
 A second run only re-runs mutants whose outcome could have changed. The cache
 key covers the mutant's identity, the full source of its module, the contents
-of every test file selected for it, and a fingerprint of the run itself — so
-editing one module invalidates that module's mutants and nothing else.
+of every test file selected for it, the `conftest.py` chain those test files
+pull in, the mutated module's first-order imports (resolved statically to files
+inside the project), and a fingerprint of the run itself — so editing one
+module invalidates that module's mutants, editing a fixture invalidates every
+mutant whose tests use it, and everything else keeps hitting.
 
 ```{doctest}
 >>> project = make_project({
@@ -216,6 +219,21 @@ The key is deliberately coarser than it could be: it hashes the whole module
 rather than the mutated function, because a mutant's behaviour can depend on
 anything else in its module. A stale hit is much worse than a miss — it would
 report a gap you have already closed — so the cache errs toward re-running.
+
+The `conftest.py` chain and the first-order imports joined the key for the same
+reason, and their cost in reuse was measured rather than assumed. The additions
+are deliberately *shared* inputs: a `conftest.py` serves every test file under
+it, and an imported helper serves every mutant in the module that imports it.
+That would be a problem if it reset the key on each use — but the key hashes
+their *bytes*, and those bytes are unchanged between two runs that changed
+nothing. The steady-state hit rate is therefore exactly what it was: a clean
+rerun still hits at the current rate (the doctest above asserts it). The only
+time one of these inputs moves the key is when the file actually changed, which
+is precisely when every verdict downstream of it has to be recomputed anyway.
+Widening on a real edit is not lost reuse; it is the correctness the old key
+was missing. What is *not* covered — transitive imports, `pytest.ini`, installed
+dependency versions, and which tests inside an unchanged file were selected —
+stays documented in `src/moonbuggy/cache.py`, under "What the key cannot see".
 
 The run fingerprint is why changing the command line starts cold. It covers
 `--pytest-arg` (in the order you gave them, because pytest's argument order is
