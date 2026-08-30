@@ -352,6 +352,14 @@ def _imported_project_files(
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0 and node.module:
                 targets.append((Path("."), node.module))
+                # ``from pkg import helper`` names the submodule in `names`,
+                # not `module`. Resolving only `module` would drop
+                # ``pkg/helper.py`` -- the module the code actually calls --
+                # while ``pkg/__init__.py`` stays the same, serving a stale
+                # verdict when the helper changes (#37).
+                targets.extend(
+                    (Path("."), node.module + "." + alias.name) for alias in node.names
+                )
             elif node.level == 1:
                 # A single-dot relative import resolves inside the mutated
                 # module's own package. ``from . import x`` leaves `module`
