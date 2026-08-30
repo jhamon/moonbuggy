@@ -674,7 +674,11 @@ mutants, many-files 0.866s / 560 mutants.
 - **Checked by** running all three shapes on both refs and diffing every
   mutant's status and tests-run count — **728 mutants, no disagreement** —
   plus `make check-oracle`, `make check-robustness` and
-  `make check-properties`.
+  `make check-properties`. The status-and-tests-run diff is ad hoc, run once
+  per hypothesis against two worktrees; it is not a committed script, so its
+  evidence lives here in the register rather than in a rerunnable artifact —
+  and it shows the two refs agree, not that either ref is correct. Correctness
+  is the oracle gates' job (`check-oracle`, `check-fast-path`).
 - **Attempted:** yes, adopted (commit `48d4e42`).
 - **Actual saving:** **faster on all three shapes.**
 
