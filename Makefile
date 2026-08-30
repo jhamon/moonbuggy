@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-fast-path check-pytest-args check-spike check-mutmut check-robustness check-properties check-cli bench bench-coverage profile ab docs docs-test docs-linkcheck docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install check-all
+.PHONY: test check-oracle check-fast-path check-pytest-args check-spike check-mutmut check-robustness check-properties check-cli bench bench-coverage profile ab docs docs-test docs-linkcheck blog docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -50,6 +50,12 @@ docs: docstring-coverage
 	$(PYTHON) -m sphinx -b html -W --keep-going docs docs/_build/html
 	@echo "docs -> docs/_build/html/index.html"
 
+## Preview the built site locally. Serves docs/_build/html on port 8080.
+## Run `make docs` first, then `make docs-serve` and open http://localhost:8080.
+docs-serve:
+	@echo "Serving on http://localhost:8080"
+	$(PYTHON) -m http.server 8080 -d docs/_build/html
+
 ## Milestone M3.2.1/M3.2.2: docstring coverage and style, as a gate.
 ## Runs as part of `make docs`, so a new public function without a docstring
 ## fails the build.
@@ -79,6 +85,16 @@ docs-test:
 ## Milestone M3.1.3: no broken internal links.
 docs-linkcheck:
 	$(PYTHON) -m sphinx -b linkcheck -W docs docs/_build/linkcheck
+
+## Build the blog with Hugo and place it at docs/_build/html/blog/ so the
+## deployment is a single tree. Requires Hugo (brew install hugo, or the
+## GitHub Actions workflow installs it). The blog is built into the Sphinx
+## output directory, so `make docs` followed by `make blog` produces a unified
+## site with the blog at /blog/.
+HUGO ?= hugo
+blog:
+	cd blog && $(HUGO) --minify
+	@echo "blog -> docs/_build/html/blog/index.html"
 
 ## Milestone M4: run against five pinned open-source libraries.
 ## Clones read-only, builds an isolated venv each, refuses any target whose own

@@ -1,0 +1,38 @@
+<footer class="blog-footer">
+  <div class="footer-content">
+    <div class="footer-left">
+      <p>moonbuggy — fast, agent-first mutation testing for Python.</p>
+    </div>
+    <div class="footer-right">
+      <a href="{{ .Site.Params.github }}">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Theme toggle matching the Sphinx/Furo docs behavior
+(function() {
+  const toggle = document.getElementById('theme-toggle');
+  const html = document.documentElement;
+
+  function setTheme(theme) {
+    html.setAttribute('data-theme', theme);
+    localStorage.setItem('moonbuggy-theme', theme);
+  }
+
+  // On load, respect stored preference, then OS preference, then light
+  const stored = localStorage.getItem('moonbuggy-theme');
+  if (stored) {
+    setTheme(stored);
+  } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    setTheme('dark');
+  }
+
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      const current = html.getAttribute('data-theme');
+      setTheme(current === 'dark' ? 'light' : 'dark');
+    });
+  }
+})();
+</script>

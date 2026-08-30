@@ -1,0 +1,28 @@
+{{ define "main" }}
+<div class="blog-index">
+  <h1 class="blog-title">Blog</h1>
+  <p class="blog-subtitle">{{ .Site.Params.description }}</p>
+
+  {{ range .Paginator.Pages }}
+  <article class="post-card">
+    <header class="post-card-header">
+      <h2 class="post-card-title">
+        <a href="{{ .RelPermalink }}">{{ .Title }}</a>
+      </h2>
+      <div class="post-card-meta">
+        <time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "January 2, 2006" }}</time>
+        {{ with .Params.author }} · {{ . }}{{ end }}
+      </div>
+    </header>
+    <div class="post-card-summary">
+      {{ .Summary }}
+    </div>
+    {{ if .Truncated }}
+    <a href="{{ .RelPermalink }}" class="read-more">Read more →</a>
+    {{ end }}
+  </article>
+  {{ end }}
+
+  {{ template "_internal/pagination.html" . }}
+</div>
+{{ end }}

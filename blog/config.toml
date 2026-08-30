@@ -1,0 +1,23 @@
+# moonbuggy blog — Hugo configuration
+# The blog lives at /blog/ on the deployed site, served alongside the Sphinx docs.
+# Hugo builds into ../docs/_build/html/, so both systems share a single output tree.
+
+baseURL = "https://jhamon.github.io/moonbuggy/"
+title = "moonbuggy blog"
+theme = "moonbuggy"
+
+# Only generate blog content. The home page, taxonomy pages, RSS, and sitemap
+# are disabled — they'd conflict with the Sphinx docs which own the site root.
+disableKinds = ["home", "taxonomy", "term", "RSS", "sitemap"]
+
+# Output directly into the Sphinx build directory so the deployment is one tree.
+# The blog content all lives under /blog/ (via permalink prefix), so none of it
+# conflicts with docs pages at the site root.
+publishDir = "../docs/_build/html"
+
+[permalinks]
+  blog = "/blog/:year/:month/:slug/"
+
+[params]
+  description = "Mutation testing insights, release notes, and findings from the moonbuggy project."
+  github = "https://github.com/jhamon/moonbuggy"
