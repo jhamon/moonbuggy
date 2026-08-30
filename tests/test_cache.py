@@ -105,6 +105,60 @@ def test_editing_a_covering_test_invalidates_the_entry(project, tmp_path):
     assert key(cache, project) != before
 
 
+def test_editing_a_conftest_fixture_invalidates_the_entry(project, tmp_path):
+    """A fixture edit changes what the selected tests *do* while their own file
+    bytes are unchanged, so the key has to see conftest.py or it serves a stale
+    verdict for the exact project the user just edited."""
+    cache = ResultCache(tmp_path / "cache.json")
+    (project / "conftest.py").write_text(
+        "import pytest\n\n@pytest.fixture\ndef value():\n    return 1\n"
+    )
+    before = key(cache, project)
+
+    (project / "conftest.py").write_text(
+        "import pytest\n\n@pytest.fixture\ndef value():\n    return 2\n"
+    )
+
+    assert key(cache, project) != before
+
+
+def test_adding_a_conftest_invalidates_the_entry(project, tmp_path):
+    """A conftest.py that appears where there was none must move the key, or
+    deleting it later is invisible to the cache."""
+    cache = ResultCache(tmp_path / "cache.json")
+    before = key(cache, project)  # no conftest.py anywhere yet
+
+    (project / "conftest.py").write_text("import pytest\n")
+
+    assert key(cache, project) != before
+
+
+def test_a_conftest_in_a_test_subdirectory_is_part_of_the_key(project, tmp_path):
+    """pytest loads conftest.py from every directory on the path to a test file,
+    not only the root, so a fixture in tests/conftest.py is also an input."""
+    cache = ResultCache(tmp_path / "cache.json")
+    before = key(cache, project)
+
+    (project / "tests" / "conftest.py").write_text("import pytest\n")
+
+    assert key(cache, project) != before
+
+
+def test_editing_an_imported_module_invalidates_the_entry(project, tmp_path):
+    """A helper the mutated module imports is an input to its verdict even
+    though the mutated module's own bytes are unchanged when the helper moves."""
+    cache = ResultCache(tmp_path / "cache.json")
+    (project / "sample" / "inventory.py").write_text(
+        "from sample.other import VALUE\n\n"
+        "def is_available(stock):\n    return stock > VALUE\n"
+    )
+    before = key(cache, project)
+
+    (project / "sample" / "other.py").write_text("VALUE = 2\n")
+
+    assert key(cache, project) != before
+
+
 def test_different_mutants_get_different_keys(project, tmp_path):
     cache = ResultCache(tmp_path / "cache.json")
     first = cache.key_for(make_mutant(line=9), project, ())
