@@ -1,0 +1,3 @@
+name = "moonbuggy"
+license = "MIT"
+description = "Minimal blog theme matching the moonbuggy Sphinx/Furo visual identity."

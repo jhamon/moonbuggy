@@ -59,8 +59,11 @@ autodoc_preserve_defaults = True
 # broken `file:` link, and the build fails over a phrase in prose.
 myst_enable_extensions = ["deflist", "colon_fence"]
 myst_heading_anchors = 3
+# YAML frontmatter in blog posts (date, author). MyST reads these fields so
+# they are available to the page context without a separate plugin.
+myst_frontmatter_enabled = True
 
-templates_path = []
+templates_path = ["_templates"]
 # M5.3: `docs/superpowers` holds this project's own development record -- the
 # design spec and implementation plan for building moonbuggy itself, not
 # documentation about moonbuggy. They're checked in as a record, not written

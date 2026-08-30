@@ -242,6 +242,79 @@ table.docutils th {
 table.docutils td { border-bottom: 1px solid var(--color-background-border); }
 table.docutils tr:last-child td { border-bottom: none; }
 
+/* ---------- unified top nav (shared with Hugo blog) ---------- */
+
+.top-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 2rem;
+  background: var(--color-background-secondary);
+  border-bottom: 1px solid var(--color-background-border);
+  font-family: var(--font-stack--headings);
+}
+
+.nav-brand {
+  font-weight: 700;
+  font-size: 1.125rem;
+  color: var(--color-foreground-primary);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+}
+.nav-brand:hover { text-decoration: none; color: var(--color-brand-primary); }
+
+.nav-links {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: 0.25rem;
+}
+
+.nav-links a {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-foreground-secondary);
+  text-decoration: none;
+  transition: background 140ms ease, color 140ms ease;
+}
+.nav-links a:hover {
+  background: var(--color-background-hover);
+  color: var(--color-foreground-primary);
+  text-decoration: none;
+}
+.nav-links a.active {
+  background: var(--color-background-item);
+  color: var(--color-brand-primary);
+}
+
+.nav-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.nav-github {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-foreground-muted);
+  text-decoration: none;
+}
+.nav-github:hover { color: var(--color-foreground-primary); text-decoration: none; }
+
+@media (max-width: 768px) {
+  .top-nav {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+  }
+  .nav-links { order: 3; width: 100%; }
+  .nav-links a { padding: 0.35rem 0.5rem; }
+}
+
 /* ---------- small motion ---------- */
 
 @media (prefers-reduced-motion: no-preference) {

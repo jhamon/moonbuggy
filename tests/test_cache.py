@@ -159,6 +159,25 @@ def test_editing_an_imported_module_invalidates_the_entry(project, tmp_path):
     assert key(cache, project) != before
 
 
+def test_editing_a_submodule_imported_via_from_package_invalidates_the_entry(
+    project, tmp_path
+):
+    """``from sample import other`` names the submodule in ``node.names``, not
+    ``node.module``. If the key resolves only ``node.module`` it drops
+    ``other.py`` -- the module the code actually calls -- and serves a stale
+    verdict when that helper changes. This is #37's exact failure form."""
+    cache = ResultCache(tmp_path / "cache.json")
+    (project / "sample" / "inventory.py").write_text(
+        "from sample import other\n\n"
+        "def is_available(stock):\n    return stock > other.VALUE\n"
+    )
+    before = key(cache, project)
+
+    (project / "sample" / "other.py").write_text("VALUE = 2\n")
+
+    assert key(cache, project) != before
+
+
 def test_different_mutants_get_different_keys(project, tmp_path):
     cache = ResultCache(tmp_path / "cache.json")
     first = cache.key_for(make_mutant(line=9), project, ())
