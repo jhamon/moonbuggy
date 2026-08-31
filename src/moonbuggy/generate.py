@@ -1,11 +1,11 @@
 """Mutant generation: source -> AST -> candidate mutants.
 
 AST-based rather than text substitution, which is what keeps mutations out of
-string literals and comments for free (criterion C2) and gives exact line and
+string literals and comments for free, and gives exact line and
 column positions for reporting.
 
 This module knows nothing about which operators exist. It asks the registry and
-walks the tree -- adding an operator requires no change here (criterion B4).
+walks the tree -- adding an operator requires no change here.
 """
 
 import ast
@@ -35,7 +35,7 @@ class GenerationError(RuntimeError):
     """This module's source cannot be turned into mutants.
 
     Raised instead of letting SyntaxError or RecursionError escape, so the CLI
-    can name the offending file and carry on with the rest (criterion M1.4.1).
+    can name the offending file and carry on with the rest.
     """
 
 
@@ -86,7 +86,7 @@ def generate_mutants(
 
     Returns:
         a list of :class:`~moonbuggy.mutant.Mutant`, sorted by line then operator then
-            id, so ids are stable across runs (criterion C3).
+            id, so ids are stable across runs.
 
     Raises:
         GenerationError: if the source does not parse, or is nested so deeply that the
@@ -142,8 +142,8 @@ def _function_body_lines(tree: ast.Module) -> set[int]:
     no test by a coverage map built from test-body execution, and "no covering
     tests" is indistinguishable from "genuinely uncovered".
 
-    Three subtleties, each of which was wrong before the M1.2.6 property
-    caught it:
+    Three subtleties in deciding which lines defer, each of which was wrong
+    until the module-level-mutant tests caught it:
 
     - A function's *body* defers, but its `def` line does not. Default
       arguments, decorators and annotations are all evaluated where the `def`
@@ -244,7 +244,7 @@ def _walk(tree: ast.AST) -> Iterator[tuple[ast.AST, Context]]:
     `iter_child_nodes` throws away. That pair is what tells an operator the
     difference between the test of an `if` and the value assigned by it.
 
-    Iterative rather than recursive (criterion M1.4.8). A recursive walk raises
+    Iterative rather than recursive. A recursive walk raises
     RecursionError on deeply nested source at a depth well below what CPython
     itself will parse, and the traceback it produces names this function rather
     than the user's file -- a crash report about us for a property of their code.

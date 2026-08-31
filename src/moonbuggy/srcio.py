@@ -1,6 +1,6 @@
 """Reading and writing Python source that is not necessarily clean UTF-8.
 
-Milestone M1.4.7. `Path.read_text()` assumes UTF-8, so a file carrying a PEP 263
+`Path.read_text()` assumes UTF-8, so a file carrying a PEP 263
 coding cookie (`# -*- coding: latin-1 -*-`) either raises a UnicodeDecodeError
 that surfaced as a traceback, or -- worse -- decodes without error into the
 wrong characters and gets mutated anyway. A mis-mutated file produces a status,
@@ -170,9 +170,9 @@ def replace_line(source: str, line: int, text: str) -> str:
     Indentation and trailing whitespace both come back from the line being
     replaced, because `Mutant.original` and `Mutant.mutated` are stripped for
     display. Restoring only the indentation loses any trailing whitespace,
-    which breaks the round-trip property M1.2.4 asserts -- and a mutation that
-    quietly edits whitespace it was not asked to edit is a mutation whose
-    effect is not fully described by its own diff.
+    which breaks the round-trip property this module guarantees -- and a
+    mutation that quietly edits the whitespace it was not asked to edit is a
+    mutation whose effect is not fully described by its own diff.
 
     Args:
         source: the full source text.

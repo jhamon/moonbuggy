@@ -1,10 +1,10 @@
 """The coverage pass: one instrumented run producing a line -> covering-tests map.
 
 This is the input to coverage-guided test selection, the largest single speed
-lever in the design (4.3). Spike B settled the mechanism: pytest-cov's per-test
-contexts, which are both the fastest of the candidates measured and the only one
-recording real pytest node ids -- and node ids are what selection has to hand
-back to pytest. See docs/development/spike-b-findings.md.
+lever in the design. The mechanism is pytest-cov's per-test contexts:
+the fastest of the candidates measured, and the only one recording real pytest
+node ids -- and node ids are what selection has to hand
+back to pytest.
 
 Correctness here is asymmetric. A map missing a covering test makes moonbuggy
 run too few tests and report a false SURVIVED, which looks exactly like a real
@@ -175,7 +175,7 @@ def run_baseline_pass(
     Args:
         project_dir: project root.
         source_dir: directory to measure coverage of.
-        probes: extra unmutated runs used to detect flaky tests (M1.4.3).
+        probes: extra unmutated runs used to detect flaky tests.
         python: interpreter to run pytest with when forking is unavailable.
         timeout: seconds before one suite run is abandoned.
         extra_args: pytest arguments to add to every run.
@@ -277,9 +277,9 @@ def prewarm_reader() -> None:
 
     Doing it here collapses the two into one. The host inherits the import
     across the fork, and the parent's own read then needs nothing. Note the
-    direction is the opposite of H3, which *removed* a parent import: that one
-    was work the host was going to do anyway, and this one is work the parent
-    was going to do anyway.
+    direction is a parent import *added*: it is work the parent was going to do
+    anyway, just done earlier, and the host still imports coverage itself when
+    pytest-cov starts.
 
     Importing coverage starts no measurement and creates no `Coverage`
     object, so the host still builds its own from scratch. And coverage is not
@@ -307,8 +307,9 @@ def read_coverage_data(
             during any test contributes no contexts at all -- and then
             `all_tests()` is empty, and a module-level mutant that widens to
             "the whole suite" runs nothing and is reported NO_COVERAGE -- a
-            claim about the user's suite that is really about ours. Found by
-            the M4 hunt; see tests/test_module_level_aliases.py.
+            claim about the user's suite that is really about ours. Found
+            during a search of real-world open-source suites for module-level
+            mis-attributions; see tests/test_module_level_aliases.py.
 
     Returns:
         A :class:`LineMap` of which tests executed which lines.

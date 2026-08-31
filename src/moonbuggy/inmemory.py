@@ -7,8 +7,8 @@ refuses, and this is also the only mechanism when forking is unavailable or
 xdist workers were asked for. Nothing below is stale -- it is just no longer
 the whole story.
 
-Section 4.2 flags this as the highest-uncertainty piece in the design, with
-three named risks. What the spike found for each:
+This path carries the highest design uncertainty, with three named risks
+identified up front. What was found for each:
 
 1. COMPOSING WITH PYTEST'S ASSERT-REWRITE HOOK. Not the collision it looked
    like. pytest's hook rewrites test modules, conftest files, and registered
@@ -70,8 +70,8 @@ class _MutatingLoader(SourceFileLoader):
     `pytest`. Their suite starts failing with mutations they never asked for,
     the source files are byte-identical, and nothing points at us.
 
-    D3's obvious reading -- hash the .py files -- does not catch this, because
-    the .py files really are untouched. See docs/development/spike-a-findings.md.
+    The obvious counter-measure -- hash the `.py` files -- does not catch this,
+    because the `.py` files really are untouched.
     """
 
     def __init__(

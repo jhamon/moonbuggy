@@ -1,14 +1,14 @@
 """The fast path: apply each mutant in memory, run only its covering tests.
 
-Both speed levers from section 4 meet here. Coverage-guided selection decides
-WHICH tests run (4.1); the in-memory import hook decides HOW the mutation is
-applied (4.2). Neither writes a mutated file to disk.
+Both speed levers of the design meet here. Coverage-guided selection decides
+WHICH tests run; the in-memory import hook decides HOW the mutation is
+applied. Neither writes a mutated file to disk.
 
 One process per mutant. That is not merely convenient -- it is what makes the
 xdist story work without any cross-process state, since the mutant's identity
-travels in the environment and every worker installs it independently. See
-docs/development/spike-a-findings.md. On the warm path it is one host process
-plus one grandchild per mutant, which keeps the same isolation.
+travels in the environment and every worker installs it independently. On the
+warm path it is one host process plus one grandchild per mutant, which keeps
+the same isolation.
 
 `run_session` is the primary entry point and the one the CLI calls for a normal
 run: it does the coverage pass and the mutant runs in a single warm process.
@@ -169,7 +169,7 @@ def run_mutants(
         use_fork: force the fork path on or off; None picks the fast one.
         jobs: how many mutants to run concurrently.
         flaky: test node ids whose outcome is not reproducible; mutants selecting one
-            are settled SUSPICIOUS rather than run (M1.4.3).
+            are settled SUSPICIOUS rather than run.
         on_result: called with each :class:`Result` as it is settled.
         extra_args: pytest arguments to add to every run.
 
@@ -491,7 +491,7 @@ def run_session(
         jobs: how many mutants to run concurrently.
         probes: extra unmutated suite runs used to detect flaky tests.
         on_result: called with each :class:`Result` as it is settled, so a run killed
-            mid-flight has already emitted what it knew (M1.4.13).
+            mid-flight has already emitted what it knew.
         extra_args: pytest arguments to add to every run, baseline and mutant
             alike. A project whose real test command is not bare `pytest` --
             one that needs `--doctest-modules`, say -- is otherwise measured
@@ -704,8 +704,7 @@ def _rerun_unapplied(
     module-level statement will not re-execute, a class body has already been
     consumed. `codeswap` refuses in those cases rather than guessing, which is
     right, but until this existed the refusal arrived as SUSPICIOUS and read as
-    a finding about the user's code. One library in the M4 hunt produced 315 of
-    them.
+    a finding about the user's code. One real-world suite produced 315 of them.
 
     So they are re-run the slow way instead: a cold fork per mutant, from the
     parent, which has never imported the module under test. That is the path
@@ -800,7 +799,7 @@ def _plan(
         cache: a :class:`~moonbuggy.cache.ResultCache`, or None.
         flaky: test node ids whose outcome varied between unmutated runs. A mutant
             selecting one of them cannot be given a confident status, so it is
-            settled as SUSPICIOUS without being run at all (M1.4.3). Running it
+            settled as SUSPICIOUS without being run at all. Running it
             would produce a KILLED or SURVIVED that means nothing.
 
     Returns:

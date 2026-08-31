@@ -64,8 +64,8 @@ def index_modules(targets: Iterable[str] | None = None) -> None:
     comparison, which costs nothing. `Path(x).resolve()` over 341 modules is
     6.28ms and `os.path.realpath` is 4.11ms, so the few survivors use the
     cheaper one; `os.path.abspath` would be 60x faster again and is wrong,
-    because a project under a symlink (`/tmp` on macOS) is the case H15 had to
-    handle.
+    because a project under a symlink (`/tmp` on macOS) must resolve to the
+    same path the interpreter reports for the loaded module.
 
     Narrowing cannot produce a wrong answer, only a slower one:
     :func:`module_at` already rescans `sys.modules` on a miss.
@@ -163,7 +163,8 @@ def _exec_module_level(module: ModuleType, source: str, line: int) -> None:
     """Re-execute one module-level statement in the module's own namespace.
 
     Re-executing is only half the job, and the missing half caused two false
-    SURVIVEDs that the M4 hand verification caught in more-itertools. `exec`
+    SURVIVEDs, caught by a hand-verification pass over a real open-source
+    suite (more-itertools). `exec`
     rebinds the name **in this module only**. Any other module that did
     `from here import thing` holds its own reference, taken at import time, and
     goes on using the unmutated object -- so a test importing from a package's

@@ -1,6 +1,6 @@
 """Persistent results cache, so repeat runs skip mutants nothing has changed for.
 
-Two independent sources pointed at this (6.4): Hypothesis's replay database and
+Two widely-seen precedents pointed at this: Hypothesis's replay database and
 Ruff's incremental re-linting. Both converge on the same idea, which is why the
 design promoted it into the MVP rather than deferring it.
 
@@ -20,7 +20,7 @@ The key therefore covers the inputs a mutation run can be expected to notice:
   parts of the command line that decide what pytest does.
 
 Hashing the whole module rather than just the mutated function is deliberately
-coarser than criterion F2 requires. A mutant's behaviour can depend on anything
+coarse. A mutant's behaviour can depend on anything
 else in its module -- a helper it calls, an import, a module-level constant --
 and per-function hashing would miss those. Coarse and correct beats precise and
 occasionally stale; if this ever shows up in profiles, it is a safe thing to
@@ -250,8 +250,8 @@ class ResultCache:
         """Persist the cache, atomically.
 
         Written to a sibling temp file and renamed, so a run killed during the
-        save leaves the previous cache intact rather than a half-written file
-        (criterion M1.4.13). `os.replace` is atomic within a filesystem, and the
+        save leaves the previous cache intact rather than a half-written file.
+        `os.replace` is atomic within a filesystem, and the
         temp file is deliberately a sibling so it is on the same one.
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)

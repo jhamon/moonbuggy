@@ -18,7 +18,7 @@ from dataclasses import dataclass
 class Mutant:
     """One candidate mutation of one source line.
 
-    `id` is stable across runs for unchanged source (criterion C3) -- the
+    `id` is stable across runs for unchanged source -- the
     results cache keys on it, so a shifting id silently invalidates the cache.
     It includes an occurrence index because a single line can host several
     mutants: line 9 of the inventory fixture carries three, from three
