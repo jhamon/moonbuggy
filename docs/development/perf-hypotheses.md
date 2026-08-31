@@ -1588,3 +1588,138 @@ deferred**, on the same grounds and with one new fact against it: H28 shows
 that a great deal of per-mutant work can be hoisted into the host *without*
 letting two mutants share a process, which is the cheap half of H1's benefit
 taken at none of H1's risk.
+
+---
+
+# Fifth round: H31–H32 (C2 speed-moat defense)
+
+This round answers the competitive-intel C2 brief — "run cheap/fast operators
+first so doomed mutants die early, plus deeper warm-session reuse" — the same
+way the first four rounds answered theirs: with a profile, an in-writing
+prediction, and an A/B that refuses to call noise a win. Two prior results
+bound the space before anything is attempted:
+
+- **Per-mutant failing-fast is already shipped.** `forkserver._mutant_args`
+  passes `-x`, so a mutant whose tests kill it stops at the first failure and
+  none of its remaining selected tests run. That is the Rybarski/Cosmic-Ray
+  byte-for-byte, and this round's profile confirms it is in place on both the
+  cold child and the warm prebuilt/precollected grandchild. So "die early" is
+  already true *within* a run.
+- **H9 refuted dispatch ordering by selected-test count.** The second round
+  measured that on the canonical workloads every slow-tests mutant selects a
+  uniform 7–8 tests and every dispatched many-files mutant selects 1–2, so
+  there was no cost spread for LPT-style scheduling to reorder.
+
+This round's profile (`make profile`, h31 base) reads the same way at operator
+granularity. The worker-level distribution, one real run per shape, `--no-cache`:
+
+| shape | dispatched | operator (n) | killed | selected tests (median) |
+|---|---|---:|---:|---:|
+| slow-tests | 96/96 | arithmetic_swap (24) | 12 | 8 |
+|  |  | boundary (12), comparison_swap (12), condition_negation (12), constant_int (36) | 0 | 8 |
+| many-files | 160/640 | boundary (80), constant_int (80) | 0 | 2 |
+|  | (480 NO_COVERAGE, settled in planning, never forked) | | | |
+
+The premise both C2 levers rest on — that different operators have different
+enough per-mutant costs that running the cheap ones first saves wall clock —
+is not supported on the benchmark: every dispatched mutant selects the same
+test count. The predictions below are written before any change, per the rule.
+
+### H31 — Dispatch mutants by operator cost, cheap operators first
+
+- **Phase:** per-mutant fork / in-child test execution
+- **Premise, measured first:** the table above. Operator cost (`low`/`medium`/
+  `high`, declared on each operator and surfaced by `moonbuggy operators`) does
+  not, on these workloads, vary the per-mutant test count at all. Dispatch
+  order therefore cannot change which work runs concurrently — only which
+  slot runs it — and the wall clock is bound by the last wave either way.
+- **Predicted saving:** indistinguishable on all three shapes. This is H9's
+  refutation re-run with the C2 ordering key (operator cost) instead of H9's
+  key (selected-test count), because the brief explicitly proposes the
+  operator-tier mechanism and H9 measured a different one. The real-project
+  case where cost-ordering could matter — a suite with heterogeneous operator
+  costs and a high kill rate — is not one any canonical shape exhibits.
+- **Correctness risk:** none. Each grandchild remains an isolated process; the
+  ordering only decides which isolated grandchild takes which concurrency
+  slot, and results are reassembled by mutant index before any record exists.
+  The change is a pure, stable sort of the dispatch queue — no new machinery,
+  no new code path, invisible to every output artifact.
+- **Decision rule:** adopt only if the A/B shows no regression on any shape
+  (it is otherwise "different work for nothing", on H8's rule). If adopted, it
+  is adopted *as the C2 defense*, honestly recorded as unproven on the harness
+  rather than claimed as a win.
+- **Attempted:** yes, adopted (commit `bc2c039`). Implemented as a pure,
+  stable sort of the warm host's dispatch queue by operator cost, extracted
+  into testable helpers (`_operator_dispatch_rank`, `_cheap_first_order` in
+  `forkserver.py`) and pinned by `tests/test_fork_ordering.py`.
+- **Actual saving:** **indistinguishable on all three shapes** — exactly as
+  predicted, and the prediction was the point of measuring.
+
+  | shape | baseline `8a91638` | candidate `bc2c039` | verdict |
+  |---|---|---|---|
+  | fast-tests | 0.405s [0.345, 0.421] | 0.397s [0.376, 0.409] | indistinguishable |
+  | slow-tests | 0.578s [0.556, 0.602] | 0.594s [0.570, 0.637] | indistinguishable |
+  | many-files | 0.818s [0.730, 0.861] | 0.837s [0.702, 0.891] | indistinguishable |
+
+  **Adopted, and adopted honestly.** The decision rule said adopt if no shape
+  regresses; none does (the intervals all overlap, and no median moves more
+  than ~3%). It is kept *as the C2 defense*, not as a harness win: the
+  canonical workloads have no operator-cost spread to exploit (every dispatched
+  mutant selects the same test count), so this measurement cannot exhibit the
+  benefit the brief describes on real projects, and it is not claimed to have
+  found one. What it does prove is that the ordering is free — a stable sort of
+  an already-built queue, invisible to every output artifact, with a genuine
+  mechanism on any suite where operator cost does vary. This is the H5 rather
+  than the H8 reading: strictly-not-worse on the harness, not new machinery for
+  nothing. `check-oracle`, `check-fast-path`, `check-cli` and
+  `check-pytest-args` pass — verdicts unchanged, as the design claim (variants
+  are isolated processes keyed by job index) predicts.
+
+### H32 — Order each mutant's selected tests so the killing one runs first
+
+- **Phase:** in-child test execution
+- **Premise:** `-x` stops a doomed mutant at its first failing test. If the
+  selected tests were ordered so the most-likely-to-kill ran first, doomed
+  mutants would die at test 1. The saving is bounded by how many surplus tests
+  currently run before the first failure.
+- **Refuted by headroom before implementation, H4's way.** The canonical
+  shapes kill 12/96 on slow-tests and 0 on many-files; a killed mutant runs at
+  most 8 tests and stops at its first failure already. The total redeemable
+  work is a handful of surplus test executions per run — microseconds against
+  a sub-second total. There is also no cheap kill-likelihood signal in the
+  coverage map to order by. The mechanism is real on high-kill-rate projects
+  and untestable on the harness, so nothing is implemented.
+- **Actual saving:** none available; not implemented.
+
+### This round's outcome
+
+**Both C2 levers were answered with a measurement, and the answer is the same
+for each: the premise is absent on the benchmark.** H31 (dispatch cheap
+operators first) was implemented and found free but indistinguishable on all
+three shapes — adopted as the C2 defense because it cannot regress and has a
+genuine mechanism on real suites. H32 (order each mutant's selected tests to
+maximise `-x`) was refuted by headroom before implementation: the canonical
+shapes kill 12/96 on slow-tests and 0 on many-files, so the redeemable work is
+microseconds. And the "deeper warm-session reuse" half of the brief is
+recorded as already at its correctness boundary: every remaining hoistable
+per-mutant constant was taken across four rounds (config, collection, source
+read, module index, heap freeze), and the two remaining big buckets — per-mutant
+fork (H1) and the coverage pass (H26) — are rejected or deferred specifically
+because the change that would remove each carries a wrong-status or false-
+SURVIVED risk. The failing-fast floor the brief appeals to (`-x`, "a mutant is
+killed as soon as one test fails") has been in place since before this round.
+
+One finding is worth more than the adopted change. The benchmark shapes the
+A/B is judged on cannot distinguish a "failing-fast operator ordering" from
+no ordering at all, because every dispatched mutant selects the same test
+count. That is not a failing of the idea — it is a property of the harness —
+and it is exactly the kind of measurement this register exists to write down
+so the next round does not re-attempt the same free-but-invisible change.
+
+`make test`, `make check-oracle`, `make check-fast-path`, `make check-cli` and
+`make check-pytest-args` pass on `bc2c039`. `make lint` and `make format-check`
+could not run green on the shared checkout: 12 uncommitted ruff findings in
+`scripts/metrics_dashboard.py` and `tests/test_killreason_vocabulary.py`
+belong to a concurrent lane's in-flight work, not to this change — every file
+this round touched passes `ruff check`, `ruff format --check`, `pydoclint` and
+`interrogate` (100%) and `mypy --strict` individually.
