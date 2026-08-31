@@ -60,6 +60,7 @@ architecture
 writing-an-operator
 api/index
 releasing
+content-guidelines
 about
 ```
 
