@@ -36,6 +36,7 @@ JSON round trip, and the controller reads the flag off the deserialised report
 in `pytest_runtest_logreport`.
 """
 
+from enum import StrEnum
 from typing import Any
 
 # pytest is imported lazily, inside the two functions that need it. This
@@ -57,6 +58,77 @@ TESTS_ERRORED = 72
 # because it crosses pytest's own report serialisation, where a collision with
 # a field pytest or another plugin owns would be silent.
 FLAG = "moonbuggy_errored"
+
+
+# ── Kill reason enumeration ─────────────────────────────────────────────────
+# The stable vocabulary for the JSONL `killreason` field. Each member is a
+# machine-readable token consumed by human triage, the JSONL schema, and agent
+# workflows. The tokens are never free-text; a parser comparing two records
+# compares these values directly.
+#
+# This enum is a versioned contract: adding or removing a member is a breaking
+# change that requires a schema version bump. The current vocabulary is frozen
+# per docs/contracts/killreason-v1.md.
+#
+# These sit in this module because @moonbuggy-qa owns the reason taxonomy:
+# every reason the classifier can produce is defined here, and every consumer
+# of the JSONL schema reads these exact tokens.
+
+
+class KillReasonCode(StrEnum):
+    """Stable per-kill reason — one token per verdict cause.
+
+    Each member is its own string value (``StrEnum``), so it compares equal to
+    the string token it carries and serialises to that token in JSON. The
+    ``.code`` property is an explicit alias for the string value, and
+    ``.label`` is the human-readable form for documentation and the human trace.
+    """
+
+    ASSERTION_FAILED = "assertion_failed"
+    """A selected test's assertion failed under the mutation -- the test checked
+    the mutated behaviour and objected."""
+
+    TEST_ERRORED = "test_errored"
+    """A selected test errored out under the mutation -- the test executed the
+    line but did not check its result."""
+
+    EXECUTION_CRASH = "execution_crash"
+    """Pytest could not complete: collection error, internal error, usage error,
+    or nothing collected. Not a statement about the mutation."""
+
+    FLAKY_PROBE = "flaky_probe"
+    """Test outcomes disagreed across unmutated runs -- a selected test behaved
+    inconsistently, so no confident verdict is possible."""
+
+    @property
+    def code(self) -> str:
+        """Machine-readable code, identical to the enum value (the JSONL token)."""
+        return self.value
+
+    @property
+    def label(self) -> str:
+        """Human-readable label, derived from the human trace."""
+        _LABELS = {
+            "assertion_failed": "assertion failed",
+            "test_errored": "test errored",
+            "execution_crash": "execution crash",
+            "flaky_probe": "flaky probe",
+        }
+        return _LABELS[self.value]
+
+
+# Module-level constants — aliases for the enum members so existing imports
+# keep working. Each constant IS the corresponding KillReasonCode member, which
+# IS a str (StrEnum), so every comparison, serialisation, and format-string use
+# that worked before continues to work unchanged.
+ASSERTION_FAILED = KillReasonCode.ASSERTION_FAILED
+TEST_ERRORED = KillReasonCode.TEST_ERRORED
+EXECUTION_CRASH = KillReasonCode.EXECUTION_CRASH
+FLAKY_PROBE = KillReasonCode.FLAKY_PROBE
+
+# Every killreason that is a real reason (rather than None). Seeded from the
+# enum so the schema doc and any future validator have one source of truth.
+_KILLREASONS = frozenset(KillReasonCode)
 
 
 class KillReason:

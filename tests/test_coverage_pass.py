@@ -51,7 +51,7 @@ def test_uncovered_line_maps_to_no_tests(linemap):
 
 
 def test_all_tests_lists_the_whole_suite(linemap):
-    assert len(linemap.all_tests()) == 14
+    assert len(linemap.all_tests()) == 23
 
 
 def test_node_ids_are_usable_as_pytest_arguments(linemap):

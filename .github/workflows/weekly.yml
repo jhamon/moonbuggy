@@ -27,6 +27,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: make check-differential PYTHON=$(command -v python)
+      - run: make check-oracle-gate PYTHON=$(command -v python)
       - run: make oss-hunt PYTHON=$(command -v python)
       - if: failure()
         run: ./scripts/report_ci_failure.sh weekly-failure "Weekly CI tier failing"
