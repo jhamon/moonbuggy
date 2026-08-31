@@ -32,21 +32,10 @@ drive — no install, no setup, no configuration file.
 
 ## How this was built
 
-moonbuggy was built by Jennifer Hamon using AI agents — a combination of
-Anthropic's Claude models and open-weight models accessed through
-OpenRouter, orchestrated across several harnesses: Claude Code, Hermes
-Agent, and Pi. The project itself is an experiment in a specific
-hypothesis: that quality outcomes in software come from careful
-direction and verification, not from raw output volume. Every change
-is reviewed, tested, and verified by a human before it ships.
-
-The purpose is not to maximize features or lines of code. It is to
-learn how to build with quality — what practices make agents produce
-better results, what gates catch their mistakes, and how to run a team
-where the humans set the direction and the agents do the work.
-
-Jennifer Hamon is the owner and sole human contributor. The commit
-history is transparent about which agent authored each change.
+moonbuggy was built by Jennifer Hamon as a project to explore different
+models and ways of working with AI agents. It was created using a
+variety of models and agent harnesses, including Anthropic's Claude
+models and open-weight models through OpenRouter.
 
 ## License
 
