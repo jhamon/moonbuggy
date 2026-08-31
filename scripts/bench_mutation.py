@@ -29,6 +29,16 @@ PYTHON = str(REPO / ".venv" / "bin" / "python")
 FIXTURE = REPO / "tests" / "fixtures" / "sample_project"
 TIMEOUT = 8
 
+# When set, the harness writes a numbers-pipe JSONL (scripts/harness_output.py)
+# of every moonbuggy measurement to this path, so a dashboard or PR can quote a
+# versioned, hypothesis-tagged row instead of a prose table.
+HARNESS_OUTPUT = os.environ.get("MB_HARNESS_OUTPUT")
+
+# The perf-hypotheses tag these bench numbers belong to. G1-G4 measures the
+# whole engine against its own bar, not one hypothesis in isolation, so the
+# honest tag is the reserved "baseline" marker rather than a single H-number.
+BENCH_HYPOTHESIS = "baseline"
+
 # mutmut needs the project's imports to resolve to the mutants/ tree it builds.
 # The fixture's own pytest.ini points at the real source, so it is rewritten in
 # mutmut's copy only. This is tool-specific setup, not a handicap: without it
@@ -283,6 +293,8 @@ def main():
             "  proving every expected mutant is generated."
         )
 
+    emit_numbers(speed_rows, fixture_rows)
+
     failures = []
     if not beats_mutmut:
         failures.append("G2: moonbuggy is not faster than mutmut")
@@ -294,6 +306,57 @@ def main():
 
 def _verdict(ok):
     return "PASS" if ok else "FAIL"
+
+
+def emit_numbers(speed_rows, fixture_rows):
+    """Write every moonbuggy measurement to the numbers-pipe JSONL.
+
+    Emits one row per measurement *of moonbuggy* (the G1-G4 verdict compares
+    moonbuggy to its own bar; mutmut and the naive baseline are comparators, not
+    numbers to archive as ours). Rows carry the reserved ``baseline`` hypothesis
+    tag and are validated before write, so a corrupted row never lands.
+
+    Args:
+        speed_rows: the three (label, elapsed, count, counts) rows for the
+            speed workload.
+        fixture_rows: the same for the fixture workload.
+
+    Returns:
+        None.
+    """
+    if not HARNESS_OUTPUT:
+        return
+
+    # scripts/ is this module's own directory, already on sys.path when the
+    # script is run directly; src/ is added by run_naive earlier in main() so a
+    # bench run's moonbuggy is the local tree, not some installed copy.
+    import harness_output
+
+    out_path = Path(HARNESS_OUTPUT)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    from moonbuggy import __version__
+
+    rows = [("fixture", fixture_rows), ("speed", speed_rows)]
+    for suite, group in rows:
+        for label, elapsed, count, _counts in group:
+            if label != "moonbuggy":
+                continue
+            doc = harness_output.build(
+                suite=suite,
+                purpose="bench",
+                harness="bench_mutation.py",
+                wall_clock=elapsed,
+                mutants=count,
+                hypothesis=BENCH_HYPOTHESIS,
+                moonbuggy=__version__,
+            )
+            errors = harness_output.validate(doc)
+            if errors:
+                raise SystemExit(f"harness-output row invalid: {errors}")
+            harness_output.write_jsonl(doc, out_path)
+
+    print(f"  wrote {len(rows)} numbers-pipe rows to {out_path}")
 
 
 if __name__ == "__main__":

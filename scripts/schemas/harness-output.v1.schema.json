@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moonbuggy.dev/schemas/harness-output.v1.schema.json",
+  "title": "moonbuggy perf-harness output document (D2 numbers pipe)",
+  "description": "One machine-readable row of performance numbers produced by a moonbuggy benchmark harness run. Every field a consumer of perf numbers depends on is frozen here; a change that adds, renames, or re-types a key raises the schema version rather than silently shifting the contract. This document is the single source of truth for perf numbers -- numbers quoted in docs, dashboards, or PRs must come from a conforming document.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "const": 1,
+      "description": "Version of this contract. Every conforming document carries it so a reader with one line knows exactly what that line means."
+    },
+    "suite": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Which workload or suite was measured. One of the canonical shapes (fast-tests, slow-tests, many-files) or a fixture name."
+    },
+    "hypothesis": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The perf-hypotheses tag this measurement belongs to (e.g. H21), or the literal 'baseline' for an untagged reference run. A hypothesis tag is what lets a dashboard group the numbers that measure one idea."
+    },
+    "purpose": {
+      "type": "string",
+      "enum": ["bench", "ab", "profile"],
+      "description": "Which harness produced the row."
+    },
+    "harness": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The script that emitted the row, e.g. bench_mutation.py."
+    },
+    "moonbuggy": {
+      "type": "string",
+      "description": "moonbuggy __version__ of the tree measured."
+    },
+    "commit": {
+      "type": "string",
+      "minLength": 7,
+      "description": "Git commit (short or full) the numbers were measured on. A perf number is a fact about a specific snapshot of code, so the snapshot is part of the contract."
+    },
+    "python": {
+      "type": "string",
+      "description": "Interpreter version, e.g. 3.12.13."
+    },
+    "host": {
+      "type": "string",
+      "description": "platform.system() and release(), e.g. Darwin 24.1.0."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the row was produced, UTC."
+    },
+    "wall_clock": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Reported run time in seconds -- the median over `runs` where a harness takes more than one measurement."
+    },
+    "runs": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many runs the median in wall_clock is over. A single measurement is runs=1; the A/B and profile harnesses default higher."
+    },
+    "mutants": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Mutants the run measured."
+    },
+    "mutants_per_sec": {
+      "type": "number",
+      "minimum": 0,
+      "description": "mutants / wall_clock. The throughput figure that makes raw wall-clock comparable between machines that run different mutant counts."
+    },
+    "memory_delta": {
+      "type": "number",
+      "description": "Signed peak-RSS difference in bytes between the candidate and its comparator (baseline ref, or the unprofiled run). Zero when a single measurement has no comparator."
+    },
+    "memory_baseline_bytes": {
+      "type": "number",
+      "description": "The peak-RSS bytes memory_delta is differenced against. Absent when there is no comparator."
+    },
+    "median": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Pass-through of the harness's per-run median wall clock, equal to wall_clock when wall_clock already is the median."
+    },
+    "min": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Fastest single run, seconds."
+    },
+    "interval": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "type": "number", "exclusiveMinimum": 0 },
+      "description": "The harness's 95% confidence interval on the median, when it produces one (the A/B harness does)."
+    }
+  },
+  "required": [
+    "schema", "suite", "hypothesis", "purpose", "harness",
+    "moonbuggy", "commit", "python", "host", "timestamp",
+    "wall_clock", "runs", "mutants", "mutants_per_sec", "memory_delta"
+  ]
+}

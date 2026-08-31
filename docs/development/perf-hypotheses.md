@@ -12,6 +12,16 @@ that the profile which would have prevented it was cheap. So: profile first
 (`make profile`), predict in writing, then measure with `make ab`, which
 declines to call a winner when the confidence intervals overlap.
 
+**Where the numbers live.** Every number quoted in this document or in
+`benchmark-results.md` must come from a conforming harness-output row — the
+versioned contract in `scripts/schemas/harness-output.v1.schema.json`, built
+and validated by `scripts/harness_output.py`. That is the single source of
+truth for perf numbers (the "D2 numbers pipe"): the suite, wall-clock,
+mutants/sec, memory delta, and a hypothesis tag travel together as one row, so
+a number is never untethered from the suite it was measured on or the
+hypothesis it answers. A change that adds or re-types a field raises the
+schema version rather than shifting the shape under a reader.
+
 ---
 
 ## The profile these are ranked against
