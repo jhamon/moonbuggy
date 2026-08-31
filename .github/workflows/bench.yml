@@ -1,0 +1,43 @@
+name: Bench
+
+# The speed-moat defense (criterion C2:.`make bench-ci` runs the G1-G4
+# comparative benchmark and gates moonbuggy's own-speed wall-clock against the
+# committed baseline in intel/perf-baseline.json (-- the moat instrumentthat the
+# numbers-pipe archive intel/perf-bench.jsonl keeps the evidence Every command is
+# the same one a developer runs locally; nothing here is CI-specific except the
+# commit-back of the intel/ artifacts (rows write themselves`.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # 03:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      - name: "bench + speed-moat gate (30 min cap)"
+        run: make bench-ci PYTHON=$(command -v python)
+      - name: Commit back the intel/ perf evidence(no-op if unchanged
+        run: |
+          git config user.name "moonbuggy-boss"
+          git config user.email "boss@moonbuggy.local"
+          git add intel/perf-bench.jsonl intel/perf-baseline.json intel/perf-bench.md
+          if git diff --cached --quiet; then
+            echo "perf evidence unchanged; nothing to commit"
+          else
+            git commit -m "intel: auto-update perf-bench baseline/evidence [skip-ci]"
+            git push
+          fi
