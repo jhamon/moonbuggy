@@ -6,6 +6,18 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Performance
+
+- **Mutants are now dispatched cheap operators first, so a run that enables
+  the `deep` tier (e.g. `statement_deletion`) evaluates its expensive mutants
+  last.** The warm host's concurrency queue is ordered by the same operator
+  cost buckets `moonbuggy operators` reports, cheapest first. Each mutant
+  still runs in its own isolated process and results are reassembled by
+  mutant id, so the ordering is invisible to every output artifact; on the
+  benchmark's three shapes the A/B is indistinguishable (they have no
+  operator-cost spread to exploit), and no shape regressed. See H31 in
+  `docs/development/perf-hypotheses.md`.
+
 ### Fixed
 
 - **The results cache now sees `conftest.py` and the mutated module's

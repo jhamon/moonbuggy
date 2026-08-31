@@ -1067,6 +1067,59 @@ def _warm_host(
         os._exit(0)
 
 
+def _operator_dispatch_rank() -> dict[str, int]:
+    """Map each operator name to its cost rank, cheapest first.
+
+    The C2 "failing-fast" ordering key: dispatch cheap operators before
+    expensive ones so that, on a project where operator cost actually varies,
+    the cheap high-signal mutants are the first to occupy the concurrency pool
+    and the first to report. Cost is the same three coarse buckets
+    `moonbuggy operators` reports, so the ordering is opinionated but honest:
+    exactly the ordering the tool already advertises, applied to scheduling.
+
+    Built once -- the operator set is fixed for the life of the process. An
+    empty dict means "no ordering": dispatch falls back to job order, which is
+    the prior behaviour and is identical in every output artifact either way,
+    because statuses are keyed by job index, never by dispatch position.
+
+    Returns:
+        operator name -> cost rank, where a smaller rank is cheaper. An
+        operator missing from the map (it cannot happen inside one version,
+        since generation and dispatch read the same registry) sorts last.
+    """
+    try:
+        from .operators import COSTS, describe_operators
+
+        return {info.name: COSTS.index(info.cost) for info in describe_operators()}
+    except Exception:
+        # No operator metadata -> a stable no-op ordering. An ordering that
+        # could not be built must not be able to misorder a real dispatch.
+        return {}
+
+
+def _cheap_first_order(jobs: list[Job], cost_rank: dict[str, int]) -> list[int]:
+    """Job indices in dispatch order: cheap operators first, ties stable.
+
+    Args:
+        jobs: the queued jobs.
+        cost_rank: operator name -> rank from :func:`_operator_dispatch_rank`.
+
+    Returns:
+        the job indices in dispatch order. Equal-cost jobs keep their caller
+        order (stable), and a job whose operator is absent from `cost_rank`
+        sorts last rather than first -- the conservative direction, since this
+        ordering only ever decides which concurrency slot runs an isolated
+        process. An empty `cost_rank` returns identity (job order).
+    """
+    if not cost_rank:
+        return list(range(len(jobs)))
+    worst = len(cost_rank)
+    return sorted(
+        range(len(jobs)),
+        key=lambda i: cost_rank.get(jobs[i].mutant.operator, worst),
+    )
+
+
 def _fork_grandchildren(
     jobs: list[Job],
     timeout: float,
@@ -1097,10 +1150,20 @@ def _fork_grandchildren(
             collect per grandchild. See :func:`precollect`.
 
     Returns:
-        the statuses, in job order.
+        the statuses, in job order. Dispatch order is cheap operators first
+        (:func:`_operator_dispatch_rank`); because each grandchild is an
+        isolated process and statuses are keyed by job index, the schedule is
+        invisible to every result artifact.
     """
     statuses: list[Status | None] = [None] * len(jobs)
-    pending = list(enumerate(jobs))
+    # C2 failing-fast ordering: cheap operators first. Only which concurrency
+    # slot runs which *isolated* grandchild changes -- statuses are keyed by
+    # the original index below, so no record can move, and the parent's result
+    # stream is reassembled by index regardless of schedule.
+    pending = [
+        (index, jobs[index])
+        for index in _cheap_first_order(jobs, _operator_dispatch_rank())
+    ]
     running: dict[int, tuple[int, int, float, float]] = {}
 
     while pending or running:
