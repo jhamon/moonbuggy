@@ -294,7 +294,7 @@ the suite asks for the `all` tier by name (`EVERY_OPERATOR` in
 `_mutants` rather than calling it directly.
 
 If your operator legitimately cannot hold one of the six, say so in that
-property's docstring with the reasoning, the way M1.2.2 does for statement
+property's docstring with the reasoning, the way the suite handles statement
 deletion — do not weaken the property for everyone. A narrowing that is written
 down is a design decision; a narrowing that is not is a hole.
 

@@ -1,8 +1,8 @@
-# Benchmark results (criteria G1–G4)
+# Benchmark results
 
 Reproduce with `make bench`. Python 3.12.13, Darwin 24.1.0, 14 CPUs, 8s timeout.
 
-## G2 verdict: **MET** — 1.85x faster than mutmut
+## Verdict: 1.85x faster than mutmut
 
 ### Speed workload (generated; test execution dominates startup)
 
@@ -17,7 +17,7 @@ Median of three consecutive runs.
 - **vs mutmut: 1.85x — PASS.** Three consecutive runs gave 1.89x, 1.85x,
   1.85x.
 - **vs naive: 38.0x — PASS.** Three consecutive runs gave 38.2x, 38.0x,
-  37.9x. This is the design's own bar (§1.2).
+  37.9x. This is the improvement the design sets out to demonstrate.
 
 moonbuggy is now ahead on raw throughput as well (168 vs 117 mut/sec), which it
 was not at the previous recording. That is worth stating plainly rather than
@@ -30,9 +30,9 @@ stopped pointing the other way.
 ### Do not subtract these ratios from the previous ones
 
 This table previously read 1.49x against mutmut and 30.1x against naive, and
-1.07x / 17.5x before that. The H13–H20 round (recorded in
-`docs/development/perf-hypotheses.md`) is part of why the numbers moved, but
-**it is not the whole of why.** Every tool in the comparison moved:
+1.07x / 17.5x before that. The latest tuning round is part of why the numbers
+moved, but **it is not the whole of why.** Every tool in the comparison
+moved:
 
 | tool | two recordings ago | previous recording | now |
 |---|---:|---:|---:|
@@ -43,9 +43,9 @@ This table previously read 1.49x against mutmut and 30.1x against naive, and
 Between the last two recordings moonbuggy got 24% faster on this workload while
 mutmut got 7% faster and the naive baseline 5% faster, on a machine in a
 different state again. The controlled figure for what this round actually
-changed is the interleaved A/B in the register — **1.12x, 1.20x and 1.30x on
+changed is the interleaved A/B comparison — **1.12x, 1.20x and 1.30x on
 the three shapes** — not the movement in this table. Neither mutmut nor
-`naive.py` shares a single line with anything H13–H20 touched: `naive.py` is a
+`naive.py` shares a single line with anything in that round touched: `naive.py` is a
 `subprocess.run` per mutant and reaches none of the forkserver, codeswap or
 coverage-pass code that changed.
 
@@ -54,7 +54,7 @@ So:
 - **The ratios above are honest as ratios.** All three tools are measured in
   one session on one machine, and they are stable across three consecutive
   runs.
-- **The ratios are not a controlled measurement of the H7–H12 changes.** For
+- **The ratios are not a controlled measurement of the earlier tuning round.** For
   that, use `make ab`, which interleaves two git refs and reports a bootstrap
   interval: it puts the round at **1.29x (fast-tests), 1.59x (slow-tests) and
   1.89x (many-files)**. That is the number to quote for "how much did this
@@ -105,8 +105,7 @@ run. Two changes wasted; the lesson is that the profile was cheap and I should
 have taken it first.
 
 > **`--assert=plain` was later adopted, and this paragraph still stands.** It
-> is H12 in the performance register (`docs/development/perf-hypotheses.md`),
-> where it measures as a real 1.03–1.10x. Nothing here was wrong: the flag *was*
+> now measures as a real 1.03–1.10x. Nothing here was wrong: the flag *was*
 > noise in the architecture it was tried in, where 139ms of per-mutant test
 > imports dwarfed it. Once the warm session removed those imports, the same
 > flag was 26% of what remained. A change rejected against one architecture is
@@ -114,11 +113,10 @@ have taken it first.
 > rejections on the record with their reasoning attached, rather than only
 > their verdict.
 
-## The second round — H7–H12
+## The second round
 
-A later round of six hypotheses, four adopted, is recorded in full in the
-performance register at `docs/development/perf-hypotheses.md` — kept in the
-repository rather than published here, since it is a development record. Its
+A later round of six changes, four adopted, is recorded in the repository's
+development notes rather than published here, since it is a development record. Its
 finding, in one line: most of what the profile called "per-mutant fork" was
 not `fork()` but
 work repeated identically inside every grandchild that the warm host could do
@@ -128,7 +126,7 @@ slow-tests and 1.89x on many-files**, with per-mutant fork falling from
 
 ### The architecture that closed it
 
-Two mechanisms, both anticipated by §4.2, working together:
+Two mechanisms working together:
 
 1. **A single warm session.** One forked host runs the suite *under coverage* —
    which simultaneously builds the line→test map and imports every test module.
@@ -150,17 +148,17 @@ Where neither applies — a decorator has replaced the function object, say —
 forks with the import hook. A mutation that quietly fails to apply reports a
 false SURVIVED, which is indistinguishable from a real finding.
 
-## G3: is moonbuggy fast because it does less?
+## Is moonbuggy fast because it does less?
 
 **No, and the check that shows it is not the mutmut comparison.** Counts against
 mutmut cannot answer this, because the two implement different operator sets.
 
 The naive baseline shares moonbuggy's operators exactly, so an equal count there
 is the real test: **84 == 84**, with identical status breakdowns. Nothing is
-pruned. The A2b inventory test independently proves every expected mutant is
-generated, from labels written before the engine existed.
+pruned. An inventory test independently proves every expected mutant is generated,
+from labels written before the engine existed.
 
-## G4: reproducibility
+## Reproducibility
 
 `make bench` regenerates every number. The workload comes from a deterministic
 template; the fixture is version-controlled.
