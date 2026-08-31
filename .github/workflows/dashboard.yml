@@ -1,0 +1,39 @@
+name: Dashboard
+
+# Regenerates intel/metrics-dashboard.md on every push to main and commits the
+# result back, so rows write themselves instead of being hand-typed by a bot.
+# The dashboard is the boss-owned READ surface: CI composes each row from the
+# machine artifacts the gates already produce (docs/differential.json,
+# docs/oracle-gate.json) plus a coverage pass -- never a hand-typed number.
+# It refuses to write when the correctness spine is missing, so a made-up row
+# can never land.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      - name: Generate the dashboard row
+        run: make dashboard PYTHON=$(command -v python)
+      - name: Commit it back (no-op if unchanged)
+        run: |
+          git config user.name "moonbuggy-boss"
+          git config user.email "boss@moonbuggy.local"
+          git add intel/metrics-dashboard.md
+          if git diff --cached --quiet; then
+            echo "dashboard unchanged; nothing to commit"
+          else
+            git commit -m "intel: auto-update metrics-dashboard row [skip-ci]"
+            git push
+          fi

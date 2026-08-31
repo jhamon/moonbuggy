@@ -134,7 +134,7 @@ wrong. See [Troubleshooting](troubleshooting.md).
 One line per mutant, never wrapped, never containing a newline:
 
 ```{code-block} text
-SURVIVED  app/pricing.py:14 comparison_swap line=14 nearest_test=tests/test_pricing.py::test_discount tests_run=3 id=app/pricing.py:14:comparison_swap:0
+SURVIVED  app/pricing.py:14 comparison_swap line=14 nearest_test=tests/test_pricing.py::test_discount tests_run=3 killreason=- id=app/pricing.py:14:comparison_swap:0
 ```
 
 Whitespace-split gives you positional fields followed by `key=value` tokens:
@@ -144,7 +144,7 @@ Whitespace-split gives you positional fields followed by `key=value` tokens:
 | 1 | status | one of the seven keywords |
 | 2 | `file:line` | the location, in the form editors and terminals linkify |
 | 3 | category | currently the operator name |
-| 4+ | `key=value` | `line`, `nearest_test`, `tests_run`, `id` |
+| 4+ | `key=value` | `line`, `nearest_test`, `tests_run`, `killreason`, `id` |
 
 A field with no value prints as `-` rather than as an empty string, so the token
 count per line is constant and a naive parser never has to special-case a
@@ -437,7 +437,7 @@ lines are stable byte-for-byte for unchanged input.
 
 | key | type | meaning |
 |---|---|---|
-| `schema` | integer | the record schema this line was written in; `3` today |
+| `schema` | integer | the record schema this line was written in; `4` today |
 | `id` | string | `file:line:operator:index` — stable across runs for unchanged source |
 | `status` | string | one of the seven keywords |
 | `file` | string | path relative to the project root |
@@ -455,6 +455,7 @@ lines are stable byte-for-byte for unchanged input.
 | `diff` | string | two lines: `- original` then `+ mutated` |
 | `accepted` | boolean | true when a live entry in the accepted-equivalents ledger covers this mutant |
 | `accept_reason` | string or null | the reason recorded for it, or null |
+| `killreason` | string or null | why a killed mutant died; one of `assertion_failed`, `test_errored`, `execution_crash`, or `flaky_probe`; null for non-kill statuses. Added in schema 4. |
 
 `original` and `mutated` are the two operands `diff` is assembled from. They
 are carried separately so a reader that wants the delta never has to parse a
@@ -473,7 +474,10 @@ no `accepted`/`accept_reason` keys; schema `2` adds them and the `schema` field
 itself; schema `3` adds `logging_call`, and with it widened what `suppressed`
 means — on a schema-2 line `suppressed` is always the `# moonbuggy: skip`
 marker, while on a schema-3 line it is that *or* a suppressed logging call, and
-`logging_call` is the discriminator. moonbuggy upgrades an older line to today's shape as it reads it, so
+`logging_call` is the discriminator; schema `4` adds `killreason`, which carries
+the stable reason enumeration from :mod:`moonbuggy.killreason` — a record
+written by an older version has `null` here, since no older version could have
+written it. moonbuggy upgrades an older line to today's shape as it reads it, so
 `moonbuggy show` and the human report work on a results file written by an
 older version — but a reader of its own should check the field rather than
 assume, and a line with no `schema` key at all is schema 1 by definition.

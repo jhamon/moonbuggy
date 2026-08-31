@@ -79,6 +79,12 @@ templates_path = ["_templates"]
 # moonbuggy, not to whoever is using it. They stay in the tree -- source
 # comments cite them by path -- but nine sidebar entries of build history is
 # not what a newcomer to mutation testing should have to read past.
+#
+# `docs/contracts` is the versioned cross-bot interface (D1/D2) -- the harness
+# feed, the verdict vocabulary. It is a build/CI contract, not user docs: the
+# changelog, dashboard, and release receipts are derived from it, but readers
+# of moonbuggy do not. It has no toctree entry and is excluded for the same
+# reason as `development` (a `-W` build errors on a page with no toctree home).
 exclude_patterns = [
     "_build",
     "Thumbs.db",
@@ -86,6 +92,7 @@ exclude_patterns = [
     "README.md",
     "superpowers",
     "development",
+    "contracts",
 ]
 
 html_theme = "furo"

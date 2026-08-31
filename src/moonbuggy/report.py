@@ -37,7 +37,10 @@ from .runner import Result
 # 1: the original record, before the accepted-equivalents ledger.
 # 2: `accepted` and `accept_reason`, and this field.
 # 3: `logging_call`, which also widened what `suppressed` can mean.
-RECORD_SCHEMA = 3
+# 4: `killreason`, which carries the stable reason enumeration for every
+#    verdict (assertion_failed, test_errored, execution_crash, flaky_probe,
+#    or null).
+RECORD_SCHEMA = 4
 
 # The version of the run summary -- `summary.json` and `--json`. Separate from
 # RECORD_SCHEMA because they are separate documents that will move for separate
@@ -56,6 +59,11 @@ _SCHEMA_1_DEFAULTS: dict[str, object] = {"accepted": False, "accept_reason": Non
 # version with no logging policy generated these mutants without recognising
 # any of them, so "not a logging mutant" is what that file actually claims.
 _SCHEMA_2_DEFAULTS: dict[str, object] = {"logging_call": False}
+
+# The same, for the key schema 4 added. None is the honest fill: a record
+# written by a version with no killreason enumeration has no reason to report,
+# and a reader that sees None knows the field was absent rather than empty.
+_SCHEMA_3_DEFAULTS: dict[str, object] = {"killreason": None}
 
 # The whole status vocabulary. Every plaintext line begins with one of these,
 # so adding a keyword is a breaking change for anyone grepping: NO_COVERAGE
@@ -120,6 +128,12 @@ class Record(TypedDict):
     diff: str
     accepted: bool
     accept_reason: str | None
+    killreason: str | None
+    """Why this mutant was killed, or None. One of the
+    :mod:`moonbuggy.killreason` enumeration, stable across runs -- a consumer
+    comparing two records compares this token directly. None for any status
+    where no reason applies (survivors, timeouts, uncovered lines, skipped
+    mutants). Added with record schema 4."""
 
 
 def record_for(result: Result, reason: str | None = None) -> Record:
@@ -173,6 +187,9 @@ def record_for(result: Result, reason: str | None = None) -> Record:
         # verdict, and this says a human has already explained it.
         "accepted": reason is not None,
         "accept_reason": reason,
+        # The stable reason id, from the same enumeration the plaintext
+        # line carries. None for any status where no reason applies.
+        "killreason": result.killreason,
     }
 
 
@@ -289,7 +306,12 @@ def _upgraded(record: dict[str, object]) -> Record:
     # schema-2 line gains only what schema 3 added and a schema-1 line gains
     # both. Adding a fourth version means adding one more mapping here, not
     # branching on the version number.
-    upgraded = {**_SCHEMA_1_DEFAULTS, **_SCHEMA_2_DEFAULTS, **record}
+    upgraded = {
+        **_SCHEMA_1_DEFAULTS,
+        **_SCHEMA_2_DEFAULTS,
+        **_SCHEMA_3_DEFAULTS,
+        **record,
+    }
     upgraded.setdefault("schema", 1)
     return upgraded  # type: ignore[return-value]  # same reason as the early-return above
 
@@ -297,11 +319,11 @@ def _upgraded(record: dict[str, object]) -> Record:
 def render_line(record: Record) -> str:
     """One plaintext line for one record. Never contains a newline.
 
-    Whitespace-separated, in a fixed field order: status, `file:line`,
-    category, `line=`, `nearest_test=`, `tests_run=`, `id=`. The status is
-    padded to nine columns for the eye only -- `NO_COVERAGE` and
-    `KILLED_BY_ERROR` are longer and push the rest of the line right, so parse
-    by splitting rather than by column.
+    Whitespace-separated, in a fixed field order: status, ``file:line``,
+    category, ``line=``, ``nearest_test=``, ``tests_run=``, ``killreason=``,
+    ``id=``. The status is padded to nine columns for the eye only --
+    ``NO_COVERAGE`` and ``KILLED_BY_ERROR`` are longer and push the rest of
+    the line right, so parse by splitting rather than by column.
 
     Args:
         record: the record to render.
@@ -317,6 +339,7 @@ def render_line(record: Record) -> str:
             f"line={record['line']}",
             f"nearest_test={record['nearest_test'] or ABSENT}",
             f"tests_run={record['tests_run']}",
+            f"killreason={record['killreason'] or ABSENT}",
             f"id={record['id']}",
         ]
     )

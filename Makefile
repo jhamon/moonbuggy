@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-fast-path check-pytest-args check-spike check-mutmut check-robustness check-properties check-cli bench bench-coverage profile ab docs docs-test docs-linkcheck blog docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install check-all
+.PHONY: test check-oracle check-fast-path check-pytest-args check-spike check-mutmut check-robustness check-properties check-cli bench bench-coverage profile ab docs docs-test docs-linkcheck blog docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install dashboard check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -151,6 +151,16 @@ check-fresh-install:
 ## Never gates; mutmut is never authoritative.
 check-mutmut:
 	$(PYTHON) scripts/check_mutmut_differential.py
+
+## Metrics-dashboard row writer (boss-owned read surface).
+## Composes one row of intel/metrics-dashboard.md from the machine artifacts
+## the gates already produce (docs/differential.json, docs/oracle-gate.json)
+## plus a pytest --cov pass. Rows write themselves; nothing is hand-typed.
+## Refuses to write a row when the correctness spine is missing, so a made-up
+## number can never land. Internal coordination surface, not an evaluator
+## criterion -- deliberately absent from check-all.
+dashboard:
+	$(PYTHON) scripts/metrics_dashboard.py
 
 check-all: lint format-check typecheck test check-oracle check-fast-path check-pytest-args check-spike check-properties check-robustness check-cli check-mutmut check-fresh-install
 

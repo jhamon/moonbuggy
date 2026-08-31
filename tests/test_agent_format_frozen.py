@@ -18,6 +18,7 @@ from moonbuggy.report import plaintext_from_records, render_line
 GOLDEN = (
     "SURVIVED  sample/inventory.py:9 comparison_swap line=9 "
     "nearest_test=tests/test_inventory.py::test_discontinued tests_run=2 "
+    "killreason=- "
     "id=sample/inventory.py:9:comparison_swap:0"
 )
 
@@ -35,7 +36,8 @@ RECORD = {
     "suppressed": False,
     "original": "return stock > 0 and not discontinued",
     "mutated": "return stock >= 0 and not discontinued",
-    "diff": "- return stock > 0\n+ return stock >= 0",
+    "diff": "- return stock > 0\\n+ return stock >= 0",
+    "killreason": None,
 }
 
 
@@ -73,7 +75,8 @@ def test_a_killed_by_error_line_keeps_the_frozen_shape():
     assert line.split()[0] == "KILLED_BY_ERROR"
     assert line.split()[1] == "sample/inventory.py:9"
     assert line.split()[2] == "comparison_swap"
-    assert line.split()[-1] == "id=sample/inventory.py:9:comparison_swap:0"
+    # The id is the last token; killreason sits between tests_run and id.
+    assert "id=sample/inventory.py:9:comparison_swap:0" in line
 
 
 def test_the_status_column_is_never_widened_by_a_longer_keyword():

@@ -40,7 +40,14 @@ from .baseline import check as check_baseline
 from .cache import ResultCache
 from .forkserver import Job, Status, WarmSessionEvidence
 from .inmemory import install
-from .killreason import TESTS_ERRORED
+from .killreason import (
+    ASSERTION_FAILED,
+    EXECUTION_CRASH,
+    FLAKY_PROBE,
+    TEST_ERRORED,
+    TESTS_ERRORED,
+    KillReasonCode,
+)
 from .mutant import Mutant
 from .plugin import MUTANT_ENV_VAR
 from .profiling import Profiler
@@ -93,6 +100,17 @@ class Result:
     duration: float
     nearest_test: str | None = None
     from_cache: bool = False
+    killreason: KillReasonCode | None = None
+    """Why this mutant was killed, or None when it was not. One of the
+    :class:`~moonbuggy.killreason.KillReasonCode` enumeration
+    (``assertion_failed``, ``test_errored``, ``execution_crash``,
+    ``flaky_probe``), or ``None`` for any status where the reason does not
+    apply -- survivors, timeouts, uncovered lines and skipped mutants. A JSONL
+    consumer comparing two records compares this token directly; it is never
+    free-text.
+
+    Added with record schema 4. On a schema-3 record read from an older file
+    it is ``None``, because no older version could have written it."""
     """Runtime metadata, deliberately kept OUT of the JSONL record: criterion F3
     requires a fully cached run's output to match a cold run's, and a field that
     differs by definition would defeat that check."""
@@ -245,6 +263,7 @@ def _run_forked_batch(
                 len(selected),
                 share,
                 nearest_test=sorted(selected)[0] if status == "SURVIVED" else None,
+                killreason=_killreason_for(status),
             )
             if on_result is not None:
                 on_result(results[index])
@@ -313,7 +332,7 @@ def run_one(
     nearest = selected[0] if selected else None
 
     if set(flaky).intersection(selected):
-        return Result(mutant, "SUSPICIOUS", len(selected), 0.0)
+        return Result(mutant, "SUSPICIOUS", len(selected), 0.0, killreason=FLAKY_PROBE)
 
     if cache is not None:
         key = cache.key_for(mutant, project_dir, selected)
@@ -333,6 +352,7 @@ def run_one(
                 duration=0.0,
                 nearest_test=hit["nearest_test"],
                 from_cache=True,
+                killreason=_killreason_for(cast(ResultStatus, hit["status"])),
             )
 
     if not selected:
@@ -369,6 +389,7 @@ def run_one(
             tests_run=len(selected),
             duration=time.perf_counter() - started,
             nearest_test=nearest if status == "SURVIVED" else None,
+            killreason=_killreason_for(status),
         )
 
     if cache is not None:
@@ -728,6 +749,28 @@ def _rerun_unapplied(
     return statuses
 
 
+def _killreason_for(status: ResultStatus, flaky: bool = False) -> KillReasonCode | None:
+    """The killreason that corresponds to a status, if any.
+
+    Args:
+        status: the verdict.
+        flaky: True when the status was settled by the flakiness detector
+            rather than by running the mutant, so SUSPICIOUS maps to
+            ``flaky_probe`` instead of ``execution_crash``.
+
+    Returns:
+        One of the :mod:`moonbuggy.killreason` enumeration, or ``None`` for
+        statuses where no reason applies.
+    """
+    if status == "KILLED":
+        return ASSERTION_FAILED
+    if status == "KILLED_BY_ERROR":
+        return TEST_ERRORED
+    if status == "SUSPICIOUS":
+        return FLAKY_PROBE if flaky else EXECUTION_CRASH
+    return None
+
+
 def _result_for(
     mutant: Mutant, status: Status, selected: list[str], duration: float = 0.0
 ) -> Result:
@@ -737,6 +780,7 @@ def _result_for(
         len(selected),
         duration,
         nearest_test=sorted(selected)[0] if status == "SURVIVED" else None,
+        killreason=_killreason_for(status),
     )
 
 
@@ -779,7 +823,13 @@ def _plan(
             # Deliberately not cached: the reason for this status is the state
             # of the suite, not the state of the source, so a later run with a
             # fixed test must not be served this answer.
-            results[index] = Result(mutant, "SUSPICIOUS", len(selected), 0.0)
+            results[index] = Result(
+                mutant,
+                "SUSPICIOUS",
+                len(selected),
+                0.0,
+                killreason=FLAKY_PROBE,
+            )
             continue
 
         if cache is not None:
@@ -794,6 +844,7 @@ def _plan(
                     0.0,
                     nearest_test=hit["nearest_test"],
                     from_cache=True,
+                    killreason=_killreason_for(cast(ResultStatus, hit["status"])),
                 )
                 continue
 

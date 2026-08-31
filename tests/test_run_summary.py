@@ -169,6 +169,7 @@ def test_older_records_are_upgraded_when_they_are_read(tmp_path):
     assert record["accept_reason"] is None
     # Every later schema's keys, not just the next one's.
     assert record["logging_call"] is False
+    assert record["killreason"] is None
     # Nothing the old file did say is overwritten.
     assert record["status"] == "SURVIVED"
 
