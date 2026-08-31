@@ -23,14 +23,18 @@
 </div>
 {%- endif %}
 
-<!-- moonbuggy: unified top-level nav bar (matching the Hugo blog theme) -->
+<!-- moonbuggy: unified top-level nav bar (matching the Hugo blog theme).
+     Links are depth-relative so they resolve correctly from any page on the
+     deployed project-Pages site (https://jhamon.github.io/moonbuggy/): we
+     prepend one '../' per directory of nesting below the site root. -->
+{% set home = '' if pagename == root_doc else ('../' * pagename.count('/')) %}
 <nav class="top-nav" aria-label="Site navigation">
-  <a href="{{ pathto('index') }}" class="nav-brand">moonbuggy</a>
+  <a href="{{ home }}index.html" class="nav-brand">moonbuggy</a>
   <ul class="nav-links">
-    <li><a href="{{ pathto('index') }}" class="active">Docs</a></li>
-    <li><a href="{{ pathto('index') }}blog/">Blog</a></li>
-    <li><a href="{{ pathto('benchmark-results') }}">Benchmarks</a></li>
-    <li><a href="{{ pathto('about') }}">About</a></li>
+    <li><a href="{{ home }}index.html" class="active">Docs</a></li>
+    <li><a href="{{ home }}blog/">Blog</a></li>
+    <li><a href="{{ home }}benchmark-results.html">Benchmarks</a></li>
+    <li><a href="{{ home }}about.html">About</a></li>
   </ul>
   <div class="nav-meta">
     <a href="https://github.com/jhamon/moonbuggy" class="nav-github" aria-label="GitHub">GitHub</a>
