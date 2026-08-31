@@ -93,6 +93,11 @@ exclude_patterns = [
     "superpowers",
     "development",
     "contracts",
+    # Internal competitive-intelligence mirror (see the header note in the
+    # file itself). It exists for repo access only, is never linked from any
+    # toctree, and must not ship to users -- same exclusion rationale as
+    # `development` and `contracts`.
+    "competitive-intel.md",
 ]
 
 html_theme = "furo"

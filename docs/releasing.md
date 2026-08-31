@@ -78,10 +78,10 @@ you're satisfied the run so far looks right.
 | `gate` | the full local `check-all` suite plus docs build, docs doctest, docs linkcheck, the mutmut differential, and the open-source hunt all pass |
 | `build` / `build-again` | the sdist and wheel build cleanly, twice, from the tagged commit |
 | `reproducible` | the two builds are byte-identical (`SOURCE_DATE_EPOCH` pinned) |
-| `smoke` | the built wheel reports the tag's version and runs H1/H2 end to end on a project it has never seen |
+| `smoke` | the built wheel reports the tag's version and runs the smoke scenarios end to end on a project it has never seen |
 | `publish` | uploads to PyPI over OIDC, behind the `pypi` environment's required reviewer |
 | `release` | creates the GitHub Release, attaching the sdist and wheel, with notes taken verbatim from the `CHANGELOG.md` section |
-| `verify` | the version just published installs from the real PyPI index and passes the same H1/H2 smoke test, run against the installed package rather than the repository |
+| `verify` | the version just published installs from the real PyPI index and passes the same smoke test, run against the installed package rather than the repository |
 
 ## When a job fails
 
@@ -130,13 +130,13 @@ the GitHub UI.
 
 `verify` installs the just-published version from the real PyPI index into a
 clean virtual environment, confirms `moonbuggy --version` reports the right
-version, and then runs the H1/H2 smoke test (a real project, a bare
+version, and then runs the smoke test (a real project, a bare
 `moonbuggy` invocation, checked output) against that installed package.
 
 What it proves: the artifact a stranger gets from `pip install moonbuggy`
 today is installable and runs end to end.
 
-What it does not prove: anything about correctness beyond what H1/H2 already
+What it does not prove: anything about correctness beyond what the smoke test already
 check, and it cannot undo a bad release if it fails — by the time `verify`
 runs, `publish` has already succeeded and the version is already spent. The
 end-to-end guarantee that matters for the decision to publish comes from
