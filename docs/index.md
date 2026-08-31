@@ -59,7 +59,6 @@ troubleshooting
 architecture
 writing-an-operator
 api/index
-releasing
 about
 ```
 
