@@ -25,7 +25,17 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PYTHON = str(REPO / ".venv" / "bin" / "python")
+# CI installs into the runner's interpreter rather than a repo .venv., so MB_PYTHON
+# lets a workflow point the bench at the python that actually has the deps installed;
+# local (no env var) keeps the historical .venv/bin/python behaviour unchanged.
+
+PYTHON = os.environ.get("MB_PYTHON") or str(REPO / ".venv" / "bin" / "python")
+# mutmut ships in the `bench` extra next to the interpreter that runs this
+# script: `.venv/bin/mutmut` locally, on PATH on a CI runner. Same
+# sibling/which resolution as differential.py-adjacent code, so `make bench`
+# works whether or not a repo `.venv` exists.
+_MUTMUT_SIBLING = Path(sys.executable).parent / "mutmut"
+MUTMUT = str(_MUTMUT_SIBLING) if _MUTMUT_SIBLING.exists() else "mutmut"
 FIXTURE = REPO / "tests" / "fixtures" / "sample_project"
 TIMEOUT = 8
 
@@ -151,7 +161,7 @@ def run_mutmut(project, package="sample"):
         f'[tool.mutmut]\nsource_paths = ["{package}/"]\n'
     )
 
-    elapsed, proc = timed([str(REPO / ".venv" / "bin" / "mutmut"), "run"], project)
+    elapsed, proc = timed([MUTMUT, "run"], project)
     output = proc.stdout.replace("\r", "\n")
 
     # mutmut's final progress line: "26/26  🎉 19 🫥 0  ⏰ 2  🤔 0  🙁 5 ..."

@@ -143,9 +143,7 @@ def _render_row(r: dict[str, Any]) -> str:
     oracle = r["oracle"] or {}
     diff = r["differential"] or {}
     notes = r.get("notes", "")
-    oracle_agree = (
-        f"{diff['agree']}/{diff['shared']}" if diff else ""
-    )
+    oracle_agree = f"{diff['agree']}/{diff['shared']}" if diff else ""
     return (
         f"| {r['date']} | {r['commit']} | {src} | | {r['gate']} | @moonbuggy-boss | "
         f"{oracle_agree} | {diff.get('shared') or ''} | "
@@ -179,11 +177,7 @@ HEADER = (
     "Columns: correctness (oracle agreement, differential disagreement, FP/FN\n"
     "history), performance (harness wall-clock, mutants/sec, hypothesis tag),\n"
     "coverage (source line %), and gate status.\n"
-    "\n"
-    + _TABLE_HEADER
-    + "\n"
-    + _TABLE_SEP
-    + "\n"
+    "\n" + _TABLE_HEADER + "\n" + _TABLE_SEP + "\n"
 )
 
 
@@ -195,9 +189,12 @@ def main() -> int:
         default=str(REPO / ".venv" / "bin" / "python"),
         help="Python interpreter to run the coverage pass with",
     )
-    ap.add_argument("--keep-rows", action="store_true",
-                    help="Retain previously-written rows (append) instead of "
-                         "replacing the file with only the current row.")
+    ap.add_argument(
+        "--keep-rows",
+        action="store_true",
+        help="Retain previously-written rows (append) instead of "
+        "replacing the file with only the current row.",
+    )
     args = ap.parse_args()
 
     differential = _load_differential(REPO / "docs" / "differential.json")
@@ -207,8 +204,7 @@ def main() -> int:
     # correctness spine). Without them, do not fabricate a row.
     if differential is None:
         print(
-            "ERROR: docs/differential.json missing/empty -- refusing to invent a "
-            "row.",
+            "ERROR: docs/differential.json missing/empty -- refusing to invent a row.",
             file=sys.stderr,
         )
         return 1
@@ -245,8 +241,11 @@ def main() -> int:
     if args.keep_rows and args.out.exists():
         old = args.out.read_text(encoding="utf-8")
         # keep prior data rows (skip header + separator + empty)
-        prior = [ln for ln in old.splitlines()
-                 if ln.startswith("| ") and not ln.startswith("| date")]
+        prior = [
+            ln
+            for ln in old.splitlines()
+            if ln.startswith("| ") and not ln.startswith("| date")
+        ]
         body = HEADER + "\n".join(prior) + "\n" if prior else body
     body += _render_row(row) + "\n"
 
