@@ -34,8 +34,8 @@ without redefining it. The schema is the contract; this page is how it is used.
 This is the load-bearing requirement of the contract. It is stated once here and
 must hold everywhere. It is part of the frozen contract, not a draft.
 
-> **`hypothesis`, when present on a document, is the same byte string from the
-> bench invocation to the feed row to the changelog entry to the outreach
+> **`hypothesis` (a required field of every document) is the same byte string from
+> the bench invocation to the feed row to the changelog entry to the outreach
 > receipt. No consumer may rename, drop, prefix, suffix, or reverse-map it.**
 
 Concretely:
