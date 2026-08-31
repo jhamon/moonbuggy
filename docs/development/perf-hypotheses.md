@@ -12,6 +12,16 @@ that the profile which would have prevented it was cheap. So: profile first
 (`make profile`), predict in writing, then measure with `make ab`, which
 declines to call a winner when the confidence intervals overlap.
 
+**CI speed-moat defense (criterion C2)**. `make bench-ci` (wired into `.github/workflows/bench.yml`, daily) runs the
+comparative bench and gates moonbuggy's own speed: the speed workload's
+wall-clock must not regress >25% (`WALL_SLACK`) past the last committed
+`intel/perf-baseline.json` (primed on the first green run). A G1-G4 verdict
+failure (no longer faster than mutmut( fails the workflow directly. Evidence
+travels along the D2 numbers pipe to `intel/perf-bench.jsonl` (`intel/perf-bench.md`
+is the legible projection). This is the amplification of the measurement rule,and
+the moat defense: a regressed speed bench is caught by CI, not assumed away.
+
+
 **Where the numbers live.** Every number quoted in this document or in
 `benchmark-results.md` must come from a conforming harness-output row — the
 versioned contract in `scripts/schemas/harness-output.v1.schema.json`, built

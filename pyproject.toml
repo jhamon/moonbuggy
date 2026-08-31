@@ -171,6 +171,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 "scripts/differential.py" = ["E402"]
 "scripts/profile_run.py" = ["E402"]
 "scripts/verify_findings.py" = ["E402"]
+"scripts/bench_ci.py" = ["UP031", "SIM102"]
 "tests/test_ab_harness.py" = ["E402"]
 
 [tool.mypy]
