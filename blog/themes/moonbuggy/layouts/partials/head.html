@@ -8,7 +8,13 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400..800&display=swap" rel="stylesheet">
 
-<!-- absURL prefixes baseURL (https://jhamon.github.io/moonbuggy/) so the CSS
-     always resolves to /moonbuggy/blog/css/blog.css from any blog page depth. -->
-<link rel="stylesheet" href="{{ "blog/css/blog.css" | absURL }}">
-<link rel="icon" type="image/svg+xml" href="{{ "blog/favicon.svg" | absURL }}">
+<!-- relURL prefixes the site webroot (/moonbuggy/) WITHOUT the host, so the
+     CSS and favicon resolve against whatever host serves the page. absURL here
+     was the bug: it baked in the baseURL host (https://jhamon.github.io/...),
+     which GitHub Pages 301-redirects to http://www.hamon.io/... -- and on the
+     https blog page the browser blocks that stylesheet as mixed content, so the
+     blog rendered unstyled. A host-agnostic root-relative path loads directly
+     from any blog page depth on any host, matching how the Sphinx docs already
+     reference their _static/ assets. -->
+<link rel="stylesheet" href="{{ "blog/css/blog.css" | relURL }}">
+<link rel="icon" type="image/svg+xml" href="{{ "blog/favicon.svg" | relURL }}">
