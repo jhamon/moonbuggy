@@ -10,4 +10,4 @@ coverage (source line %), and gate status.
 
 | date | commit | source_lines | test_lines | gate | owner | oracle_agree | diff_shared | diff_agree | diff_disagree | diff_unclassified | oracle_s | fast_suite_s | cov_pct | notes |
 |------|--------|------------:|-----------:|------|-------|-------------:|------------:|-----------:|--------------:|------------------:|--------:|------------:|-------:|-------|
-| 2026-08-31 | b15b103 | 12,287 | 9,784 | oracle+differential | @moonbuggy-qa | 29/29 | 382 | 45 (11.8%) | 386 | 0 | 13.70 | 6.65 | 63% | First measured row. Oracle: 21 KILLED, 6 SURVIVED, 1 TIMEOUT, 1 SKIPPED (75.0% kill rate). Diff: 10 projects, 941 moonbuggy mutants vs 1,170 mutmut; all 386 disagreements classified (337 genuine semantic diff, 49 ambiguous join). Full suite: 496 passed in 15.29s. |
+| 2026-08-31 | 9009106 |  | | oracle+differential | @moonbuggy-boss | 45/382 | 382 | 45 (11.8%) | 386 |  | 0 | | n/a | Auto row via scripts/metrics_dashboard.py. Differential: 10 projects, 382 shared, 45 agree (11.8%), 386 disagreements, 0 unclassified. Oracle gate: 0 disagreements, 0 FP, 0 FN.
