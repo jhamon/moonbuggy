@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-fast-path check-pytest-args check-spike check-mutmut check-robustness check-properties check-cli bench bench-coverage profile ab docs docs-test docs-linkcheck blog docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install dashboard check-all
+.PHONY: test check-oracle check-fast-path check-pytest-args check-spike check-mutmut check-robustness check-properties check-cli bench bench-real bench-coverage profile ab docs docs-test docs-linkcheck blog docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install dashboard check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -42,6 +42,15 @@ check-spike:
 ## moonbuggy vs mutmut vs the naive baseline. See docs/benchmark-results.md.
 bench:
 	$(PYTHON) scripts/bench_mutation.py
+
+## Public-facing credibility benchmark: moonbuggy vs mutmut vs naive on a real,
+## widely-used open-source project pinned to a fixed commit SHA (more-itertools
+## v11.1.0). Clones, builds an isolated venv, runs, reports. The synthetic
+## `bench` stays the development signal; this is the one Jennifer asked for so
+## the benchmark page cannot be accused of testing only code we wrote ourselves.
+## See docs/benchmark-results.md.
+bench-real:
+	$(PYTHON) scripts/bench_real.py
 
 ## Milestone M3.1: build the documentation.
 ## -W turns warnings into errors, so a broken cross-reference fails the build
