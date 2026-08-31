@@ -148,8 +148,8 @@ def _harden_streams() -> None:
     A source file may legally be latin-1 or cp1251 (srcio honours PEP 263),
     so a mutated line can hold characters stdout cannot encode. With the
     default errors="strict" that is a UnicodeEncodeError raised from inside
-    the report, past main's handler, as a traceback -- which criterion H5
-    forbids -- and past run()'s explicit flush, losing the buffered report.
+    the report -- past `main`'s error handler and past `run()`'s explicit flush
+    -- as a bare traceback, losing the buffered report.
     backslashreplace degrades the character and keeps the run.
 
     `getattr` rather than a direct call: an in-process caller may have

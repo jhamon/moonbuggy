@@ -192,7 +192,8 @@ def _is_none(node: ast.AST) -> bool:
       `condition_negation` refuses when it declines to negate a literal test.
     - a float default is not mutated for the same reason no float is: it
       invites float-comparison flakiness for no extra signal.
-    - a string default cannot be mutated at all without breaking criterion C2.
+    - a string default cannot be mutated at all without risking a mutation
+      inside a string literal.
     - a computed default (`clock=time.time`, `items=()`) has obvious-looking
       mutations and no plausible one.
 

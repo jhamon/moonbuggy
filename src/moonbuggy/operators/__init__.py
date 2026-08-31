@@ -1,6 +1,6 @@
 """Mutation operators, and the registry that discovers them.
 
-This is the operator half of the criterion-B4 seam. Operators are discovered by
+Operators are discovered by
 importing every module in this package, so adding one means adding a file here
 and nothing else -- no edit to the engine's traversal, no import list to update,
 no registration call to remember. The engine asks for `all_operators()` and
@@ -165,8 +165,7 @@ def replace_operator[NodeT: ast.AST](node: NodeT, **changes: object) -> NodeT:
     by an assignment, and every operator did -- which makes mutating one
     expression cost a copy of its entire subtree. An expression with *n* nested
     operators then costs O(n^2) node copies, and a 6000-term expression took
-    over a minute to generate (found while writing the M1.4.8 tests; hypothesis
-    H6 in docs/development/perf-hypotheses.md).
+    over a minute to generate.
 
     A shallow copy is enough because nothing downstream writes to the tree.
     Generation unparses the replacement node and throws it away; the children
@@ -441,7 +440,7 @@ def all_operators() -> list[Operator]:
     """Every registered operator, instantiated.
 
     Sorted by name so mutant ordering -- and therefore mutant ids -- stay stable
-    across runs regardless of filesystem iteration order (criterion C3).
+    across runs regardless of filesystem iteration order.
     """
     _discover()
     return [cls() for cls in sorted(_REGISTRY, key=lambda c: c.name)]

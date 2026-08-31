@@ -1,14 +1,14 @@
 """Baseline health: is the suite green, and is any of it flaky?
 
-Two milestone criteria meet in one mechanism, because they are answered by the
-same evidence.
+Two correctness properties meet in one mechanism, because they are answered by
+the same evidence.
 
-**M1.4.4 -- an already-red suite.** Mutation results are meaningless against a
+**An already-red suite.** Mutation results are meaningless against a
 failing baseline. Every mutant covered by a test that already fails is reported
 KILLED, and the run looks like an excellent score. That is worse than no result,
 so moonbuggy refuses rather than reporting.
 
-**M1.4.3 -- a flaky test.** A test that fails at random makes some mutants
+**A flaky test.** A test that fails at random makes some mutants
 KILLED for reasons that have nothing to do with the mutation, and can equally
 make a genuinely-killed mutant look SURVIVED. Neither status is honest, and
 `SUSPICIOUS` exists precisely for "we cannot tell".
@@ -23,7 +23,7 @@ more than once and compare per-test outcomes.
 One extra unmutated run is the default (``--flaky-probe 1``). It happens inside
 the warm host, where every test module is already imported, so it costs test
 execution time and nothing else. It can be turned off with ``--flaky-probe 0``
-for a project known to be deterministic, at the cost of the M1.4.3 guarantee.
+for a project known to be deterministic, at the cost of the flakiness guarantee.
 
 The probe cannot be perfect, and does not claim to be: a test that fails one
 run in a thousand will usually pass both. Detecting flakiness is a sampling

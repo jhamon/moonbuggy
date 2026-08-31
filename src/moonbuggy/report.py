@@ -1,7 +1,7 @@
 """Reporting: canonical JSONL, plus a plaintext view derived from it.
 
-Section 5 assumes the reader is an agent grepping output rather than a human
-reading a dashboard, which makes the format the feature:
+The output is designed for a reader -- human or agent -- grepping the report
+rather than viewing a dashboard, which makes the format the feature:
 
 - A fixed leading status keyword, so `grep SURVIVED` works with zero knowledge
   of the schema. The keyword is padded to a fixed-width column for the eye's
@@ -12,11 +12,10 @@ reading a dashboard, which makes the format the feature:
   on), never a column offset. Split, do not slice.
 - key=value tokens rather than prose, so naive whitespace splitting parses it.
 - Exactly one line per mutant, so grep and awk stay usable. The diff is
-  deliberately NOT inlined -- `moonbuggy show <id>` retrieves it. This settles
-  the first open question in 5.3 in favour of the doc's stated lean.
+  deliberately NOT inlined -- `moonbuggy show <id>` retrieves it.
 
 The plaintext is *derived from* the JSONL rather than authored alongside it, so
-the two cannot drift apart. That is criterion E3, and it is why render_line
+the two cannot drift apart by construction -- which is why render_line
 takes a record dict rather than a Result.
 """
 
@@ -201,7 +200,7 @@ def write_jsonl(
     """Stream records to disk, one complete line at a time.
 
     Flushed per record so a run killed partway leaves only whole, parseable
-    lines behind (criterion E2). A half-written final record would break every
+    lines behind. A half-written final record would break every
     downstream reader, which matters more here than the cost of the flush.
 
     Args:
@@ -221,8 +220,8 @@ def write_jsonl(
 class StreamingJSONL:
     """Write records as they are produced, keeping the file valid throughout.
 
-    Criterion M1.4.13: a run killed mid-flight has to leave something a later
-    reader can parse, not a truncated final line. Every record is written and
+    A run killed mid-flight has to leave something a later reader can parse,
+    not a truncated final line. Every record is written and
     flushed whole, so the file is a valid JSONL document at every instant
     between writes -- it is only ever *incomplete*, which readers can see for
     themselves by counting lines.

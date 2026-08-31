@@ -3,12 +3,12 @@
 This is deliberately the slow, obvious way to do mutation testing, and it exists
 for two reasons:
 
-1. It is the generated half of the oracle (criterion A2a). Because it shares no
+1. It is the independent half of the oracle. Because it shares no
    code with the fast path -- no import hook, no coverage-guided selection, no
    cache, no xdist -- agreement between the two is real evidence rather than a
    tautology. The only thing they have in common is mutant generation, which is
-   exactly the gap the hand-written inventory (A2b) covers.
-2. It is the naive baseline the benchmark measures against (criterion G1).
+   exactly the gap a hand-written inventory of the operators covers.
+2. It is the naive baseline the benchmark measures against.
 
 Nothing here should ever be optimised. If it grows a coverage map or an import
 hook it stops being an independent check and starts being a second copy of the

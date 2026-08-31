@@ -1,14 +1,13 @@
-"""Wall-clock accounting by phase (milestone M2.1).
+"""Wall-clock accounting by phase.
 
-The Phase 1 benchmark record contains two changes implemented on a hunch and
-measured as noise, with a note that the profile which would have prevented it
-was cheap. This module is that profile, and M2 makes taking it the mandatory
-first step before any performance work.
+This module exists because performance work went wrong twice: two changes were
+implemented on a hunch and measured as noise, and a cheap profile would have
+caught both. Taking one is the mandatory first step before any performance work.
 
 Design constraints, in order of importance:
 
-1. **The phases must add up.** M2.1.2 requires the named phases to account for
-   at least 95% of measured wall clock, with the remainder reported explicitly
+1. **The phases must add up.** The named phases must account for at least 95%
+   of measured wall clock, with the remainder reported explicitly
    as `other`. An "other" bucket quietly holding 30% is how the last round went
    wrong: it looks like a rounding error and is actually the answer.
 2. **Off by default, and free when off.** A profiler that changes the thing it
@@ -141,8 +140,8 @@ class Profiler:
         """The report: per-phase seconds, wall clock, and what is unattributed.
 
         Returns:
-            a dict with ``wall``, ``phases``, ``other``, ``attributed`` (the fraction
-                M2.1.2 gates on) and any recorded notes.
+            a dict with ``wall``, ``phases``, ``other``, ``attributed`` (the fraction of
+                wall clock the named phases account for) and any recorded notes.
         """
         wall = time.perf_counter() - self.started
         accounted = sum(self.totals.values())

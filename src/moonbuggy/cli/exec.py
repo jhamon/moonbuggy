@@ -343,10 +343,10 @@ def _execute_mutants(
 ) -> tuple[Path, list[Result]]:
     """Run every mutant, streaming verdicts to results.jsonl as they settle.
 
-    Each settled verdict is streamed to disk exactly once here (criterion
-    M1.4.13), and every later artifact --- results.txt, summary.json, the
+    Each settled verdict is streamed to disk exactly once here,
+    and every later artifact --- results.txt, summary.json, the
     in-order rewrite --- is derived from that single file, so the artifacts of
-    one run cannot disagree (criteria C3/E3). Split out of ``_run`` because
+    one run cannot disagree. Split out of ``_run`` because
     this is the phase with the most complex surface --- progress streaming,
     the warm-session vs xdist forks --- and none of it reads or writes state
     a caller of this function cannot simply pass in.
@@ -668,7 +668,7 @@ def _collect_mutants(
 
     One unparseable or undecodable file must not end the run: the other files
     are still perfectly good input, and a project with one broken module is a
-    normal state during editing (criteria M1.4.1 and M1.4.7). The skip is
+    normal state during editing. The skip is
     announced per file rather than summarised, so it is impossible to mistake a
     skipped file for a file with no mutants.
 

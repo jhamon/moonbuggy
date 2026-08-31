@@ -1,6 +1,6 @@
 """Zero-config project layout discovery.
 
-Criterion H2 and the low-floor principle from 6.2: bare `moonbuggy` in a pytest
+The whole point is the lowest possible floor: bare `moonbuggy` in a pytest
 project's root should just work, with configuration available but never
 required.
 
@@ -135,7 +135,7 @@ def looks_like_pytest_project(project_dir: str | os.PathLike[str]) -> bool:
     """Whether this directory plausibly hosts a pytest suite.
 
     Used to fail fast with a clear message rather than after a coverage pass
-    that collects nothing (criterion H5).
+    that collects nothing.
     """
     project_dir = Path(project_dir)
     markers = ["pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", "conftest.py"]

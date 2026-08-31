@@ -93,6 +93,11 @@ exclude_patterns = [
     "superpowers",
     "development",
     "contracts",
+    # `competitive-intel` is a read-only in-repo mirror of an internal
+    # competitive-intelligence brief (canonical at ~/work/moonbuggy-team/), the
+    # same kind of planning material as `superpowers`/`development`/`contracts`;
+    # it has no toctree home and must not ship to GitHub Pages.
+    "competitive-intel.md",
 ]
 
 html_theme = "furo"

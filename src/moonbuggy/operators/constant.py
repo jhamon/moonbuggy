@@ -6,8 +6,8 @@ operator that checked `isinstance(value, int)` would emit a nonsense `True -> 2`
 mutant and double-count every boolean site.
 
 Floats are deliberately not mutated: it invites float-comparison flakiness for
-no extra signal. Strings are never mutated, which is what makes criterion C2
-(no mutation inside string literals) fall out of the AST approach for free.
+no extra signal. Strings are never mutated, so no mutation ever lands inside a
+string literal -- a guarantee that falls out of the AST approach for free.
 """
 
 import ast

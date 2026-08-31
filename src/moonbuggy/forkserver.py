@@ -214,10 +214,11 @@ def prebuild_mutant_config(extra_args: Iterable[str] = ()) -> object | None:
     mutants is which node ids to run.
 
     So it is built here, before the first fork, and each grandchild inherits a
-    copy and points it at its own node ids. Same move as H5, H7 and H10:
-    hoist a per-mutant constant into the host.
+    copy and points it at its own node ids. The move is the same as the other
+    prebuilds: hoist a per-mutant constant into the host.
 
-    **Why this is not H1.** Sharing a `Config` between mutants *in one process*
+    **Why nothing is shared between mutants.** Sharing a `Config` between
+    mutants *in one process*
     would be the deferred hypothesis, and its failure mode -- state from one
     mutant surviving into the next -- is the thing the whole design exists to
     prevent. Nothing is shared between mutants here. Each grandchild is a
@@ -252,7 +253,7 @@ def prebuild_mutant_config(extra_args: Iterable[str] = ()) -> object | None:
 def precollect(config: object, node_ids: Iterable[str]) -> object | None:
     """Collect every test any mutant can select, once, in the warm host.
 
-    With H14 and H15 landed, `cProfile` put `perform_collect` at **4ms of a
+    With the prebuilds landed, `cProfile` put `perform_collect` at **4ms of a
     6.3ms warm grandchild** -- the largest thing left in the process that
     repeats. And its input is the same for every mutant: the union of the node
     ids selection can ask for is known before the first fork, and collecting
@@ -262,7 +263,7 @@ def precollect(config: object, node_ids: Iterable[str]) -> object | None:
     Each grandchild inherits it, keeps the items its own node ids name, and
     runs those -- 6.3ms to 2.3ms in the micro-benchmark, for 5-12ms paid once.
 
-    **Why this is not H1, on H14's argument.** The collection happens before
+    **Why nothing is shared between mutants.** The collection happens before
     any mutation exists. Each grandchild gets its own copy-on-write copy of
     it, filters it, runs it once and exits; no two mutants share a process, so
     neither can see the other's items any more than it can see the other's
@@ -361,7 +362,7 @@ class _SelectedOnly:
     :func:`pytest_collect_file` about every entry, so a mutant selecting two
     tests in one file still built a `Module` node for all forty files in the
     suite. `Session.collect` then discards the thirty-nine it was not asked
-    for. Profiling the warm grandchild after H14 put collection at **55% of
+    for. Profiling the warm grandchild put collection at **55% of
     what was left**, almost all of it that discarding.
 
     `pytest_ignore_collect` is the supported way to say so up front. The set
@@ -462,7 +463,7 @@ def _mutant_args(
     `--rootdir` is pinned to the cwd, which the child has already set to the
     project root. Without it, pytest can infer a rootdir above the project and
     then fail to resolve the very node ids the coverage map recorded -- which
-    is not a hypothetical, it is what three of the five M4 libraries did.
+    is not a hypothetical, it is what three of the five real-world suites did.
 
     `-p no:cov`: the mutant run needs no coverage instrumentation, and
     pytest-cov registers hooks on every session. `-x`: one failure is already a
@@ -600,7 +601,7 @@ def run_warm_session(
             the host is torn down and the exception propagates.
         apply_swap: called in each grandchild to apply its mutation.
         probe_args: pytest arguments for the extra unmutated probe runs.
-        probes: how many probe runs to make (M1.4.3).
+        probes: how many probe runs to make.
         on_result: called as ``(index, status, test_seconds)`` the moment each mutant
             finishes, so a run killed mid-flight has already reported what it knew.
         extra_args: pytest arguments every run shares, including each mutant's.
@@ -841,7 +842,7 @@ def _start_probe_child(args: list[str], probes: int) -> tuple[int, int]:
     """Fork a sibling of the coverage run to do the flakiness probes.
 
     The probe exists to catch a test whose outcome varies between two
-    unmutated runs (M1.4.3). Nothing about it depends on the coverage run:
+    unmutated runs. Nothing about it depends on the coverage run:
     it needs no instrumentation, reads none of the coverage run's output, and
     its own output is one ``{node_id: outcome}`` mapping per run. Running it
     after the coverage run therefore put a full extra suite execution on the
@@ -895,7 +896,7 @@ def _collect_probe_runs(
     """Read what the probe child observed, or run the probes here if it failed.
 
     The fallback is not decoration. A probe that silently produced nothing
-    would mean no test was ever compared against itself, and the M1.4.3
+    would mean no test was ever compared against itself, and the flakiness
     guarantee would be quietly gone -- a flaky test would then be reported as
     a mutant's SURVIVED or KILLED depending on the day. Losing the child costs
     the wall clock this optimisation was saving, and nothing else.

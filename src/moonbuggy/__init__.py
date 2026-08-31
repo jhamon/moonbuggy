@@ -1,7 +1,8 @@
 """moonbuggy — fast, agent-first mutation testing for Python.
 
-See docs/development/acceptance-criteria.md for what "done" means, and the
-design doc for the architecture these modules implement.
+This is the public package surface. For how to use moonbuggy, see the docs
+(quickstart, tutorial and architecture in the site's navigation); for what each
+module below is responsible for, read its module docstring.
 """
 
 __version__ = "0.2.0"
