@@ -22,6 +22,18 @@ a number is never untethered from the suite it was measured on or the
 hypothesis it answers. A change that adds or re-types a field raises the
 schema version rather than shifting the shape under a reader.
 
+The synthetic benchmark (`scripts/bench_mutation.py`, `make bench`) is the
+development signal and the G1–G4 gate. There is also a second, public-facing
+comparison — `scripts/bench_real.py`, `make bench-real` — which runs the same
+three tools against a real, widely-used open-source project (more-itertools
+v11.1.0) pinned to a fixed commit, so the benchmark page cannot be accused of
+measuring only code we wrote. Its moonbuggy measurement emits the same
+harness-output row (suite `real-more-itertools-v11.1.0`, reserved `baseline`
+tag). It is deliberately much slower than `make bench` — the naive baseline
+re-runs the selected tests once per mutant on real code — and that slowness is
+the credibility point, not a defect: it is the honest cost selection exists to
+avoid.
+
 ---
 
 ## The profile these are ranked against

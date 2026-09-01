@@ -65,6 +65,54 @@ moonbuggy mutation operators. **Both produce exactly 96 mutants, with
 identical status breakdowns. Nothing is pruned.** The 43x speedup is real, and
 it is not bought by quietly mutating less.
 
+## And on a real project?
+
+Everything above runs on a generated workload plus a project we wrote ourselves
+— the right tools for measuring how the engine behaves, but subject to a fair
+objection: a benchmark that proves how fast we are is measured against code we
+chose. So there is a second, public-facing benchmark that runs the same three
+tools against a real, widely-used open-source project pinned to a fixed commit,
+so anyone can reproduce it and no one has to wonder whether we hand-picked the
+subject.
+
+**Subject: more-itertools v11.1.0** at commit `64be96ce`. Scope: mutate
+`more_itertools/recipes.py` (the itertools-recipes module) and run its dedicated
+test file `tests/test_recipes.py` (140 tests, ~10,000 parameterised subtests).
+All three tools see the same scope and the same test selection. Reproduce with
+`make bench-real`.
+
+| tool | wall time | mutants | mutants/sec |
+|---|---:|---:|---:|
+| **moonbuggy** | **234s** | 381 | 1.6 |
+| mutmut | 426s | 1085 | 2.5 |
+| naive baseline | 3750s | 381 | 0.1 |
+
+The gap is not a workload we shaped to flatter the tool — it is what selection,
+warm-forking and in-place mutation are *for*. On this real module, the naive
+baseline took **over an hour** (it re-runs the whole test file once per mutant)
+and mutmut took **7 minutes**; moonbuggy finished in **under four minutes**.
+That is the honest cost that selection exists to remove.
+
+Three things this table asks you to keep in view, because each is why the table
+is the shape it is:
+
+- **The comparison that cannot be gamed is against the naive baseline.** It runs
+  moonbuggy's exact mutation operators, so 381 == 381, with identical status
+  breakdowns — nothing is pruned. That is the speed claim, and it is
+  like-for-like.
+- **mutmut's count is not 381.** mutmut implements a larger operator set, so on
+  the same file it yields 1085 mutants to moonbuggy's 381. The wall-clock
+  comparison against mutmut is therefore speed-plus-operator-coverage, exactly
+  like the synthetic table above; we do not lead with it.
+- **The scope is a bounded slice, not the whole library.** The naive baseline
+  re-runs the selected tests per mutant, so a bigger scope would scale that
+  cost rather than change this ratio. The point is the *shape* of the gap on
+  real code.
+
+This benchmark is deliberately much slower than `make bench` — running it takes
+about an hour, almost all of it the naive baseline. That slowness is the
+credibility point, not a defect.
+
 ## What "half a second" actually buys you
 
 Put a number on it. On this workload, mutmut spends about a second mutating a
@@ -133,10 +181,13 @@ you read as a snapshot of one machine, one day — including ours.
 
 Everything here is regenerated from the same benchmark in the repository. Run
 `make bench`, and the numbers come from a deterministic workload and a
-version-controlled fixture. If you want to see how any change to moonbuggy
-moves the needle, the comparison harness (`make ab`) interleaves two different
-versions of the tool and reports a confidence interval, so a headline that
-moved can't be blamed on the machine being in a different mood that day.
+version-controlled fixture. The real-project table is regenerated the same way
+with `make bench-real`, from a real open-source project pinned to a fixed commit
+— so both tables are reproducible, and neither is a number we typed by hand. If
+you want to see how any change to moonbuggy moves the needle, the comparison
+harness (`make ab`) interleaves two different versions of the tool and reports a
+confidence interval, so a headline that moved can't be blamed on the machine
+being in a different mood that day.
 
 The general lesson is worth carrying into any benchmark you read, including
 ours: a number taken on one machine on one day tells you about that day. When
