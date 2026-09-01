@@ -254,7 +254,7 @@ Honestly: roughly a fifth of every run is process setup that could be removed by
 running several mutants in one process. moonbuggy does not do that, because
 restoring a mutated module between mutants is a step that can *partly* succeed,
 and a partly-restored module means the next mutant is evaluated against the
-wrong source and reported confidently. That trade is written up as H1 in the
+wrong source and reported confidently. That trade is written up in the
 [performance-hypothesis register][perf-hypotheses], along with everything else
 that was tried and what it actually saved.
 
