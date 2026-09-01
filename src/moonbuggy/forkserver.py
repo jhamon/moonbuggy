@@ -1260,7 +1260,7 @@ def _grandchild(
             code = int(_run_precollected(config, session, selected))
         # Measured inside the child so the parent can separate the cost of
         # running the tests from the cost of getting a process ready to run
-        # them (a measurement criterion from the profiling work). Without this
+        # them — that split is what the profiling work measures. Without this
         # split, "per-mutant fork" and
         # "in-child test execution" are one indivisible bucket, which is
         # exactly the bucket the optimisation question is about.
