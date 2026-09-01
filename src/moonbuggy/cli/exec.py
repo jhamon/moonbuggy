@@ -376,7 +376,7 @@ def _execute_mutants(
 
     # Records are streamed to disk as each mutant is settled, so a run killed
     # mid-flight leaves whole, parseable lines for everything it did finish
-    # (criterion M1.4.13) rather than an empty file or a truncated one.
+    # (a streaming guarantee) rather than an empty file or a truncated one.
     try:
         with StreamingJSONL(jsonl_path, reasons) as stream:
             last_milestone = 0.0

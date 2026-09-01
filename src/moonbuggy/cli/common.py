@@ -19,7 +19,7 @@ def _display_path(path: Path, project_dir: Path) -> str:
     # `project_dir / args.output_dir` silently discards `project_dir` (an
     # absolute right operand replaces the left one under `/`), so `path` ends
     # up outside `project_dir` and `relative_to` raises. That is an
-    # anticipated shape of input, not a crash-worthy one (criterion H5): a
+    # anticipated shape of input, not a crash-worthy one: a
     # user running `moonbuggy --output-dir /tmp/whatever` still gets a usable
     # line, just the absolute path instead of a shortened relative one.
     try:

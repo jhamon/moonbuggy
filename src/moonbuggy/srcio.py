@@ -69,7 +69,7 @@ def detect_encoding(path: str | os.PathLike[str]) -> str:
 
 
 # Keyed by (path, mtime, size), so an edit during a run is a miss rather than a
-# stale hit. Hypothesis H5 in docs/development/perf-hypotheses.md: every mutant
+# stale hit. Every mutant
 # reads its module's source, and every mutant runs in its own forked process
 # -- so a process-local cache is worth nothing on its own. It pays only
 # because the warm host fills it BEFORE forking, and every grandchild

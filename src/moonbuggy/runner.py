@@ -62,7 +62,8 @@ if TYPE_CHECKING:
 PYTEST_OK = 0
 PYTEST_TESTS_FAILED = 1
 
-# H12 established that a warm grandchild does not need assertion rewriting.
+# Warm-grandchild assertion handling: a warm grandchild does not need
+# assertion rewriting.
 # The host was never asked the same question, and the answer is the same for a
 # different reason: rewriting exists to build an introspected failure message,
 # and moonbuggy reads exit codes and per-test outcomes and never shows a user
@@ -73,7 +74,7 @@ PYTEST_TESTS_FAILED = 1
 # about how the test files compile can reach the line->test map.
 #
 # Placed ahead of the caller's own `--pytest-arg` values, so a project that
-# sets its own `--assert` still wins -- same ordering rule as H12.
+# sets its own `--assert` still wins -- same ordering rule as above.
 _PLAIN_ASSERT = ("--assert=plain",)
 
 # Almost always a forkserver.Status. SKIPPED and NO_COVERAGE are added to the
@@ -111,8 +112,8 @@ class Result:
 
     Added with record schema 4. On a schema-3 record read from an older file
     it is ``None``, because no older version could have written it."""
-    """Runtime metadata, deliberately kept OUT of the JSONL record: criterion F3
-    requires a fully cached run's output to match a cold run's, and a field that
+    """Runtime metadata, deliberately kept OUT of the JSONL record: a fully
+    cached run's output must match a cold run's, and a field that
     differs by definition would defeat that check."""
 
 
@@ -542,7 +543,7 @@ def run_session(
     # Deliberately NOT calling forkserver.warm_up() here. It imports pytest in
     # the parent so forked children inherit it, which is what the cold path
     # needs -- but the warm host imports pytest itself, and the parent on this
-    # path never runs a test. See H3 in docs/development/perf-hypotheses.md.
+    # path never runs a test.
 
     with tempfile.TemporaryDirectory() as tmp:
         data_file = Path(tmp) / "coverage-data"
@@ -573,7 +574,7 @@ def run_session(
             profiler.add("warm-session startup", evidence.get("startup", 0.0))
             profiler.add("coverage pass", evidence.get("coverage_seconds", 0.0))
             # The probe gets its own bucket rather than being folded into the
-            # coverage pass. It is the price of the M1.4.3 flakiness guarantee,
+            # coverage pass. It is the price of the flakiness guarantee,
             # and a phase whose cost is a deliberate trade should be visible
             # as itself when the trade is revisited.
             profiler.add("flaky probe", evidence.get("probe_seconds", 0.0))

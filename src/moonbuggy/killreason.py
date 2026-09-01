@@ -70,7 +70,7 @@ FLAG = "moonbuggy_errored"
 # change that requires a schema version bump. The current vocabulary is frozen
 # per docs/contracts/killreason-v1.md.
 #
-# These sit in this module because @moonbuggy-qa owns the reason taxonomy:
+# These sit in this module because the reason taxonomy is owned here:
 # every reason the classifier can produce is defined here, and every consumer
 # of the JSONL schema reads these exact tokens.
 

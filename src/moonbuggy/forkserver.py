@@ -449,7 +449,7 @@ def _run_prebuilt(config: object, selected: Iterable[str]) -> int:
         # Still run the unconfigure hooks, so the unraisable-exception plugin
         # gets its say. A mutant that manifests only as an unraisable
         # exception would otherwise be reported SURVIVED -- the failure mode
-        # H2 was rejected for.
+        # identified when the unconfigure-hook gap was first hunted down.
         config._ensure_unconfigure()  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
 
 
@@ -707,8 +707,8 @@ def _warm_session_host(
         # Everything up to here is the host becoming ready to run anything:
         # the fork, the chdir, and importing pytest if the parent had not
         # already. Reported separately because "warm-session startup" is one of
-        # the phases M2.1.1 names, and it is the one a reader most expects to
-        # be large and most often is not.
+        # the phases the profiling taxonomy names, and it is the one a reader
+        # most expects to be large and most often is not.
         startup = time.perf_counter() - began
 
         # Everything reachable at this point was inherited from the parent --
@@ -748,7 +748,7 @@ def _warm_session_host(
         os.write(status_write, len(payload).to_bytes(8, "big"))
         os.write(status_write, payload)
 
-        # H23. From here until the jobs arrive, the parent is reading the
+        # While the jobs are in flight, the parent is reading the
         # coverage data and planning -- 3.5ms to 21ms in which this process
         # used to do nothing at all. Neither of the next two things needs the
         # jobs, so they happen in that window instead of after it.
@@ -757,7 +757,7 @@ def _warm_session_host(
         # line map, and the two cannot disagree in the direction that matters:
         # the map's tests are the coverage contexts unioned with exactly these
         # outcomes, so this is a superset of anything selection can ask for,
-        # and collecting a superset is what H28 needs.
+        # which is the property the collection step depends on.
         mutant_config = prebuild_mutant_config(extra_args)
         mutant_session = (
             None
@@ -792,7 +792,7 @@ def _warm_session_host(
         # miss, and an index miss is a `sys.modules` rescan per grandchild.
         index_modules({str(Path(module).resolve()) for module in modules})
         # The config and the collection were built above, while the parent was
-        # still planning -- see H23. Only these two needed the jobs.
+        # still planning. Only these two needed the jobs.
         #
         # Last, so the frozen generation includes everything above.
         _freeze_heap()
@@ -1017,7 +1017,7 @@ _STATUS_BY_CODE: dict[int, Status] = {
     # its mutation in place, so nothing was measured and the mutant has to be
     # re-run on the cold path. Reporting SUSPICIOUS instead -- which is what
     # happened before this existed -- turns a fixable internal limitation into
-    # a finding about the user's code. The M4 hunt produced 315 of them on one
+    # a finding about the user's code. One benchmark run produced 315 of them
     # library that way.
     4: "UNAPPLIED",
 }
@@ -1260,7 +1260,8 @@ def _grandchild(
             code = int(_run_precollected(config, session, selected))
         # Measured inside the child so the parent can separate the cost of
         # running the tests from the cost of getting a process ready to run
-        # them (criterion M2.1.1). Without this split, "per-mutant fork" and
+        # them — that split is what the profiling work measures. Without this
+        # split, "per-mutant fork" and
         # "in-child test execution" are one indivisible bucket, which is
         # exactly the bucket the optimisation question is about.
         micros = int((time.perf_counter() - began) * 1_000_000)

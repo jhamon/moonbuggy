@@ -88,8 +88,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run(args)
     except KeyboardInterrupt:
         # An anticipated ending, not a crash. 130 is the shell convention for
-        # SIGINT. The results file is valid at every instant (criterion
-        # M1.4.13), so whatever finished is already usable.
+        # SIGINT. The results file is valid at every instant, so whatever
+        # finished is already usable.
         print(
             "\nmoonbuggy: interrupted. Partial results in "
             f"{args.output_dir}/results.jsonl",
@@ -106,8 +106,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         VerifyError,
         SelectionError,
     ) as error:
-        # Criteria H5 and M1.4.12: an actionable message, never a traceback.
-        # Every failure moonbuggy can anticipate is funnelled through here, so
+        # An actionable message, never a traceback. Every failure moonbuggy
+        # can anticipate is funnelled through here, so
         # the CLI has exactly one way of reporting that it cannot proceed.
         print(f"moonbuggy: {error}", file=sys.stderr)
         return 2
