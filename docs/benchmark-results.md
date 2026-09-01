@@ -1,9 +1,9 @@
 # How fast is moonbuggy?
 
-The short answer: **faster than the common alternatives, and honest about why.**
-On the benchmark workload below, moonbuggy finishes mutation testing in
-**about half a second** — roughly **1.8 times as fast as mutmut** and **more
-than 40 times faster** than a naive re-run of your whole test suite per mutant.
+The short answer: on the benchmark workload below, moonbuggy finishes mutation
+testing in **about half a second** — roughly **1.8 times as fast as mutmut** and
+**more than 40 times faster** than a naive re-run of your whole test suite per
+mutant.
 
 The longer answer is the point of this page: a number only means something
 if you understand what was measured, on what machine, and what moonbuggy is
@@ -52,18 +52,66 @@ Read this table carefully, because the two ratios tell a different story:
   1.83x — stable, not a lucky single sample.
 - **vs. the naive baseline: 43x faster.** Three runs: 42.9x, 43.5x and 43.4x.
 
-Two tools here generate 96 mutants, one generates more, and the difference
-matters. mutmut implements a larger set of mutation operators, so it produces
-**108** mutants to moonbuggy's 96. A tool that generates fewer mutants *should*
-finish sooner, and that makes the wall-clock ratio against mutmut not quite a
-like-for-like comparison of operator coverage. So we are deliberately not
-leading with that number.
+The comparison against mutmut is worth a word of context. The two tools do not
+generate identical mutant sets: mutmut implements a larger set of mutation
+operators, so it turns this project into **108** mutants to moonbuggy's 96. The
+wall-clock ratio between the two tools therefore reflects a combination of
+speed and operator coverage, not a like-for-like comparison of per-mutant
+speed. So we do not treat that ratio as a clean measure — we lead instead with
+the number that is clean.
 
-The comparison we lead with is the clean one: the naive baseline runs the
-*same* moonbuggy mutation operators — the tool that did less work would be
-doing fewer mutants here, and it isn't. **Both tools produce exactly 96
-mutants, with identical status breakdowns. Nothing is pruned.** The 43x
-speedup is real, and it is not bought by quietly mutating less.
+The clean comparison is against the naive baseline, which runs the *same*
+moonbuggy mutation operators. **Both produce exactly 96 mutants, with
+identical status breakdowns. Nothing is pruned.** The 43x speedup is real, and
+it is not bought by quietly mutating less.
+
+## And on a real project?
+
+Everything above runs on a generated workload plus a project we wrote ourselves
+— the right tools for measuring how the engine behaves, but subject to a fair
+objection: a benchmark that proves how fast we are is measured against code we
+chose. So there is a second, public-facing benchmark that runs the same three
+tools against a real, widely-used open-source project pinned to a fixed commit,
+so anyone can reproduce it and no one has to wonder whether we hand-picked the
+subject.
+
+**Subject: more-itertools v11.1.0** at commit `64be96ce`. Scope: mutate
+`more_itertools/recipes.py` (the itertools-recipes module) and run its dedicated
+test file `tests/test_recipes.py` (140 tests, ~10,000 parameterised subtests).
+All three tools see the same scope and the same test selection. Reproduce with
+`make bench-real`.
+
+| tool | wall time | mutants | mutants/sec |
+|---|---:|---:|---:|
+| **moonbuggy** | **234s** | 381 | 1.6 |
+| mutmut | 426s | 1085 | 2.5 |
+| naive baseline | 3750s | 381 | 0.1 |
+
+The gap is not a workload we shaped to flatter the tool — it is what selection,
+warm-forking and in-place mutation are *for*. On this real module, the naive
+baseline took **over an hour** (it re-runs the whole test file once per mutant)
+and mutmut took **7 minutes**; moonbuggy finished in **under four minutes**.
+That is the honest cost that selection exists to remove.
+
+Three things this table asks you to keep in view, because each is why the table
+is the shape it is:
+
+- **The comparison that cannot be gamed is against the naive baseline.** It runs
+  moonbuggy's exact mutation operators, so 381 == 381, with identical status
+  breakdowns — nothing is pruned. That is the speed claim, and it is
+  like-for-like.
+- **mutmut's count is not 381.** mutmut implements a larger operator set, so on
+  the same file it yields 1085 mutants to moonbuggy's 381. The wall-clock
+  comparison against mutmut is therefore speed-plus-operator-coverage, exactly
+  like the synthetic table above; we do not lead with it.
+- **The scope is a bounded slice, not the whole library.** The naive baseline
+  re-runs the selected tests per mutant, so a bigger scope would scale that
+  cost rather than change this ratio. The point is the *shape* of the gap on
+  real code.
+
+This benchmark is deliberately much slower than `make bench` — running it takes
+about an hour, almost all of it the naive baseline. That slowness is the
+credibility point, not a defect.
 
 ## What "half a second" actually buys you
 
@@ -81,37 +129,16 @@ gaps it finds stop being caught in time.
 
 ## Where the speed comes from
 
-moonbuggy is not fast by accident, and it was not fast on day one. How it got
-here is worth telling, because it is the difference between a design and a
-tuning.
-
-It started ten seconds slower than the slowest baseline. Its first recorded
-run took **10.1 seconds**, which is *twelve times slower* than mutmut and
-twelve times slower than a tool with no right to be competitive. Every step
-since came from measuring where the time actually went, not from guessing. A
-single long-lived process runs your suite once, under coverage; that one run
-records which tests reach which lines *and* imports every test module. Then,
-for each mutant, that already-warm process *forks* a child instead of starting
-a fresh interpreter — the work that used to be repeated identically for every
-mutant, importing the same test modules over and over, is now done once. That
-single change is the engine of everything below.
-
-**One warm process** is the mechanism, and it explains the shape of the
-results. The parent imports each test module exactly once. Children fork from
-that warm state, so their entire import cost is zero. But there is a subtlety
-that months of builds do not survive: a warm process has already imported the
-module under test. For a test that did `from app.thing import compute`, the
-test holds the function object directly, so an import hook can't help. The
-code object has to be swapped *in place* — changing what the already-imported
-function does, without re-importing anything. That in-place swap is what makes
-the warm process possible at all, not merely cheaper.
-
-Two mechanisms work together here, and each does half the job. When neither
-applies — say a decorator has wrapped the function — moonbuggy **refuses**
-rather than guesses. A mutation that quietly fails to apply would report a
-false *survivor*, which looks exactly like a real finding and would send you
-chasing a bug that isn't there. moonbuggy would rather fall back to the slow,
-correct path than lie to you.
+moonbuggy gets its speed from one central design choice. A single long-lived
+process runs your suite exactly once, under coverage, and records which tests
+reach which lines — importing every test module at the same time. For each
+mutant, that already-warm process forks a child instead of starting a fresh
+interpreter. The work that used to be repeated identically for every mutant,
+importing the same test modules and re-mapping the suite over and over, is now
+done once. That single change, plus running only the tests that reach a given
+mutated line, is where the time comes out. It was not fast on day one — its
+first recorded run took **10.1 seconds** — and every improvement since came
+from measuring where the time actually went, not from guessing.
 
 ## How far the project has come
 
@@ -132,9 +159,7 @@ warm-fork change that won there; the real-work shape is dominated by test
 execution, so it was the coverage-guided selection that won there; the
 many-small-files shape is dominated by discovery and collection, so it was the
 file-handling work that won there. No round regressed a shape it was not
-aiming at — every improvement on one held on the other two. A tool that is
-fast on one workload can be tuned for it; a tool that improved on three
-different shapes is a design.
+aiming at — every improvement on one held on the other two.
 
 The honest caveats are the same ones that keep the numbers honest. You can
 reproduce every figure here from the repository, and you should treat anything
@@ -147,8 +172,7 @@ you read as a snapshot of one machine, one day — including ours.
   and your Python.
 - **The fast path is POSIX-only.** The warm-session, fork-based approach needs
   `fork()`. On Windows, moonbuggy falls back to the fresh-process-per-mutant
-  path — the slow architecture this page exists to argue against. The speedups
-  above are what you get on macOS and Linux.
+  path. The speedups above are what you get on macOS and Linux.
 - **Parallel workers use a separate path.** Distributed workers (`xdist`)
   need real subprocesses, so combining the parallel warm-session path with
   true parallelism is unexplored territory.
@@ -157,10 +181,13 @@ you read as a snapshot of one machine, one day — including ours.
 
 Everything here is regenerated from the same benchmark in the repository. Run
 `make bench`, and the numbers come from a deterministic workload and a
-version-controlled fixture. If you want to see how any change to moonbuggy
-moves the needle, the comparison harness (`make ab`) interleaves two different
-versions of the tool and reports a confidence interval, so a headline that
-moved can't be blamed on the machine being in a different mood that day.
+version-controlled fixture. The real-project table is regenerated the same way
+with `make bench-real`, from a real open-source project pinned to a fixed commit
+— so both tables are reproducible, and neither is a number we typed by hand. If
+you want to see how any change to moonbuggy moves the needle, the comparison
+harness (`make ab`) interleaves two different versions of the tool and reports a
+confidence interval, so a headline that moved can't be blamed on the machine
+being in a different mood that day.
 
 The general lesson is worth carrying into any benchmark you read, including
 ours: a number taken on one machine on one day tells you about that day. When
