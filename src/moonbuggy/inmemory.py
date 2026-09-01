@@ -87,7 +87,8 @@ class _MutatingLoader(SourceFileLoader):
         # The bytes handed back are decoded by the import machinery using the
         # file's own PEP 263 rules, so they have to be encoded the way the file
         # declares. Encoding a latin-1 module as UTF-8 produces a module that
-        # imports without error and contains different characters (M1.4.7).
+        # imports without error and contains different characters (a defect
+        # caught in the encoding hunt).
         self._encoding = encoding or "utf-8"
 
     def get_data(self, path: str) -> bytes:

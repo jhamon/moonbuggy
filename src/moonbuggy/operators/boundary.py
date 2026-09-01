@@ -37,8 +37,8 @@ class Boundary:
         if len(node.args) != 1 or node.keywords:
             return
         # The original argument node is reused, not copied. It is never
-        # written to -- only unparsed -- and it is the whole point of H6 that
-        # a nested argument is not deep-copied once per enclosing operator.
+        # written to -- only unparsed -- and a nested argument is deliberately
+        # not deep-copied once per enclosing operator.
         shifted = ast.BinOp(
             left=node.args[0], op=ast.Sub(), right=ast.Constant(value=1)
         )

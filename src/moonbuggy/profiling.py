@@ -45,7 +45,8 @@ class Summary(TypedDict):
 
 ENV_VAR = "MOONBUGGY_PROFILE"
 
-# The phases M2.1.1 names. Declared here rather than created on first use so a
+# The phases the profiling taxonomy names. Declared here rather than created
+# on first use so a
 # phase that never ran shows as 0.0 instead of vanishing -- "the coverage pass
 # took no time" and "the coverage pass did not happen" are different findings.
 #
