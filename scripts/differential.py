@@ -500,9 +500,7 @@ def write_markdown(path, entries, unclassified):
     ]
     for entry in entries:
         if "blocker" in entry:
-            lines.append(
-                f"| {entry['project']} | — | — | — | — | — | blocked |"
-            )
+            lines.append(f"| {entry['project']} | — | — | — | — | — | blocked |")
             continue
         lines.append(
             f"| {entry['project']} | {entry['moonbuggy_mutants']} | "
