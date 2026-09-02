@@ -539,7 +539,7 @@ def render(run, verified):
         "## Nothing was reported upstream",
         "",
         "**No issue, pull request, discussion or email has been opened against any",
-        "project named here, and no maintainer has been contacted (M4.9).** These",
+        "project named here, and no maintainer has been contacted.** These",
         "findings exist to test moonbuggy, not to generate work for other people.",
         "Every project below was cloned read-only at a pinned tag.",
         "",
@@ -549,7 +549,7 @@ def render(run, verified):
         "",
         f"moonbuggy `{run['moonbuggy']}`.",
         "",
-        "## Runs (M4.1, M4.2, M4.3)",
+        "## Runs",
         "",
         "| project | tag | modules | mutants | score | killed | survived | suspicious"
         " | timeout | wall |",
@@ -573,19 +573,19 @@ def render(run, verified):
 
     blocked = [e for e in run["targets"] if "blocker" in e]
     if blocked:
-        lines += ["", "### Blocked targets (M4.2)", ""]
+        lines += ["", "### Blocked targets", ""]
         for entry in blocked:
             lines.append(f"- **{entry['name']} @ {entry['tag']}** — {entry['blocker']}")
     else:
         lines += [
             "",
             "All five targets completed with a green baseline, so no substitution",
-            "was needed (M4.2).",
+            "was needed.",
         ]
 
     lines += [
         "",
-        "## Classification (M4.5, M4.6)",
+        "## Classification",
         "",
         f"**{len(verified)} findings triaged. Zero unclassified** — "
         "`scripts/triage.py` fails if a verified finding has no entry.",
@@ -606,7 +606,7 @@ def render(run, verified):
     confirmed = sum(1 for item in verified if item["verdict"] == "confirmed")
     lines += [
         "",
-        "## Hand verification (M4.7)",
+        "## Hand verification",
         "",
         "Every finding below was verified by applying the mutation to the pinned",
         "checkout and running the project's **entire** suite, not just the tests",
@@ -657,7 +657,7 @@ def render(run, verified):
             ]
 
     lines += [
-        "## Aggregate observations (M4.10)",
+        "## Aggregate observations",
         "",
         _observations(verified),
         "",

@@ -28,9 +28,9 @@ Three useful conclusions:
   instrumented run of your suite, and it is what makes selection possible.
   Roughly half of it is coverage's own tracing rather than your tests, and
   every attempt to get that back has either cost more than it saved or made
-  the line→test map unsafe — see [the register][perf-hypotheses].
+  the line→test map unsafe. Every measured alternative was slower or less safe.
 - **Generation, reporting and cache I/O are together under 3%.** Optimising
-  them is wasted effort, and the register has the measurements to prove it.
+  them is wasted effort — the measurements show it clearly.
 - **The bottleneck moves.** On a suite of fast tests almost nothing is your
   tests; on a suite of slow tests a quarter of the run is. Advice that ignores
   which of these you have is not advice.
@@ -254,8 +254,6 @@ Honestly: roughly a fifth of every run is process setup that could be removed by
 running several mutants in one process. moonbuggy does not do that, because
 restoring a mutated module between mutants is a step that can *partly* succeed,
 and a partly-restored module means the next mutant is evaluated against the
-wrong source and reported confidently. That trade is written up in the
-[performance-hypothesis register][perf-hypotheses], along with everything else
-that was tried and what it actually saved.
-
-[perf-hypotheses]: https://github.com/jhamon/moonbuggy/blob/main/docs/development/perf-hypotheses.md
+wrong source and reported confidently. We measured that trade and it wasn't
+worth it, along with every other shortcut we tried — the numbers are in the
+phase breakdown above.
