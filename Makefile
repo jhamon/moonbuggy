@@ -161,6 +161,11 @@ check-fresh-install:
 check-mutmut:
 	$(PYTHON) scripts/check_mutmut_differential.py
 
+## Naive-oracle CI gate (runs scripts/oracle_gate.py, writes docs/oracle-gate.json).
+## Used by the Weekly workflow; blocks on any moonbuggy-vs-oracle disagreement.
+check-oracle-gate:
+	$(PYTHON) scripts/oracle_gate.py
+
 ## Metrics-dashboard row writer (boss-owned read surface).
 ## Composes one row of intel/metrics-dashboard.md from the machine artifacts
 ## the gates already produce (docs/differential.json, docs/oracle-gate.json)
