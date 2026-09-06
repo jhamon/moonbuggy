@@ -7,7 +7,7 @@ counts and the run data are not.
 ## Nothing was reported upstream
 
 **No issue, pull request, discussion or email has been opened against any
-project named here, and no maintainer has been contacted .** These
+project named here, and no maintainer has been contacted.** These
 findings exist to test moonbuggy, not to generate work for other people.
 Every project below was cloned read-only at a pinned tag.
 
