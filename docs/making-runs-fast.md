@@ -28,9 +28,10 @@ Three useful conclusions:
   instrumented run of your suite, and it is what makes selection possible.
   Roughly half of it is coverage's own tracing rather than your tests, and
   every attempt to get that back has either cost more than it saved or made
-  the line→test map unsafe.
+  the line→test map unsafe — see [the register][perf-hypotheses].
 - **Generation, reporting and cache I/O are together under 3%.** Optimising
-  them is wasted effort.
+  them is wasted effort, and the register has the measurements to prove it.
+
 - **The bottleneck moves.** On a suite of fast tests almost nothing is your
   tests; on a suite of slow tests a quarter of the run is. Advice that ignores
   which of these you have is not advice.
@@ -257,4 +258,8 @@ and a partly-restored module means the next mutant is evaluated against the
 wrong source and reported confidently. Several multi-mutant processes were
 prototyped and measured; each either saved too little to justify the added
 complexity or could not make the per-mutant isolation safe, which is why the
-trade above stands rather than an optimisation replacing it.
+trade above stands rather than an optimisation replacing it. The full record,
+including everything that was tried and what it actually saved, is in the
+[performance-hypothesis register][perf-hypotheses].
+
+[perf-hypotheses]: https://github.com/jhamon/moonbuggy/blob/main/docs/development/perf-hypotheses.md
