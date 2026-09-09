@@ -75,10 +75,14 @@ def store_base(path, row):
 def verdict(new, base):
     if base is None:
         return True, f"priming: {new['wall_clock']:.2f}s (no baseline)"
+    if new["host"] != base["host"]:
+        return True, (
+            f"host changed: {base['host']} -> {new['host']}; re-priming baseline"
+        )
     if new["wall_clock"] > base["wall_clock"] * WALL_SLACK:
         return False, (
             f"REGRESSION: {new['wall_clock']:.2f}s past "
-            f"{base['wall_clock']:.2f}s ({base['commit']}))"
+            f"{base['wall_clock']:.2f}s ({base['commit']})"
         )
     if new["wall_clock"] < base["wall_clock"] * IMPROVE:
         return True, (
@@ -108,9 +112,18 @@ def row_line(row):
     )
 
 
-def write_row_file(ok):
-    body = _HEADER
-    body += "| bench gate: PASS |\n" if ok else "| bench gate: FAIL |\n"
+def write_row_file(ok, gate_row=None):
+    host_note = (
+        "Gate host: %s. The gate compares runs on the same host only; a host"
+        " change re-primes the baseline.\n" % gate_row["host"]
+        if gate_row
+        else ""
+    )
+    gate_line = (
+        "Bench gate: **%s**. %s" % ("PASS" if ok else "FAIL", host_note)
+    ).rstrip()
+    head, tail = _HEADER.split("\n\n", 1)
+    body = head + "\n\n" + gate_line + "\n\n" + tail
     seen = set()
     for row in reversed(load_rows(ARCHIVE)):
         if row["suite"] not in ("speed", "fixture"):
@@ -166,7 +179,7 @@ def main(argv=None):
     print("speed workload: %.2fs / %d mutants" % (new["wall_clock"], new["mutants"]))
     if why:
         print("  %s" % why)
-    if base is None:
+    if base is None or new["host"] != base["host"]:
         store_base(BASELINE_PATH, new)
         print("  primed baseline: arming the speed-moat gate")
     elif ok:
@@ -174,7 +187,7 @@ def main(argv=None):
             store_base(BASELINE_PATH, new)
             print("  wrote updated baseline")
 
-    write_row_file(ok)
+    write_row_file(ok, gate_row=new)
     return 0 if ok else 2
 
 

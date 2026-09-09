@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from bench_ci import WALL_SLACK, latest_gate, verdict
 
 
-def _speed_row(wall):
+def _speed_row(wall, host="Darwin 24.1.0"):
     return {
         "suite": "speed",
         "hypothesis": "baseline",
@@ -17,6 +17,7 @@ def _speed_row(wall):
         "mutants": 96,
         "mutants_per_sec": wall / 96,
         "commit": "aaaaaaa",
+        "host": host,
     }
 
 
@@ -47,6 +48,22 @@ def test_improvement_is_reported():
     ok, why = verdict(new, base)
     assert ok
     assert "improved" in why
+
+
+def test_host_change_re_primes_instead_of_gate_failing():
+    base = _speed_row(0.4, host="Darwin 24.1.0")
+    new = _speed_row(1.0, host="Linux 6.8.0")
+    ok, why = verdict(new, base)
+    assert ok
+    assert "host changed" in why
+
+
+def test_same_host_still_gates():
+    base = _speed_row(0.4, host="Linux 6.8.0")
+    new = _speed_row(1.0, host="Linux 6.8.0")
+    ok, why = verdict(new, base)
+    assert not ok
+    assert "REGRESSION" in why
 
 
 def test_latest_gate_picks_the_newest_speed_row():

@@ -38,9 +38,9 @@ check-pytest-args:
 check-spike:
 	$(PYTHON) -m pytest -m slow tests/test_spike_inmemory.py -v
 
-## Criterion G1-G4:the comparative benchmark.
+## Criteria G1-G4: the comparative benchmark.
 ## moonbuggy vs mutmut vs the naive baseline. See docs/benchmark-results.md.
-## Wires the D2 numbers pipe(``intel/perf-bench.jsonl``叫 at MB_HARNESS_OUTPUT when set.
+## Writes to the D2 numbers pipe (`intel/perf-bench.jsonl`) via MB_HARNESS_OUTPUT when set.
 bench:
 	$(PYTHON) scripts/bench_mutation.py
 
@@ -55,9 +55,9 @@ bench-real:
 
 ## CI-integrated bench: runs `make bench`, gates it, and adds a second gate.
 ## The speed workload's wall-clock must not regress > 1.25x past the committed
-## `intel/perf-baseline.json` (a shared-runner-tolerant 25%% . Evidence writes to
+## `intel/perf-baseline.json` (a shared-runner-tolerant 25% slack). Evidence writes to
 ## `intel/perf-bench.jsonl` via the numbers pipe and a legible `intel/perf-bench.md` projection.
-## Exit: 0 pass; make's code on a G verdict failure;2 regression;3 broken pipe.
+## Exit: 0 pass; make's code on a G verdict failure; 2 regression; 3 broken pipe.
 bench-ci:
 	$(PYTHON) scripts/bench_ci.py
 
