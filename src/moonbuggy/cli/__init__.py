@@ -51,8 +51,8 @@ from .common import (
     _target_ids,
 )
 from .exec import _prepare_cache, _run
-from .export import _export
 from .explain import _run_one, _show, _why
+from .export import _export
 from .operators import _operators
 from .parser import _build_parser
 
