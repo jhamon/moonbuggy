@@ -791,7 +791,7 @@ run` input. Checked here rather than asserted:
 >>> f["schema"], f["record_schema"], f["survival_reason"]
 (1, 4, None)
 >>> f["original"], f["mutated"]
-('return value * 2', 'return value / 2')
+('return value * 2', 'return value * 3')
 ```
 
 The `id` on an exported record re-measures directly — the round trip the
