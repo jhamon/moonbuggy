@@ -67,7 +67,8 @@ def load_schema() -> dict[str, Any]:
     Returns:
         The ``survivor-export.v1`` JSON Schema.
     """
-    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    parsed: dict[str, Any] = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    return parsed
 
 
 def record_for_finding(record: Record) -> dict[str, Any]:
