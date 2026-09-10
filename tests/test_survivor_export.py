@@ -14,7 +14,6 @@ handle that does not round-trip is not an export.
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 

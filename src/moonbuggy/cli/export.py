@@ -20,7 +20,11 @@ def _export(args: argparse.Namespace) -> int:
         export is a fact about the run, not an error), 2 when there are no
         run artifacts to export from.
     """
-    results_path = Path(args.project if hasattr(args, "project") else ".") / args.output_dir / "results.jsonl"
+    results_path = (
+        Path(args.project if hasattr(args, "project") else ".")
+        / args.output_dir
+        / "results.jsonl"
+    )
     if not results_path.exists():
         results_path = Path(args.output_dir) / "results.jsonl"
     if not results_path.exists():

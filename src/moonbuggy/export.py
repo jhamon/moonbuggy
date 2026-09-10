@@ -181,9 +181,10 @@ def _check_rule(key: str, value: Any, rule: dict[str, Any]) -> list[str]:
             errors.append(f"{key}: shorter than minLength {rule['minLength']}")
         if rule.get("format") == "date-time" and not _is_datetime(value):
             errors.append(f"{key}: not an ISO-8601 timestamp")
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if "minimum" in rule and value < rule["minimum"]:
-            errors.append(f"{key}: below minimum {rule['minimum']}")
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and (
+        "minimum" in rule and value < rule["minimum"]
+    ):
+        errors.append(f"{key}: below minimum {rule['minimum']}")
     return errors
 
 
