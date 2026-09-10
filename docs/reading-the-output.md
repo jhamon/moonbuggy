@@ -767,3 +767,40 @@ holds exactly what the run left there.
 >>> [r["status"] for r in records(project) if r["id"] == "lib.py:6:constant_int:0"]
 ['KILLED']
 ```
+
+## Checking that `export` hands the findings to a machine
+
+The export is the handoff surface: one file, one record per finding, every
+record conforming to the frozen survivor-export.v1 contract (see
+`docs/contracts/survivor-export-v1.md`), and every `id` a valid `moonbuggy
+run` input. Checked here rather than asserted:
+
+```{doctest}
+>>> project = make_project({
+...     "lib.py": "def used(value):\n    return value + 1\n\n\ndef never_called(value):\n    return value * 2\n",
+...     "test_lib.py": "from lib import used\n\ndef test_used():\n    assert used(1) == 2\n",
+... })
+>>> _ = moonbuggy(cwd=project)
+>>> proc = moonbuggy("export", cwd=project)
+>>> proc.returncode
+0
+>>> findings = [json.loads(line) for line in (project / "survivors.jsonl").read_text().splitlines()]
+>>> [(f["id"], f["status"]) for f in findings]
+[('lib.py:6:constant_int:0', 'NO_COVERAGE')]
+>>> f = findings[0]
+>>> f["schema"], f["record_schema"], f["survival_reason"]
+(1, 4, None)
+>>> f["original"], f["mutated"]
+('return value * 2', 'return value * 3')
+```
+
+The `id` on an exported record re-measures directly — the round trip the
+export exists for:
+
+```{doctest}
+>>> _ = (project / "test_never.py").write_text(
+...     "from lib import never_called\n\ndef test_never():\n    assert never_called(3) == 6\n")
+>>> proc = moonbuggy("run", f["id"], cwd=project)
+>>> proc.stdout.split()[0], proc.returncode
+('KILLED', 0)
+```

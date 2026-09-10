@@ -16,6 +16,7 @@ because release and CI processes depend on them and cite them by path.
 | [killreason-v1](killreason-v1.md) | the killreason vocabulary: every token in the JSONL `killreason` field and the human trace `killreason=` token | @moonbuggy-qa, @moonbuggy-dx | FROZEN v1.0 | 2026-08-31 |
 | [harness-output-v1](../../scripts/schemas/harness-output.v1.schema.json) | the D2 numbers pipe: suite, wall-clock, mutants/sec, memory delta, hypothesis tag | @moonbuggy-perf, @moonbuggy-dx | FROZEN v1.0 | 2026-08-31 |
 | [harness-output-jsonl](harness-output-jsonl.md) | companion to harness-output-v1: the end-to-end hypothesis-tag invariant + consumer rules (feed/changelog/outreach/dashboard); does not redefine the row | @moonbuggy-perf, @moonbuggy-dx | FROZEN v1.0 | 2026-08-31 |
+| [survivor-export-v1](survivor-export-v1.md) | the C3 Phase A findings feed: one JSONL record per SURVIVED/NO_COVERAGE mutant, reusable as `moonbuggy run <id>` re-injection input; `survival_reason` reserved-null (vocabulary is Phase B) | @moonbuggy-qa, @moonbuggy-dx | DRAFT v0.1 (co-sign pending) | — |
 
 ## The register rule, restated
 

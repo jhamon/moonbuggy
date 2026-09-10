@@ -37,6 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_run_one_parser(sub)
     _add_why_parser(sub)
     _add_operators_parser(sub)
+    _add_export_parser(sub)
 
     accept = sub.add_parser(
         "accept",
@@ -236,6 +237,43 @@ def _add_why_parser(
         "`status` and no `diff` to filter on",
     )
     why.set_defaults(command="why")
+
+
+def _add_export_parser(
+    sub: "argparse._SubParsersAction[argparse.ArgumentParser]",
+) -> None:
+    """Define `moonbuggy export`: the last run's findings as one frozen file.
+
+    Args:
+        sub: the subparser action to register on.
+    """
+    export = sub.add_parser(
+        "export",
+        help="write the last run's findings (SURVIVED and NO_COVERAGE) to a "
+        "machine-readable JSONL file",
+        description="Export the last run's findings -- every SURVIVED and "
+        "NO_COVERAGE record in results.jsonl -- as one JSONL file, one record "
+        "per finding under the frozen survivor-export.v1 contract. Each "
+        "record carries the full results.jsonl envelope (original, mutated, "
+        "diff, nearest_test, killreason) plus the export version pin, so an "
+        "agent with one line can reconstruct the mutant, and `moonbuggy run "
+        "<id>` re-measures it straight off the `id=` the record carries. "
+        "`survival_reason` is always null in v1: the survival-reason "
+        "vocabulary is not yet defined, and no token is invented here.",
+    )
+    export.add_argument(
+        "path",
+        nargs="?",
+        default="survivors.jsonl",
+        help="where to write the export (default: survivors.jsonl, relative "
+        "to the current directory)",
+    )
+    export.add_argument(
+        "--output-dir",
+        default=DEFAULT_OUTPUT_DIR,
+        help=_READ_OUTPUT_DIR_HELP,
+    )
+    export.set_defaults(command="export")
 
 
 def _add_operators_parser(
@@ -465,7 +503,8 @@ Statuses:
 
   SURVIVED and NO_COVERAGE are the *findings* -- the two that say something
   about your tests rather than about the run. They are what the exit code
-  gates on, and the only two `moonbuggy accept` will speak for.
+  gates on, the only two `moonbuggy accept` will speak for, and the only two
+  `moonbuggy export` writes out.
 
 Exit codes:
   0    no findings.
