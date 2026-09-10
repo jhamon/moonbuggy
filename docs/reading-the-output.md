@@ -785,13 +785,13 @@ run` input. Checked here rather than asserted:
 >>> proc.returncode
 0
 >>> findings = [json.loads(line) for line in (project / "survivors.jsonl").read_text().splitlines()]
->>> [(f["id"], f["status"]) for f in findings]
-[('lib.py:6:constant_int:0', 'NO_COVERAGE')]
->>> f = findings[0]
+>>> sorted((f["id"], f["status"]) for f in findings)
+[('lib.py:6:arithmetic_swap:0', 'NO_COVERAGE'), ('lib.py:6:constant_int:0', 'NO_COVERAGE')]
+>>> f = next(f for f in findings if f["id"] == "lib.py:6:constant_int:0")
 >>> f["schema"], f["record_schema"], f["survival_reason"]
 (1, 4, None)
 >>> f["original"], f["mutated"]
-('return value * 2', 'return value * 3')
+('return value * 2', 'return value / 2')
 ```
 
 The `id` on an exported record re-measures directly — the round trip the

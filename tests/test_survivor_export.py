@@ -296,9 +296,15 @@ def test_round_trip_export_then_reinject(run_project, tmp_path):
     verdicts = [
         line
         for line in out.splitlines()
-        if line.split()[0] in {
-            "SURVIVED", "NO_COVERAGE", "KILLED", "KILLED_BY_ERROR",
-            "TIMEOUT", "SUSPICIOUS", "SKIPPED",
+        if line.split()[0]
+        in {
+            "SURVIVED",
+            "NO_COVERAGE",
+            "KILLED",
+            "KILLED_BY_ERROR",
+            "TIMEOUT",
+            "SUSPICIOUS",
+            "SKIPPED",
         }
     ]
     assert len(verdicts) == len(ids)
