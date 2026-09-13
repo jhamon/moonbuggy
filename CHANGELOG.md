@@ -6,6 +6,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`moonbuggy export` — the last run's findings as one frozen, machine-readable
+  file (C3 Phase A).** One JSONL record per SURVIVED / NO_COVERAGE mutant,
+  written to `survivors.jsonl` by default. Each record reuses the
+  `results.jsonl` record envelope verbatim — `original`, `mutated`, `diff`,
+  `nearest_test`, `killreason` — under the `survivor-export.v1` contract
+  (schema at `src/moonbuggy/schemas/survivor-export.v1.schema.json`, companion
+  doc at `docs/contracts/survivor-export-v1.md`, DRAFT v0.1 pending qa
+  co-sign), so an agent with one line can reconstruct the mutant and
+  `moonbuggy run <id>` re-measures it straight off the exported `id`. The
+  `survival_reason` field is reserved and always null in v1: the
+  survival-reason vocabulary is C3 Phase B and no token is invented here. The
+  round trip — export from a run, re-inject every exported id through
+  `moonbuggy run`, one fresh verdict per id — is pinned by
+  `tests/test_survivor_export.py` and by a doctest in `docs/reading-the-output.md`.
+
 ### Performance
 
 - **Mutants are now dispatched cheap operators first, so a run that enables

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moonbuggy.dev/schemas/survivor-export.v1.schema.json",
+  "title": "moonbuggy survivor-export record (C3 Phase A findings feed)",
+  "description": "One machine-readable finding record exported from a moonbuggy run: a single JSON object per line, one line per SURVIVED or NO_COVERAGE mutant. Each line reuses the record-schema-4 JSONL envelope verbatim (the same field set results.jsonl carries, including original/mutated/diff/nearest_test and killreason) under a survivor-export version pin, so a reader with one line can reconstruct the mutant and re-inject it via `moonbuggy run <id>`. A change that adds, renames, or re-types a key raises the schema version rather than silently shifting the contract. `survival_reason` is deliberately null in v1: the survival-reason vocabulary is C3 Phase B and does not exist yet -- no token may be invented here.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "const": 1,
+      "description": "Version of the survivor-export contract. Every conforming record carries it so a reader with one line knows exactly what that line means."
+    },
+    "exported": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the export was produced, UTC."
+    },
+    "moonbuggy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "moonbuggy __version__ of the tree that ran the source run and wrote this export."
+    },
+    "record_schema": {
+      "type": "integer",
+      "const": 4,
+      "description": "The RECORD_SCHEMA version of the embedded finding fields. The export carries the record envelope verbatim, so the envelope's own version travels with it rather than being inferred."
+    },
+    "survival_reason": {
+      "type": "null",
+      "description": "Why this mutant survived. NOT YET IN VOCABULARY: the stable survival-reason tokens are C3 Phase B and are intentionally absent from v1 -- this field is reserved, required, and always null. A Phase B version bump widens the type to include the new tokens; no v1 consumer may interpret null as any reason."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The mutant id, as printed in `id=...` on a result line. This is the re-injection handle: `moonbuggy run <id>` accepts it directly."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["SURVIVED", "NO_COVERAGE"],
+      "description": "The finding verdict. The export is findings-only: killed, timed-out, suspicious and skipped mutants are never exported."
+    },
+    "file": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The mutated module, relative to the project root."
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The mutated line, 1-indexed."
+    },
+    "operator": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The mutation operator that produced the mutant."
+    },
+    "category": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The record's category token (currently the operator name, carried verbatim from the record envelope)."
+    },
+    "nearest_test": {
+      "type": ["string", "null"],
+      "description": "The test node id nearest to the mutated line, or None when the run recorded no neighbour."
+    },
+    "tests_run": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many selected tests ran against the mutant."
+    },
+    "duration": {
+      "type": "number",
+      "minimum": 0,
+      "description": "The mutant's measured wall time in seconds, as the record carries it."
+    },
+    "module_level": {
+      "type": "boolean",
+      "description": "Whether the mutation sits on an import-time line."
+    },
+    "suppressed": {
+      "type": "boolean",
+      "description": "Whether the mutant was settled without running (skip marker or suppressed logging mutant). Carried verbatim for provenance; a suppressed mutant is not a genuine finding."
+    },
+    "logging_call": {
+      "type": "boolean",
+      "description": "Whether the mutation sits inside a logging call's arguments."
+    },
+    "original": {
+      "type": "string",
+      "description": "The original source line, verbatim."
+    },
+    "mutated": {
+      "type": "string",
+      "description": "The mutated source line, verbatim."
+    },
+    "diff": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The two-line textual diff (`- original` / `+ mutated`), exactly as the record envelope renders it."
+    },
+    "accepted": {
+      "type": "boolean",
+      "description": "Whether the accepted-equivalents ledger covers this mutant. An accepted survivor is annotated, never hidden: it still exports, with the ledger's verdict alongside."
+    },
+    "accept_reason": {
+      "type": ["string", "null"],
+      "description": "The ledger's reason for accepting this mutant, or None when it is not accepted."
+    },
+    "killreason": {
+      "type": ["string", "null"],
+      "description": "A killreason token from the frozen D1 vocabulary, or null. A finding record always carries null -- killreason is a cause of a kill, and no finding was killed -- but the field travels verbatim so a consumer may treat exported lines and results.jsonl lines with one parser."
+    }
+  },
+  "required": [
+    "schema", "exported", "moonbuggy", "record_schema", "survival_reason",
+    "id", "status", "file", "line", "operator", "category", "nearest_test",
+    "tests_run", "duration", "module_level", "suppressed", "logging_call",
+    "original", "mutated", "diff", "accepted", "accept_reason", "killreason"
+  ]
+}

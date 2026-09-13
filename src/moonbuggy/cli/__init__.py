@@ -26,6 +26,7 @@ __all__ = [
     "_target_ids",
     "_operators",
     "_run",
+    "_export",
     "_run_one",
     "_show",
     "_why",
@@ -51,6 +52,7 @@ from .common import (
 )
 from .exec import _prepare_cache, _run
 from .explain import _run_one, _show, _why
+from .export import _export
 from .operators import _operators
 from .parser import _build_parser
 
@@ -74,8 +76,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     # partial results in `args.output_dir`. `operators` reads the registry and
     # writes nothing, so it has no results directory to name and nothing worth
     # interrupting.
-    if args.command == "operators":
-        return _operators(args)
+    if args.command == "operators" or args.command == "export":
+        # `operators` reads the registry and writes nothing; `export` reads
+        # results.jsonl and writes the export file. Neither has a run's
+        # results directory to name in the interrupt handler below, and
+        # neither runs a suite, so neither is worth the interrupt prose.
+        if args.command == "operators":
+            return _operators(args)
+        return _export(args)
     try:
         if args.command == "show":
             return _show(args)
