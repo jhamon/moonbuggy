@@ -140,6 +140,28 @@ def _add_run_one_parser(
         help="extra unmutated suite runs used to detect flaky tests "
         "(default: 1, 0 disables)",
     )
+    one.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=1,
+        metavar="N",
+        help="mutant runs to hold open at once. Each is still its own pytest "
+        "subprocess with its own fresh verdict, so the verdicts are identical "
+        "to the serial ones -- only the waits overlap (default: 1, serial). "
+        "The re-injection leg of the export loop is where this pays: "
+        "`moonbuggy export | ... | moonbuggy run - -j4` re-measures a whole "
+        "finding set in a quarter of the serial wall clock",
+    )
+    one.add_argument(
+        "--trace-json",
+        action="store_true",
+        help="emit one verdict-trace JSON object per mutant on stdout instead "
+        "of the human/agent report: the verdict plus the exact evidence "
+        "behind it -- the tests that objected (a kill), the surviving "
+        "mutation, or the crash that prevented one. Written to "
+        "<output-dir>/traces.jsonl as well, one line per re-measured mutant",
+    )
     _add_logging_arguments(one)
     one.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
     one.add_argument(

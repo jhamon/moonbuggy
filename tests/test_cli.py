@@ -932,6 +932,31 @@ def test_run_names_the_tests_it_selected_and_the_ones_that_failed(throwaway):
     assert "  - " in proc.stdout and "  + " in proc.stdout
 
 
+def test_run_jobs_matches_the_serial_verdicts_line_for_line(throwaway):
+    """`-j N` overlaps the waits, not the verdicts.
+
+    Each mutant still runs in its own pytest subprocess with the same
+    selection and environment, so the agent lines must be byte-identical to
+    the serial ones -- the re-injection leg of the export loop leans on that,
+    since its consumer parses the lines rather than reading them.
+    """
+    moonbuggy(cwd=throwaway)
+    findings = [
+        json.loads(line)["id"]
+        for line in (throwaway / ".moonbuggy" / "results.jsonl")
+        .read_text()
+        .splitlines()
+        if json.loads(line)["status"] in ("SURVIVED", "NO_COVERAGE")
+    ]
+    if not findings:
+        pytest.skip("the sample project produced no findings to re-inject")
+
+    serial = moonbuggy("run", "--report", "agent", "-j1", *findings, cwd=throwaway)
+    concurrent = moonbuggy("run", "--report", "agent", "-j4", *findings, cwd=throwaway)
+
+    assert serial.stdout == concurrent.stdout
+
+
 def test_run_reports_no_coverage_rather_than_survived(uncovered):
     # A mutant no test reaches is a finding under its own keyword here too --
     # exit 1, and not the word `SURVIVED`, which would send the reader looking
