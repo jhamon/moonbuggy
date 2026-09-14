@@ -37,6 +37,18 @@ from ..verify import (
 from .common import _accept_path, _display_path, _logging_policy, _target_ids
 
 
+def _append_trace(path: Path, trace: dict[str, object]) -> None:
+    """Append one trace record to traces.jsonl, creating the file if needed.
+
+    Append rather than rewrite, deliberately: a fix-verify loop re-measures
+    the same id repeatedly, and the audit log's value is that yesterday's
+    evidence is still there when today's verdict surprises you.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(trace, sort_keys=True) + "\n")
+
+
 def _run_one(args: argparse.Namespace) -> int:
     """Re-run the named mutants and report fresh verdicts.
 
@@ -118,13 +130,23 @@ def _run_one(args: argparse.Namespace) -> int:
         extra_args=args.pytest_arg,
         cache=cache,
         reasons=reasons,
+        jobs=args.jobs,
     )
     if cache is not None:
         cache.save()
 
     fmt = resolve_format(args.report, os.environ, sys.stdout.isatty())
     for index, verification in enumerate(verifications):
-        if fmt == "agent":
+        if args.trace_json:
+            # The verdict-trace audit log: stdout is the machine record, and
+            # the same line is appended to traces.jsonl so the evidence
+            # outlives the terminal. One place (`Verification.trace`) decides
+            # the keys, so the emitted object and the persisted one cannot
+            # drift -- the persisted line *is* the emitted object.
+            trace = verification.trace()
+            _append_trace(project_dir / args.output_dir / "traces.jsonl", trace)
+            print(json.dumps(trace, sort_keys=True))
+        elif fmt == "agent":
             # Byte for byte the line results.txt carries, so the output of one
             # `moonbuggy run` can be grepped and piped straight into the next.
             print(render_line(record_for(verification.result, verification.reason)))

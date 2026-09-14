@@ -175,6 +175,13 @@ def test_run_honours_the_flags_a_full_run_honours():
     assert args.workers == 2
 
 
+def test_run_jobs_defaults_to_serial_and_parses_the_flag():
+    args = _build_parser().parse_args(["run", "a:1:op:0", "-j", "4"])
+
+    assert args.jobs == 4
+    assert _build_parser().parse_args(["run", "a:1:op:0"]).jobs == 1
+
+
 def _explanation(**overrides):
     mutant = Mutant(
         id="shipping.py:5:comparison_swap:0",

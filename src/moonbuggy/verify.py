@@ -52,13 +52,16 @@ import os
 import sys
 import tempfile
 from collections.abc import Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .baseline import read_outcomes
 from .cache import CacheRecord, ResultCache
 from .coverage_pass import run_baseline_pass
 from .generate import GenerationError, generate_mutants
+from .killreason import EXECUTION_CRASH, KillReasonCode
 from .logging_policy import LoggingPolicy
 from .mutant import Mutant, parse_id
 from .operators import ALL_TIER, tier_members
@@ -66,12 +69,21 @@ from .report import Record
 from .runner import Result, check_selection_is_runnable, run_one
 from .srcio import SourceError, read_source
 
+if TYPE_CHECKING:
+    from .coverage_pass import LineMap
+
 # Statuses that say nothing about this mutation and so are not worth storing:
 # SKIPPED is a fact about the source (a suppression marker) or about the run's
 # policy (a logging call `--include-logging-mutants` was not asked for), and
 # SUSPICIOUS is a fact about the suite (a flaky test in the selection). `_plan`
 # declines to cache both for the same reason.
 _NOT_CACHEABLE = frozenset({"SKIPPED", "SUSPICIOUS"})
+
+# The verdict-trace record's own version, independent of the JSONL
+# RECORD_SCHEMA: a trace is a separate document that will move for separate
+# reasons (same reasoning as SUMMARY_SCHEMA beside RECORD_SCHEMA in
+# report.py). Version 1 freezes the `trace()` key list.
+TRACE_SCHEMA = 1
 
 
 class VerifyError(RuntimeError):
@@ -116,6 +128,66 @@ class Verification:
     def status(self) -> str:
         """The fresh verdict."""
         return self.result.status
+
+    def trace(self) -> dict[str, object]:
+        """The verdict plus the exact evidence that produced it.
+
+        The persisted verdict-trace audit log's per-mutant record, consumed by
+        `moonbuggy run <id> --trace-json`. Like :meth:`summary`, one place
+        decides the keys, so the human block and the JSON trace cannot describe
+        the same measurement differently -- and like the agent line, the
+        leading `verdict.status` is always a bare keyword from
+        :data:`moonbuggy.report.STATUS_KEYWORDS`, so `jq .verdict.status`
+        selects the same mutants `grep KILLED` does.
+
+        The evidence discipline: every verdict names *something*. A KILLED or
+        KILLED_BY_ERROR names the assertion (or erroring test) that died; a
+        SURVIVED identifies the surviving mutation itself, since no test
+        objected; a NO_COVERAGE says nothing ran; and a SUSPICIOUS names its
+        cause, which the killreason already distinguishes (flaky_probe vs
+        execution_crash) -- at `--flaky-probe 0` only the crash path can
+        produce it, and the trace says which.
+
+        Returns:
+            A mapping with `trace_schema`, `id`, `file`, `line`, `operator`,
+            `original`, `mutated`, `selection` (`selected`, `failed`) and
+            `verdict` (`status`, `killreason`, `assert`, `crash`).
+        """
+        status = self.status
+        assert_failed: list[str] = []
+        crash: str | None = None
+        if status in ("KILLED", "KILLED_BY_ERROR"):
+            # The traceable claim: these exact tests objected to the mutation.
+            # Sorted here rather than trusted from the caller, so the trace's
+            # evidence order is the trace's own contract.
+            assert_failed = sorted(self.failed)
+        elif status == "SUSPICIOUS" and self.result.killreason == EXECUTION_CRASH:
+            # The runner's crash-path mapping: pytest returned a code outside
+            # {0, 1, 72}, so it never produced a verdict about the mutation.
+            crash = "pytest did not complete (exit code outside {0, 1, 72})"
+        return {
+            "trace_schema": TRACE_SCHEMA,
+            "id": self.mutant.id,
+            "file": self.mutant.module,
+            "line": self.mutant.line,
+            "operator": self.mutant.operator,
+            "original": self.mutant.original,
+            "mutated": self.mutant.mutated,
+            "selection": {
+                "selected": list(self.selected),
+                "failed": list(self.failed),
+            },
+            "verdict": {
+                "status": status,
+                "killreason": (
+                    None
+                    if self.result.killreason is None
+                    else KillReasonCode(self.result.killreason).code
+                ),
+                "assert": assert_failed,
+                "crash": crash,
+            },
+        }
 
     def summary(self) -> dict[str, object]:
         """The verification as JSON-serialisable data.
@@ -455,6 +527,57 @@ def _mutants_in(
     return {mutant.id: mutant for mutant in found}
 
 
+def _measure_one(
+    project_dir: Path,
+    index: int,
+    mutant: Mutant,
+    linemap: "LineMap",
+    timeout: float,
+    python: str,
+    workers: int,
+    flaky: set[str],
+    tmp_dir: Path,
+) -> Result:
+    """One mutant's fresh verdict, written to `tmp_dir` as its outcomes file.
+
+    The per-mutant half of :func:`verify`, factored out so the concurrent
+    path and the serial one measure exactly the same way: each mutant runs in
+    its own pytest subprocess (a forked child reports a single exit-code byte
+    and this command has to name the tests that failed), and the only thing
+    concurrency changes is how many of those waits overlap.
+
+    Args:
+        project_dir: the project root.
+        index: the mutant's position in the input order, naming its outcomes
+            file -- distinct per mutant because the runs may overlap.
+        mutant: the target.
+        linemap: the line to covering-tests map from the coverage pass.
+        timeout: seconds before this mutant is called TIMEOUT.
+        python: interpreter for the mutant run.
+        workers: pytest-xdist workers within this mutant's run.
+        flaky: test node ids whose outcome is not reproducible.
+        tmp_dir: directory for the per-mutant outcomes file.
+
+    Returns:
+        The runner's verdict, exactly as the serial path produces it.
+    """
+    outcomes_file = tmp_dir / f"outcomes-{index}.json"
+    return run_one(
+        project_dir,
+        mutant,
+        linemap,
+        timeout,
+        python,
+        xdist_workers=workers,
+        # cache=None is the point of the command, not an oversight:
+        # a hit here would answer the question with the previous
+        # answer. The fresh verdict is stored by the caller.
+        cache=None,
+        flaky=flaky,
+        outcomes=outcomes_file,
+    )
+
+
 def verify(
     project_dir: str | os.PathLike[str],
     mutants: list[Mutant],
@@ -466,13 +589,17 @@ def verify(
     python: str | None = None,
     cache: ResultCache | None = None,
     reasons: Mapping[str, str] | None = None,
+    jobs: int = 1,
 ) -> list[Verification]:
     """Re-measure each mutant against the tests that cover it.
 
     One coverage pass serves every target, so verifying ten survivors costs
     barely more than verifying one. Each mutant then runs in its own pytest
     subprocess rather than a fork, because a forked child reports a single
-    exit-code byte and this command has to name the tests that failed.
+    exit-code byte and this command has to name the tests that failed. With
+    `jobs` above 1 those subprocesses overlap; each is unchanged -- same
+    selection, same environment, same fresh verdict -- so the verdicts are
+    byte-identical to the serial ones and only the wall clock moves.
 
     Args:
         project_dir: the project root.
@@ -489,6 +616,9 @@ def verify(
             (`_NOT_CACHEABLE`); everything else is.
         reasons: accepted-equivalents reasons by mutant id, as
             :meth:`moonbuggy.accepted.Resolution.reasons` returns.
+        jobs: how many mutant runs to hold open at once. 1 is the serial
+            behaviour; each run is an independent subprocess, so the value
+            changes overlap and nothing else.
 
     Returns:
         One :class:`Verification` per mutant, in the input order.
@@ -500,39 +630,33 @@ def verify(
     project_dir = Path(project_dir)
     python = python or sys.executable
     reasons = reasons or {}
+    jobs = max(1, jobs)
 
     linemap, flaky = run_baseline_pass(
         project_dir, source_dir, probes, python=python, extra_args=extra_args
     )
     check_selection_is_runnable(project_dir, linemap.all_tests())
 
-    verifications = []
+    verifications: list[Verification | None] = [None] * len(mutants)
     with tempfile.TemporaryDirectory() as tmp:
-        for index, mutant in enumerate(mutants):
-            outcomes_file = Path(tmp) / f"outcomes-{index}.json"
-            result = run_one(
-                project_dir,
-                mutant,
-                linemap,
-                timeout,
-                python,
-                xdist_workers=workers,
-                # cache=None is the point of the command, not an oversight:
-                # a hit here would answer the question with the previous
-                # answer. The fresh verdict is stored below.
-                cache=None,
-                flaky=flaky,
-                outcomes=outcomes_file,
-            )
+        tmp_dir = Path(tmp)
+
+        def settle(index: int, result: Result) -> Verification:
+            """Turn one verdict into its Verification, and store it."""
+            mutant = mutants[index]
             selected = (
                 () if mutant.suppressed else tuple(sorted(linemap.select_for(mutant)))
             )
+            outcomes_file = tmp_dir / f"outcomes-{index}.json"
             failed = tuple(
                 sorted(
                     node_id
                     for node_id, outcome in read_outcomes(outcomes_file).items()
                     if outcome == "failed"
                 )
+            )
+            verification = Verification(
+                result, selected, failed, reasons.get(mutant.id)
             )
             if cache is not None and result.status not in _NOT_CACHEABLE:
                 cache.put(
@@ -543,7 +667,45 @@ def verify(
                         "nearest_test": result.nearest_test,
                     },
                 )
-            verifications.append(
-                Verification(result, selected, failed, reasons.get(mutant.id))
-            )
-    return verifications
+            return verification
+
+        if jobs == 1:
+            for index, mutant in enumerate(mutants):
+                result = _measure_one(
+                    project_dir,
+                    index,
+                    mutant,
+                    linemap,
+                    timeout,
+                    python,
+                    workers,
+                    flaky,
+                    tmp_dir,
+                )
+                verifications[index] = settle(index, result)
+        else:
+            # Each wait is a blocked `subprocess.run` in a worker thread; the
+            # parent's state is only ever touched by `settle`, which runs
+            # here. Results are placed by index, so the report order is the
+            # input order whatever order the runs finish in.
+            with ThreadPoolExecutor(max_workers=jobs) as pool:
+                pending = {
+                    pool.submit(
+                        _measure_one,
+                        project_dir,
+                        index,
+                        mutant,
+                        linemap,
+                        timeout,
+                        python,
+                        workers,
+                        flaky,
+                        tmp_dir,
+                    ): index
+                    for index, mutant in enumerate(mutants)
+                }
+                for future in as_completed(pending):
+                    index = pending[future]
+                    verifications[index] = settle(index, future.result())
+
+    return [verification for verification in verifications if verification is not None]
