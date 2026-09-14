@@ -1,7 +1,7 @@
 # How fast is moonbuggy?
 
 The short answer: on the benchmark workload below, moonbuggy finishes mutation
-testing in **about half a second** — roughly **1.8 times as fast as mutmut** and
+testing in **about half a second** — roughly **1.7 times as fast as mutmut** and
 **more than 40 times faster** than a naive re-run of your whole test suite per
 mutant.
 
@@ -42,15 +42,15 @@ consecutive runs, on a single machine.
 
 | tool | wall time | mutants | mutants/sec |
 |---|---:|---:|---:|
-| **moonbuggy** | **0.56s** | 96 | 172 |
-| mutmut | 1.02s | 108 | 106 |
-| naive baseline | 24.3s | 96 | 4.0 |
+| **moonbuggy** | **0.53s** | 96 | 183 |
+| mutmut | 0.93s | 108 | 116 |
+| naive baseline | 21.6s | 96 | 4.4 |
 
 Read this table carefully, because the two ratios tell a different story:
 
-- **vs. mutmut: 1.8x faster.** Three consecutive runs gave 2.00x, 1.84x and
-  1.83x — stable, not a lucky single sample.
-- **vs. the naive baseline: 43x faster.** Three runs: 42.9x, 43.5x and 43.4x.
+- **vs. mutmut: 1.7x faster.** Three consecutive runs gave 1.79x, 1.72x and
+  1.74x — stable, not a lucky single sample.
+- **vs. the naive baseline: 41x faster.** Three runs: 41.0x, 40.0x and 41.3x.
 
 The comparison against mutmut is worth a word of context. The two tools do not
 generate identical mutant sets: mutmut implements a larger set of mutation
@@ -62,7 +62,7 @@ the number that is clean.
 
 The clean comparison is against the naive baseline, which runs the *same*
 moonbuggy mutation operators. **Both produce exactly 96 mutants, with
-identical status breakdowns. Nothing is pruned.** The 43x speedup is real, and
+identical status breakdowns. Nothing is pruned.** The 41x speedup is real, and
 it is not bought by quietly mutating less.
 
 ## And on a real project?
@@ -118,12 +118,12 @@ credibility point, not a defect.
 Put a number on it. On this workload, mutmut spends about a second mutating a
 project whose 90 tests take real time to run. moonbuggy spends half that. On
 the naive baseline — the way many teams first try mutation testing — the same
-job takes **24 seconds**, because every one of the 96 mutants re-runs the
+job takes **22 seconds**, because every one of the 96 mutants re-runs the
 entire suite from scratch.
 
 That is the difference between running mutation testing on every push and
 reserving it for a slow job. At half a second, moonbuggy fits in your normal
-test run. At 24 seconds with the naive approach, it is a separate, slower
+test run. At 22 seconds with the naive approach, it is a separate, slower
 stage you will be tempted to run rarely — which is exactly when the coverage
 gaps it finds stop being caught in time.
 
