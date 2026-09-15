@@ -1,0 +1,26 @@
+{
+  "file": "app/pricing.py",
+  "id": "app/pricing.py:14:comparison_swap:0",
+  "line": 14,
+  "mutated": "if quantity >= BULK:",
+  "operator": "comparison_swap",
+  "original": "if quantity > BULK:",
+  "selection": {
+    "failed": [
+      "tests/test_pricing.py::test_bulk"
+    ],
+    "selected": [
+      "tests/test_pricing.py::test_bulk",
+      "tests/test_pricing.py::test_single"
+    ]
+  },
+  "trace_schema": 1,
+  "verdict": {
+    "assert": [
+      "tests/test_pricing.py::test_bulk"
+    ],
+    "crash": null,
+    "killreason": "assertion_failed",
+    "status": "KILLED"
+  }
+}
