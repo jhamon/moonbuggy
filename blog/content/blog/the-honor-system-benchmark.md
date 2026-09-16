@@ -12,7 +12,7 @@ We're not picking on either project. The whole speed race in Python mutation tes
 
 ## Our own numbers, held to the same standard
 
-moonbuggy's README says 38x over naive and about 1.9x over mutmut on the same machine, via `make bench`. We have not independently re-run those numbers on a fresh harness recently, so treat them the way we treat gremlins' 13.82x: a self-report, not a fact you can bank. We'd rather say that plainly than let a big number do quiet work in a README.
+moonbuggy's README says 41x over naive and about 1.7x over mutmut on the same machine, via `make bench`. We have not independently re-run those numbers on a fresh harness recently, so treat them the way we treat gremlins' 13.82x: a self-report, not a fact you can bank. We'd rather say that plainly than let a big number do quiet work in a README.
 
 This matters more for mutation testing than for most tools. A mutation tester's entire value is that its verdicts are mechanical. You trust KILLED and SURVIVED because they come from running real tests against real mutants, not from anyone's judgment. A tool whose product is mechanical proof should not ask you to take its benchmark on faith. Otherwise it's marketing with a decimal point.
 
@@ -33,7 +33,7 @@ The claims on the table right now, labeled honestly:
 
 - pytest-gremlins: 13.82x with caching, 3.73x parallel vs mutmut. Self-reported.
 - fest: ~25x vs cosmic-ray. Self-reported, from the launch thread. (fest is up to 0.1.3 on PyPI as of our last look.)
-- moonbuggy: 38x over naive, ~1.9x over mutmut. Self-reported, and due for a fresh run.
+- moonbuggy: 41x over naive, ~1.7x over mutmut. Self-reported, and due for a fresh run.
 
 None of these numbers has met the others on the same machine. That's the gap. We've offered to run a straight A/B against the newer tools on our bench and publish the output either way, and the offer stands. When we do, the post will name the harness, the suite, the machine, and every place a competitor beats us.
 
@@ -44,4 +44,4 @@ Until then: be suspicious of any speedup in this space, including the one in our
 - pytest-gremlins README (Speed-First Architecture; 13.82x with caching, 3.73x parallel vs mutmut; self-reported): https://github.com/mikelane/pytest-gremlins (pulled 2026-08-30)
 - fest launch thread on r/Python (~25x faster than cosmic-ray; self-reported): https://www.reddit.com/r/Python/comments/1roya4t/i_built_fest_a_rustpowered_mutation_tester_for/ (pulled 2026-08-30)
 - fest on PyPI, version 0.1.3: https://pypi.org/project/fest-mutate/ (pulled 2026-09-07)
-- moonbuggy README benchmarks (38x over naive, ~1.9x over mutmut via `make bench`; self-reported, not re-verified on a fresh harness as of 2026-09-14)
+- moonbuggy README benchmarks (41x over naive, ~1.7x over mutmut via `make bench`; self-reported, not re-verified on a fresh harness as of 2026-09-15)
