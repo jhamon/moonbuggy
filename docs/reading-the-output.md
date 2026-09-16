@@ -661,6 +661,79 @@ findings to fail the build, which is the point of the distinction.
 took its cases from `SURVIVED`, and a status split that quietly turned a red
 build green would be the worst possible way to ship one.
 
+## The findings export
+
+A run answers "what did the suite miss?"; the export answers "hand that answer
+to something else". `moonbuggy export` writes `survivors.jsonl` — one JSON
+object per finding (every `SURVIVED` and `NO_COVERAGE` record in the last
+run's `results.jsonl`, nothing else), each carrying the full record envelope
+from [The JSONL schema](#the-jsonl-schema) plus the export's own fields:
+
+```{code-block} console
+$ moonbuggy export
+```
+
+| key | meaning |
+|---|---|
+| `schema` | the export format version; `1` today. Check it before parsing the rest of the line, exactly as you would `schema` on a record or `trace_schema` on a trace. |
+| `exported` | UTC timestamp of the export itself. |
+| `moonbuggy` | the version that emitted the file. |
+| `record_schema` | the version of the embedded record envelope (`4` today). |
+| `survival_reason` | **always `null` in v1** — see below. |
+| *(everything else)* | the record, verbatim: `id`, `status`, `original`, `mutated`, `diff`, `nearest_test`, `tests_run`, `killreason`, and the rest of [The JSONL schema](#the-jsonl-schema) table. |
+
+The envelope is carried verbatim rather than projected down to a few fields,
+and the practical reason is re-injection: `original`, `mutated` and `diff` are
+what let a consumer reconstruct the mutant without going back to
+`results.jsonl`, while `id` is all `moonbuggy run <id>` needs. A parser
+written for `results.jsonl` lines reads an export unchanged — the same shape,
+one more version pin.
+
+**`survival_reason` is reserved, not missing.** It names *why* a mutant
+survived — an equivalent mutant, a missing assertion, a weak one — and that
+vocabulary does not exist yet, so v1 emits `null` on every record and no
+consumer may read anything into the null. The field is present-and-null on
+purpose: when the vocabulary lands, the file's shape does not move; the type
+widens from `null` to the new tokens, under a version bump. If your loop
+branches on a survivor's cause today, branch on your own judgment of
+`original`/`mutated`, not on this field.
+
+A finding is not a verdict about a human decision, so killed, timed-out,
+suspicious and skipped mutants never export — a zero-line file means "no
+findings", not "something went wrong". The file is independent of
+`results.jsonl` (which is never rewritten) and reproducible: re-running
+`moonbuggy export` over unchanged artifacts yields the same records modulo
+`exported`.
+
+### Closing the loop: export → fix → re-measure
+
+The export exists to feed an agent loop, and the loop closes without touching
+the run's artifacts:
+
+1. Run moonbuggy and export: `moonbuggy`, then `moonbuggy export`.
+2. Read `survivors.jsonl` one line at a time. For a `SURVIVED` record,
+   `nearest_test` is where to start reading and `original`/`mutated` say what
+   went unnoticed; for `NO_COVERAGE`, no test executes the line at all.
+3. Strengthen the test (or write one), then re-measure that one mutant:
+   `moonbuggy run <id>` with the record's `id`. It measures fresh — never from
+   the cache — and a transition like `SURVIVED` → `KILLED` with a
+   `killreason` of `assertion_failed` is machine-readable from the verdict
+   line alone.
+
+Because every exported `id` is a valid `run <id>` input, the whole finding set
+can be replayed at once, exactly as [Re-running one mutant](#re-running-one-mutant)
+shows for the grep pipeline:
+
+```{code-block} console
+$ jq -r '.id' survivors.jsonl | moonbuggy run -
+```
+
+The versioned spec behind all of this lives in
+[the contracts directory](https://github.com/jhamon/moonbuggy/tree/main/docs/contracts)
+(`survivor-export-v1.md` alongside its JSON Schema); the page above is the
+prose companion. The survival-reason vocabulary is the next planned addition
+and will arrive as a schema version bump, not a silent edit.
+
 ## Recipes
 
 Every finding, one per line:
@@ -838,9 +911,9 @@ holds exactly what the run left there.
 ## Checking that `export` hands the findings to a machine
 
 The export is the handoff surface: one file, one record per finding, every
-record conforming to the frozen survivor-export.v1 contract (see
-`docs/contracts/survivor-export-v1.md`), and every `id` a valid `moonbuggy
-run` input. Checked here rather than asserted:
+record conforming to the [findings export](#the-findings-export) section above,
+and every `id` a valid `moonbuggy run` input. Checked here rather than
+asserted:
 
 ```{doctest}
 >>> project = make_project({
