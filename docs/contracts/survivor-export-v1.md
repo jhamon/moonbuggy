@@ -1,9 +1,10 @@
 # Survivor export — C3 Phase A findings feed
 
-**Status:** DRAFT v0.1 — awaiting @moonbuggy-qa co-sign on the PR (FROZEN only
-after that sign-off comment)
-**Version:** v0.1 (tracks `src/moonbuggy/schemas/survivor-export.v1.schema.json`)
-**Freeze date:** *none yet — set on qa co-sign*
+**Status:** FROZEN v1.0 (qa co-sign 2026-09-13 on PR #68); widened to **v1.1**
+by the survival-reason vocabulary (C3 Phase B —
+docs/contracts/survival-reason-v1.md), pending boss co-sign on the Phase B PR
+**Version:** v1.1 (tracks `src/moonbuggy/schemas/survivor-export.v1.schema.json`)
+**Freeze date:** 2026-09-13 (v1.0); v1.1 pending sign-off
 **Co-owners:** @moonbuggy-qa (vocabulary correctness, machine==human
 invariants), @moonbuggy-dx (schema, CLI, changelog)
 **Downstream consumers (named, not optional):**
@@ -54,7 +55,7 @@ the export itself contributes:
 | `exported` | export provenance | UTC timestamp of the export |
 | `moonbuggy` | export provenance | emitting tool version |
 | `record_schema` | carried from the record (const `4`) | the embedded envelope's own version |
-| `survival_reason` | reserved, **always null in v1** | why it survived — see below |
+| `survival_reason` | reserved in v1.0 (always null); widened in **v1.1** to the survival-reason tokens (null stays valid: not yet classified) | why it survived — see below |
 | *(all other fields)* | the record, verbatim | the mutant and its verdict |
 
 Why verbatim rather than a narrower projection: a consumer that can parse
@@ -64,16 +65,26 @@ plaintext agent line deliberately withholds them, but that line is for
 grepping, not for reconstructing a mutant — the two surfaces serve different
 consumers and the frozen agent-line shape is unchanged by this contract).
 
-## `survival_reason` — reserved, not yet in vocabulary
+## `survival_reason` — the survival-reason vocabulary (v1.1)
 
-**v1 emits `survival_reason: null` on every record, and that is the contract.**
-The stable survival-reason vocabulary (equivalent-mutant suspicion vs
-assertion-gap vs weak assertion vs operator noise — competitive-intel §2.1 part
-B) is **C3 Phase B** and does not exist yet. Per the freeze discipline: no
-token is invented here, the field is present-and-null so the shape does not
-move again when Phase B lands, and no v1 consumer may interpret `null` as any
-reason. Phase B is a version bump (widening the type to the new tokens), not a
-silent edit.
+**v1.0 emitted `survival_reason: null` on every record, and that was the
+contract.** The stable survival-reason vocabulary is **C3 Phase B** and lands
+as this additive widening: the field's type widens null → (null | token) and
+the closed token set freezes in
+[docs/contracts/survival-reason-v1.md](survival-reason-v1.md) — the vocabulary
+doc is the single source of truth for what the tokens mean and how each is
+derived; the schema enum and that doc must agree (the tests derive one from
+the other).
+
+The four tokens — `no_coverage`, `covered_unasserted`, `logging_noise`,
+`accepted_equivalent` — are each mechanically derivable from the record's own
+fields; there are no judgment-call tokens. **null remains valid in v1.1**: it
+means *not yet classified* (every v1.0 line carries it; a v1.1 producer that
+has not classified a finding emits null rather than inventing a token), and no
+consumer may read null as any reason. Equivalent-mutant suspicion is
+deliberately **not** a token: it is a human judgement, carried by the ledger
+(`accepted` / `accept_reason`) and surfaced as the `accepted_equivalent` token
+once a human has made it.
 
 The `killreason` field **does** travel verbatim (and is `null` on every
 finding, because a finding was not killed): the D1 killreason vocabulary is
@@ -101,16 +112,19 @@ asserting one fresh verdict per exported id.
 
 | what is enforced | where |
 |---|---|
-| schema version pin, required field set, `survival_reason is null`, golden record | `tests/test_survivor_export.py` |
+| schema version pin, required field set, golden record | `tests/test_survivor_export.py` |
 | validator gauntlet (missing/extra/mistyped fields rejected) | same |
 | findings-only rule (no KILLED/TIMEOUT/SUSPICIOUS/SKIPPED record ever exports) | same |
 | round trip: export → `run <id>` → fresh verdict per id | same |
 | exported line's `id`/`status` agree with the plaintext line for the same mutant | same (machine == human, criterion E3) |
+| survival-reason vocabulary closure: schema enum == null + the four frozen tokens; unknown tokens rejected; every token derivable from its own record | same (vocabulary tests, constraining docs/contracts/survival-reason-v1.md) |
 
 ## Versioning
 
-v1.0 freezes with qa co-sign on the PR that carries this file. Any change that
-adds, renames, or re-types a key is a version bump (`v1 → v1.1` additive /
+v1.0 froze with qa co-sign on PR #68 (2026-09-13). Any change that adds,
+renames, or re-types a key is a version bump (`v1 → v1.1` additive /
 `v2.0` breaking) landing as a reviewed diff on
 `src/moonbuggy/schemas/survivor-export.v1.schema.json` — never an in-place
-edit. Phase B's survival-reason tokens are the anticipated first additive bump.
+edit. The survival-reason widening **is** the first additive bump: v1.0 →
+v1.1, carried by the same PR as docs/contracts/survival-reason-v1.md, with the
+vocabulary tests pinning the widened enum.

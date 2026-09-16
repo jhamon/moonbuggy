@@ -27,8 +27,15 @@
       "description": "The RECORD_SCHEMA version of the embedded finding fields. The export carries the record envelope verbatim, so the envelope's own version travels with it rather than being inferred."
     },
     "survival_reason": {
-      "type": "null",
-      "description": "Why this mutant survived. NOT YET IN VOCABULARY: the stable survival-reason tokens are C3 Phase B and are intentionally absent from v1 -- this field is reserved, required, and always null. A Phase B version bump widens the type to include the new tokens; no v1 consumer may interpret null as any reason."
+      "type": ["null", "string"],
+      "enum": [
+        null,
+        "no_coverage",
+        "covered_unasserted",
+        "logging_noise",
+        "accepted_equivalent"
+      ],
+      "description": "Why this mutant survived, from the closed survival-reason vocabulary (docs/contracts/survival-reason-v1.md -- C3 Phase B). null means not yet classified: every v1.0 record carries null, and a v1.1 producer that has not classified a finding emits null rather than inventing a token. The four tokens are mechanically derivable from the record's own fields, in precedence order: accepted_equivalent (accepted is true -- a live ledger entry covers this mutant; the human reason travels in accept_reason), logging_noise (logging_call is true -- the mutation sits inside a logging call's arguments and is unkillable by construction), no_coverage (status is NO_COVERAGE -- no test was selected, tests_run is 0), covered_unasserted (status is SURVIVED with tests_run > 0 and neither of the above -- tests ran and none objected; whether the mutant is equivalent or the suite is weak is a human judgement and deliberately not a token). Adding, renaming, or removing a token is a version bump of this schema and of the vocabulary contract."
     },
     "id": {
       "type": "string",

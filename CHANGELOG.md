@@ -8,6 +8,21 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The survival-reason vocabulary (C3 Phase B): `survival_reason` widens from
+  always-null to a closed, mechanically-derivable token set —
+  survivor-export.v1.0 → v1.1.** Four tokens, each derivable from the record's
+  own fields with no judgment calls: `no_coverage` (status `NO_COVERAGE`,
+  `tests_run` 0), `covered_unasserted` (`SURVIVED` with tests run and none
+  objecting), `logging_noise` (`logging_call` true — unkillable by
+  construction), and `accepted_equivalent` (a live ledger entry covers the
+  mutant; the human's reason travels in `accept_reason`). `null` remains valid
+  and means *not yet classified* — never a reason. Equivalent-mutant suspicion
+  is deliberately not a token: it is a human judgement carried by the
+  accepted-equivalents ledger, not an opinion the tool grades for itself.
+  Vocabulary contract: `docs/contracts/survival-reason-v1.md`; the widening is
+  an additive version bump (v1.0 → v1.1) pending boss co-sign, pinned by the
+  vocabulary tests in `tests/test_survivor_export.py`.
+
 - **`moonbuggy export` — the last run's findings as one frozen, machine-readable
   file (C3 Phase A).** One JSONL record per SURVIVED / NO_COVERAGE mutant,
   written to `survivors.jsonl` by default. Each record reuses the

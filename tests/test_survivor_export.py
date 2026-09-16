@@ -133,13 +133,103 @@ def test_export_fields_extend_the_record_envelope_exactly():
     assert RECORD_SCHEMA == RECORD_SCHEMA_VERSION
 
 
+# The survival-reason vocabulary frozen by docs/contracts/survival-reason-v1.md
+# (C3 Phase B). This is the ONLY place outside the schema file that names the
+# tokens; the vocabulary tests below derive the schema's enum from this set, so
+# a schema edit that drifts from the contract doc fails here.
+SURVIVAL_REASONS = frozenset(
+    {
+        "no_coverage",
+        "covered_unasserted",
+        "logging_noise",
+        "accepted_equivalent",
+    }
+)
+
+
 def test_survival_reason_is_reserved_null_in_v1():
-    """v1 reserves survival_reason and no token exists: the schema types it null."""
+    """v1 emits survival_reason null on every record, and that is the contract."""
     rule = survivor_export.load_schema()["properties"]["survival_reason"]
-    assert rule["type"] == "null"
+    assert rule["type"] == ["null", "string"]  # v1.1 widened the type; null rides first
     golden = _golden()
     assert golden["survival_reason"] is None
     assert survivor_export.validate(golden) == []
+
+
+def test_survival_reason_vocabulary_is_closed_and_schema_agrees():
+    """The schema's survival_reason enum is exactly null + the frozen tokens.
+
+    The vocabulary lives in docs/contracts/survival-reason-v1.md; this test is
+    the executable form of that freeze -- a token added to the schema without
+    the contract failing here, and a contract token missing from the schema
+    failing the same way. The gauntlet still rejects the token a v1 author
+    invented ('equivalent_suspect'): equivalence suspicion is deliberately not
+    a token, because it is a judgement no analysis can derive mechanically --
+    the ledger carries it instead.
+    """
+    rule = survivor_export.load_schema()["properties"]["survival_reason"]
+    assert set(rule["enum"]) == SURVIVAL_REASONS | {None}
+    assert set(rule["type"]) == {"null", "string"}
+
+
+def test_survival_reason_tokens_are_strings_distinct_from_null():
+    """Every token is a non-empty string; null is not a fifth reason."""
+    for token in SURVIVAL_REASONS:
+        assert isinstance(token, str) and token
+        assert survivor_export.validate(_golden(survival_reason=token)) == []
+    # null validates too (not yet classified), but reads as nothing: it is the
+    # v1.0 value and the unclassified value, never a reason a consumer may
+    # interpret.
+    assert survivor_export.validate(_golden(survival_reason=None)) == []
+
+
+@pytest.mark.parametrize(
+    "invented",
+    [
+        "equivalent_suspect",  # the judgement-call token the vocabulary refuses
+        "weak_test",  # same axis, still not derivable
+        "covered_unasserted ",  # trailing space: not the token
+        "COVERED_UNASSERTED",  # tokens are lowercase
+        "",
+    ],
+)
+def test_survival_reason_rejects_unknown_tokens(invented):
+    """An invented or malformed token fails validation, named not passed."""
+    errors = survivor_export.validate(_golden(survival_reason=invented))
+    assert errors, f"validator accepted invented survival_reason {invented!r}"
+
+
+def test_survival_reason_tokens_are_derivable_from_their_own_record():
+    """Every token's condition is stated on the record it rides.
+
+    docs/contracts/survival-reason-v1.md, the derivability rule: the first
+    matching row of the precedence table must hold on the record. These are
+    the same conditions the producer's derivation (Phase B implementation)
+    must implement; pinning them here means a record that contradicts its own
+    token fails CI rather than reaching a consumer.
+    """
+    derivations = [
+        # (token, overrides making the condition true)
+        (
+            "accepted_equivalent",
+            {"accepted": True, "accept_reason": "overwritten before read"},
+        ),
+        ("logging_noise", {"logging_call": True}),
+        ("no_coverage", {"status": "NO_COVERAGE", "tests_run": 0}),
+        (
+            "covered_unasserted",
+            {
+                "status": "SURVIVED",
+                "tests_run": 2,
+                "logging_call": False,
+                "accepted": False,
+            },
+        ),
+    ]
+    for token, overrides in derivations:
+        record = _golden(**overrides)
+        record["survival_reason"] = token
+        assert survivor_export.validate(record) == []
 
 
 def test_finding_statuses_are_the_export_vocabulary():
