@@ -1750,3 +1750,48 @@ could not run green on the shared checkout: 12 uncommitted ruff findings in
 belong to a concurrent lane's in-flight work, not to this change — every file
 this round touched passes `ruff check`, `ruff format --check`, `pydoclint` and
 `interrogate` (100%) and `mypy --strict` individually.
+
+---
+
+# Fresh-harness verification run (2026-09-16)
+
+**Purpose.** The honor-system benchmark post
+(`blog/content/blog/the-honor-system-benchmark.md`) honestly labels the README
+citations (41x over naive, ~1.7x over mutmut) as "a self-report... not re-run on
+a fresh harness recently." This section is the receipt that closes that caveat.
+
+**Run receipt.**
+
+- Date: 2026-09-16 (UTC); bench executed 15:30-15:45 UTC.
+- Machine: Apple M4 Pro, macOS 15.1.1, host `mac.lan`.
+- Commit: `c47170922129f56ef80c391632fd34d2df4a32ec` (origin/main, fast-forward
+  of `8f5008e`, the commit the blog citation was aligned to in #72).
+- Environment: brand-new worktree at `/tmp/mb-main-bench` with a **fresh venv**
+  (not the shared dev checkout), editable install resolving to that worktree's
+  own `src/moonbuggy` (verified via `moonbuggy.__path__`), deps installed
+  independently: coverage 7.15.4, pytest 9.1.1, pytest-cov 7.1.0,
+  pytest-xdist 3.8.0, hypothesis 6.165.9, mutmut 3.7.0.
+- Command: `MB_PYTHON=<worktree venv python> python scripts/bench_mutation.py`,
+  three consecutive runs on the same clean worktree.
+- Pre-bench gates on the same worktree venv: `pytest -q` 579 passed / 146
+  deselected (7.18s); `pytest -m slow tests/test_runner.py` 12 passed (40.6s);
+  `pytest -m slow tests/test_cli.py` 78 passed (271.8s).
+
+**Speed workload results (per run).**
+
+| run | moonbuggy | mutmut | naive | G2 vs mutmut | vs naive |
+|-----|-----------|--------|-------|--------------|----------|
+| 1   | 0.58s     | 0.96s  | 22.01s | 1.67x       | 38.0x    |
+| 2   | 0.54s     | 0.98s  | 22.32s | 1.82x       | 41.7x    |
+| 3   | 0.52s     | 0.96s  | 22.18s | 1.85x       | 43.0x    |
+
+Medians: **0.54s / 0.96s / 22.18s → 1.78x over mutmut, 41.1x over naive.**
+G3 held on every run: moonbuggy 96 mutants == naive 96 (no pruning), mutmut
+108 (12 extra from non-MVP operators, per the standing like-for-like note).
+Slow-workload shape also matched the historical pattern (moonbuggy ~8.3s vs
+mutmut ~15.6s).
+
+**Verdict: the cited 41x / 1.7x numbers hold on a fresh harness.** Run-to-run
+spread (38-43x) brackets the citation; the median reproduces it. The blog post
+was NOT edited — outreach may update the caveat line to "re-run on 2026-09-16,
+numbers held" against commit `c471709`, citing this section.
