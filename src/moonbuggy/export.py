@@ -17,11 +17,13 @@ envelope rather than projecting a narrower row is the point: a consumer that
 can parse ``results.jsonl`` can parse an export with the same code, and
 ``moonbuggy run <id>`` round-trips straight off the ``id`` the line carries.
 
-``survival_reason`` is the one field the envelope does not carry, and in v1 it
-is **always null**: the survival-reason vocabulary ("why did this survive?")
-is C3 Phase B and does not exist yet. The field is reserved and required --
-a Phase B bump widens the type, and every v1 line already carries the slot --
-but no v1 producer may invent a token, and no v1 consumer may read null as one.
+``survival_reason`` is the one field the envelope does not carry. With the C3
+Phase B widening (v1.0 -> v1.1) it carries the closed survival-reason token
+derived from the record's own fields by the fixed-precedence table of
+``docs/contracts/survival-reason-v1.md`` (``derive_survival_reason`` below) --
+mechanically derivable, never free-texted, with ``null`` reserved for
+*not yet classified*. No producer may invent a token outside the vocabulary,
+and no consumer may read null as one.
 
 Like the harness-output contract, this is a versioned contract: the shape
 changes only by a version bump on the schema file plus a reviewed diff, never
@@ -55,10 +57,38 @@ SCHEMA_VERSION = 1
 # carries and validation -- not memory -- catches a mismatch.
 EMBEDDED_RECORD_SCHEMA = RECORD_SCHEMA
 
-# The one field the export adds to the record envelope, and the only place
-# C3 Phase B will land: the stable survival-reason token, not yet in
-# vocabulary. Always null in v1 -- see the module docstring.
+# The one field the export adds to the record envelope: the stable
+# survival-reason token, derived per docs/contracts/survival-reason-v1.md.
 SURVIVAL_REASON = "survival_reason"
+
+
+def derive_survival_reason(record: Record) -> str | None:
+    """The survival-reason token for one record, by the frozen precedence table.
+
+    Args:
+        record: a schema-4 finding record. The derivation reads only fields
+            the record already carries, so any consumer that can parse the
+            record can re-derive the same token (the contract's machine
+            record == derivation rule).
+
+    Returns:
+        The first matching row of docs/contracts/survival-reason-v1.md's
+        fixed-precedence table: ``accepted_equivalent`` (``accepted`` is
+        true), then ``logging_noise`` (``logging_call`` is true), then
+        ``no_coverage`` (``status`` is ``NO_COVERAGE``, ``tests_run`` 0),
+        then ``covered_unasserted`` (``SURVIVED`` with ``tests_run`` > 0 and
+        none of the above), else None -- not yet classified, never a
+        judgement call.
+    """
+    if record["accepted"]:
+        return "accepted_equivalent"
+    if record["logging_call"]:
+        return "logging_noise"
+    if record["status"] == "NO_COVERAGE" and record["tests_run"] == 0:
+        return "no_coverage"
+    if record["status"] == "SURVIVED" and record["tests_run"] > 0:
+        return "covered_unasserted"
+    return None
 
 
 def load_schema() -> dict[str, Any]:
@@ -91,13 +121,17 @@ def record_for_finding(record: Record) -> dict[str, Any]:
     )
     from . import __version__
 
-    envelope = {key: value for key, value in record.items() if key != "schema"}
+    envelope = {
+        key: value
+        for key, value in record.items()
+        if key not in ("schema", SURVIVAL_REASON)
+    }
     return {
         "schema": SCHEMA_VERSION,
         "exported": datetime.now(UTC).isoformat(timespec="seconds"),
         "moonbuggy": __version__,
         "record_schema": record["schema"],
-        "survival_reason": None,
+        "survival_reason": derive_survival_reason(record),
         **envelope,
     }
 

@@ -20,8 +20,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is deliberately not a token: it is a human judgement carried by the
   accepted-equivalents ledger, not an opinion the tool grades for itself.
   Vocabulary contract: `docs/contracts/survival-reason-v1.md`; the widening is
-  an additive version bump (v1.0 → v1.1) pending boss co-sign, pinned by the
-  vocabulary tests in `tests/test_survivor_export.py`.
+  an additive version bump (v1.0 → v1.1), boss co-signed, pinned by the
+  vocabulary tests in `tests/test_survivor_export.py`. Shipped: the export
+  emitter now derives the token per the contract's fixed-precedence table
+  (`moonbuggy.export.derive_survival_reason`) instead of emitting null on
+  every record.
 
 - **`moonbuggy export` — the last run's findings as one frozen, machine-readable
   file (C3 Phase A).** One JSONL record per SURVIVED / NO_COVERAGE mutant,
@@ -33,7 +36,9 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   co-sign), so an agent with one line can reconstruct the mutant and
   `moonbuggy run <id>` re-measures it straight off the exported `id`. The
   `survival_reason` field is reserved and always null in v1: the
-  survival-reason vocabulary is C3 Phase B and no token is invented here. The
+  survival-reason vocabulary is C3 Phase B and no token is invented here.
+  (C3 Phase B shipped: the emitter now derives the token from the record's
+  own fields — see the survival-reason entry above.) The
   round trip — export from a run, re-inject every exported id through
   `moonbuggy run`, one fresh verdict per id — is pinned by
   `tests/test_survivor_export.py` and by a doctest in `docs/reading-the-output.md`.

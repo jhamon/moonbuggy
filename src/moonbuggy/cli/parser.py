@@ -280,8 +280,10 @@ def _add_export_parser(
         "diff, nearest_test, killreason) plus the export version pin, so an "
         "agent with one line can reconstruct the mutant, and `moonbuggy run "
         "<id>` re-measures it straight off the `id=` the record carries. "
-        "`survival_reason` is always null in v1: the survival-reason "
-        "vocabulary is not yet defined, and no token is invented here.",
+        "`survival_reason` carries the closed survival-reason token derived "
+        "from each record's own fields (docs/contracts/survival-reason-v1.md): "
+        "accepted_equivalent, logging_noise, no_coverage, or "
+        "covered_unasserted; null means not yet classified.",
     )
     export.add_argument(
         "path",
