@@ -679,7 +679,7 @@ $ moonbuggy export
 | `exported` | UTC timestamp of the export itself. |
 | `moonbuggy` | the version that emitted the file. |
 | `record_schema` | the version of the embedded record envelope (`4` today). |
-| `survival_reason` | **always `null` in v1** — see below. |
+| `survival_reason` | why the finding survived, as a closed vocabulary token — `accepted_equivalent`, `logging_noise`, `no_coverage`, `covered_unasserted` — or `null` meaning *not yet classified*. See below. |
 | *(everything else)* | the record, verbatim: `id`, `status`, `original`, `mutated`, `diff`, `nearest_test`, `tests_run`, `killreason`, and the rest of [The JSONL schema](#the-jsonl-schema) table. |
 
 The envelope is carried verbatim rather than projected down to a few fields,
@@ -689,14 +689,23 @@ what let a consumer reconstruct the mutant without going back to
 written for `results.jsonl` lines reads an export unchanged — the same shape,
 one more version pin.
 
-**`survival_reason` is reserved, not missing.** It names *why* a mutant
-survived — an equivalent mutant, a missing assertion, a weak one — and that
-vocabulary does not exist yet, so v1 emits `null` on every record and no
-consumer may read anything into the null. The field is present-and-null on
-purpose: when the vocabulary lands, the file's shape does not move; the type
-widens from `null` to the new tokens, under a version bump. If your loop
-branches on a survivor's cause today, branch on your own judgment of
-`original`/`mutated`, not on this field.
+**`survival_reason` answers *why*, mechanically.** It names why a mutant
+survived as one of four tokens, each derivable from the record's own fields —
+no judgment calls anywhere: `accepted_equivalent` (a live entry in the
+accepted-equivalents ledger covers it; the human's reason travels in
+`accept_reason`), `logging_noise` (inside a logging call's arguments —
+unkillable by construction, only reachable with `--include-logging-mutants`),
+`no_coverage` (`tests_run == 0`; the strongest, cheapest signal an agent can
+act on), and `covered_unasserted` (tests ran and none objected — the ordinary
+survivor). The derivation table is frozen in
+[the survival-reason vocabulary contract](https://github.com/jhamon/moonbuggy/tree/main/docs/contracts).
+What is deliberately *not* a token is equivalent-mutant suspicion: whether a
+survivor is truly equivalent is a human judgement, recorded in the ledger via
+`moonbuggy accept <id> --reason ...` — not an opinion the tool grades for
+itself. Until the emitter classifies a record it emits `null`, which means
+*not yet classified*, never a reason; if your loop branches on a survivor's
+cause today, branch on the token when present, else on your own judgment of
+`original`/`mutated`.
 
 A finding is not a verdict about a human decision, so killed, timed-out,
 suspicious and skipped mutants never export — a zero-line file means "no
@@ -730,9 +739,9 @@ $ jq -r '.id' survivors.jsonl | moonbuggy run -
 
 The versioned spec behind all of this lives in
 [the contracts directory](https://github.com/jhamon/moonbuggy/tree/main/docs/contracts)
-(`survivor-export-v1.md` alongside its JSON Schema); the page above is the
-prose companion. The survival-reason vocabulary is the next planned addition
-and will arrive as a schema version bump, not a silent edit.
+(`survivor-export-v1.md`, `survival-reason-v1.md`, alongside the JSON Schema);
+the page above is the prose companion. Adding a token to the vocabulary is a
+schema version bump, not a silent edit.
 
 ## Recipes
 
