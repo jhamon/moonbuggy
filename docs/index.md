@@ -80,6 +80,12 @@ reaches), and the JSONL alongside it is the same data for
 anything that wants to parse rather than scan. See
 [Reading the output](reading-the-output.md).
 
+**It hands its findings to the next worker.** `moonbuggy export` writes every
+finding — survivors and uncovered lines — as one JSONL file whose records a
+test-fixing agent (human or automated) can consume directly, with every `id`
+a valid `moonbuggy run <id>` input to re-measure after the fix. See
+[The findings export](reading-the-output.md#the-findings-export).
+
 **It refuses rather than guesses.** A wrong status is worse than no status: a
 false `SURVIVED` looks exactly like a real finding and costs you an
 investigation that ends nowhere. So a flaky test makes its mutants
