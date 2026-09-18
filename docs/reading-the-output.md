@@ -938,7 +938,7 @@ asserted:
 [('lib.py:6:arithmetic_swap:0', 'NO_COVERAGE'), ('lib.py:6:constant_int:0', 'NO_COVERAGE')]
 >>> f = next(f for f in findings if f["id"] == "lib.py:6:constant_int:0")
 >>> f["schema"], f["record_schema"], f["survival_reason"]
-(1, 4, None)
+(1, 4, 'no_coverage')
 >>> f["original"], f["mutated"]
 ('return value * 2', 'return value * 3')
 ```
