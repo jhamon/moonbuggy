@@ -1,8 +1,7 @@
 # Survival-reason vocabulary — survivor-export companion (C3 Phase B)
 
-**Status:** DRAFT v0.1 — awaiting boss co-sign on the PR (FROZEN only after
-that sign-off; the schema diff it constrains lands in the same PR and must not
-merge before it)
+**Status:** FROZEN v1.0 (boss co-sign 2026-09-17 on PR #75 — "treat as
+FROZEN on merge")
 **Version:** v0.1 (constrains the `survival_reason` enum of
 `src/moonbuggy/schemas/survivor-export.v1.schema.json`, widened null → tokens
 in the same diff)

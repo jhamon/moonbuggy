@@ -32,8 +32,9 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `results.jsonl` record envelope verbatim — `original`, `mutated`, `diff`,
   `nearest_test`, `killreason` — under the `survivor-export.v1` contract
   (schema at `src/moonbuggy/schemas/survivor-export.v1.schema.json`, companion
-  doc at `docs/contracts/survivor-export-v1.md`, DRAFT v0.1 pending qa
-  co-sign), so an agent with one line can reconstruct the mutant and
+  doc at `docs/contracts/survivor-export-v1.md`, FROZEN v1.0 with qa co-sign
+  2026-09-13 on PR #68; v1.1 boss co-signed 2026-09-17 on PR #75), so an agent
+  with one line can reconstruct the mutant and
   `moonbuggy run <id>` re-measures it straight off the exported `id`. The
   `survival_reason` field is reserved and always null in v1: the
   survival-reason vocabulary is C3 Phase B and no token is invented here.
