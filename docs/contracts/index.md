@@ -16,8 +16,8 @@ because release and CI processes depend on them and cite them by path.
 | [killreason-v1](killreason-v1.md) | the killreason vocabulary: every token in the JSONL `killreason` field and the human trace `killreason=` token | @moonbuggy-qa, @moonbuggy-dx | FROZEN v1.0 | 2026-08-31 |
 | [harness-output-v1](../../scripts/schemas/harness-output.v1.schema.json) | the D2 numbers pipe: suite, wall-clock, mutants/sec, memory delta, hypothesis tag | @moonbuggy-perf, @moonbuggy-dx | FROZEN v1.0 | 2026-08-31 |
 | [harness-output-jsonl](harness-output-jsonl.md) | companion to harness-output-v1: the end-to-end hypothesis-tag invariant + consumer rules (feed/changelog/outreach/dashboard); does not redefine the row | @moonbuggy-perf, @moonbuggy-dx | FROZEN v1.0 | 2026-08-31 |
-| [survivor-export-v1](survivor-export-v1.md) | the C3 Phase A findings feed: one JSONL record per SURVIVED/NO_COVERAGE mutant, reusable as `moonbuggy run <id>` re-injection input; v1.1 widens `survival_reason` to the Phase B vocabulary | @moonbuggy-qa, @moonbuggy-dx | FROZEN v1.0 (2026-09-13); v1.1 pending boss co-sign | 2026-09-13 |
-| [survival-reason-v1](survival-reason-v1.md) | the C3 Phase B survival-reason vocabulary: the closed, mechanically-derivable token set for `survival_reason` on survivor-export records | @moonbuggy-qa, @moonbuggy-dx | DRAFT v0.1 (boss co-sign pending, same PR as the schema widening) | — |
+| [survivor-export-v1](survivor-export-v1.md) | the C3 Phase A findings feed: one JSONL record per SURVIVED/NO_COVERAGE mutant, reusable as `moonbuggy run <id>` re-injection input; v1.1 widens `survival_reason` to the Phase B vocabulary | @moonbuggy-qa, @moonbuggy-dx | FROZEN v1.0 (2026-09-13); v1.1 boss co-signed (2026-09-17, PR #75) | 2026-09-13 |
+| [survival-reason-v1](survival-reason-v1.md) | the C3 Phase B survival-reason vocabulary: the closed, mechanically-derivable token set for `survival_reason` on survivor-export records | @moonbuggy-qa, @moonbuggy-dx | FROZEN v1.0 (boss co-sign 2026-09-17, PR #75 — "treat as FROZEN on merge") | 2026-09-17 |
 
 ## The register rule, restated
 
