@@ -2,7 +2,9 @@
 
 The export is the C3 Phase A findings feed: every SURVIVED/NO_COVERAGE record
 under the frozen ``survivor-export.v1`` schema, with ``survival_reason``
-reserved-null (the vocabulary is Phase B and no token may be invented). This
+carrying the C3 Phase B token derived mechanically from the record's own
+fields (the fixed-precedence table of docs/contracts/survival-reason-v1.md;
+null stays valid as *not yet classified*). This
 test freezes the shape the way ``test_harness_output_schema.py`` freezes the
 numbers pipe: version pin, required field set, a golden record, and a
 validator gauntlet that refuses the shape to drift. The round trip --
@@ -39,7 +41,8 @@ EXPORT_FIELDS = frozenset(
         "exported",
         "moonbuggy",
         "record_schema",
-        # reserved for C3 Phase B -- always null in v1
+        # C3 Phase B -- derived from the record's own fields per the
+        # fixed-precedence table
         "survival_reason",
         # the record envelope, verbatim
         "id",
@@ -197,6 +200,79 @@ def test_survival_reason_rejects_unknown_tokens(invented):
     """An invented or malformed token fails validation, named not passed."""
     errors = survivor_export.validate(_golden(survival_reason=invented))
     assert errors, f"validator accepted invented survival_reason {invented!r}"
+
+
+def test_emitter_derives_each_token_per_the_precedence_table():
+    """record_for_finding derives survival_reason from the record's own fields.
+
+    docs/contracts/survival-reason-v1.md, the fixed-precedence table: first
+    matching row wins, so two independent readers of the same record always
+    derive the same token.
+    """
+    derivations = [
+        # (expected token, overrides making that row's condition the first true)
+        (
+            "accepted_equivalent",
+            {"accepted": True, "accept_reason": "manually judged equivalent"},
+        ),
+        # precedence 1 beats logging noise on the same record:
+        (
+            "accepted_equivalent",
+            {"accepted": True, "logging_call": True},
+        ),
+        # precedence 2 beats the status rows:
+        ("logging_noise", {"logging_call": True}),
+        (
+            "logging_noise",
+            {"status": "NO_COVERAGE", "tests_run": 0, "logging_call": True},
+        ),
+        # precedence 3:
+        ("no_coverage", {"status": "NO_COVERAGE", "tests_run": 0}),
+        # precedence 4: the ordinary survivor
+        (
+            "covered_unasserted",
+            {
+                "status": "SURVIVED",
+                "tests_run": 2,
+                "logging_call": False,
+                "accepted": False,
+            },
+        ),
+    ]
+    for expected, overrides in derivations:
+        record = _golden(**overrides)
+        exported = survivor_export.record_for_finding(record)
+        assert exported["survival_reason"] == expected, overrides
+
+    # an accepted record never loses its ledger annotation even at the top
+    # of the table, and accept_reason travels verbatim:
+    accepted = survivor_export.record_for_finding(
+        _golden(accepted=True, accept_reason="manually judged equivalent")
+    )
+    assert accepted["accepted"] is True
+    assert accepted["accept_reason"] == "manually judged equivalent"
+
+
+def test_emitter_emits_null_when_not_yet_classified():
+    """null stays valid: a record matching no derivation row emits null.
+
+    On a findings-only record (SURVIVED with tests run, not logging, not
+    accepted) the covered_unasserted row always matches, so the reachable
+    null path in the emitter is a record whose fields match no row -- pinned
+    here by feeding the derivation table's inputs directly.
+    """
+    from moonbuggy.export import derive_survival_reason
+
+    # not yet classified: the record matches no derivation row (a SURVIVED
+    # with tests_run 0 is not covered_unasserted -- that row requires
+    # tests_run > 0 -- and matches nothing above it either)
+    sparse = {
+        "status": "SURVIVED",
+        "tests_run": 0,
+        "accepted": False,
+        "logging_call": False,
+    }
+    assert derive_survival_reason(sparse) is None  # type: ignore[arg-type]
 
 
 def test_survival_reason_tokens_are_derivable_from_their_own_record():

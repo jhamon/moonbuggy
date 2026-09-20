@@ -2,9 +2,9 @@
 
 **Status:** FROZEN v1.0 (qa co-sign 2026-09-13 on PR #68); widened to **v1.1**
 by the survival-reason vocabulary (C3 Phase B —
-docs/contracts/survival-reason-v1.md), pending boss co-sign on the Phase B PR
+docs/contracts/survival-reason-v1.md), boss co-sign 2026-09-17 on PR #75
 **Version:** v1.1 (tracks `src/moonbuggy/schemas/survivor-export.v1.schema.json`)
-**Freeze date:** 2026-09-13 (v1.0); v1.1 pending sign-off
+**Freeze date:** 2026-09-13 (v1.0); 2026-09-17 (v1.1)
 **Co-owners:** @moonbuggy-qa (vocabulary correctness, machine==human
 invariants), @moonbuggy-dx (schema, CLI, changelog)
 **Downstream consumers (named, not optional):**
@@ -25,7 +25,7 @@ invariants), @moonbuggy-dx (schema, CLI, changelog)
 The **record shape** of the survivor export is defined **exactly once**, by the
 frozen JSON Schema at `src/moonbuggy/schemas/survivor-export.v1.schema.json`.
 This page is the **companion document**: it carries the design rules (what is
-exported, why the envelope is reused verbatim, why `survival_reason` is null)
+exported, why the envelope is reused verbatim, how `survival_reason` works)
 without redefining the shape. The schema is the contract; this page is how it
 is used.
 
@@ -127,4 +127,6 @@ renames, or re-types a key is a version bump (`v1 → v1.1` additive /
 `src/moonbuggy/schemas/survivor-export.v1.schema.json` — never an in-place
 edit. The survival-reason widening **is** the first additive bump: v1.0 →
 v1.1, carried by the same PR as docs/contracts/survival-reason-v1.md, with the
-vocabulary tests pinning the widened enum.
+vocabulary tests pinning the widened enum. Boss co-sign on the widening landed
+2026-09-17 on PR #75 ("treat as FROZEN on merge"); the producer that derives
+the token ships in the Phase B build PR.
