@@ -88,8 +88,8 @@ fields it claims to derive from agree". A `survival_reason` of
 
 ## Versioning
 
-v0.1 is drafted for boss co-sign on the PR that carries this file plus the
-schema widening. The token set is **closed**: adding, renaming, or removing a
+v0.1 was co-signed by the boss on 2026-09-17 (PR #75) and is **FROZEN v1.0**.
+The token set is **closed**: adding, renaming, or removing a
 token is a version bump of this file *and* of
 `survivor-export.v1.schema.json` (`v1.1 → v1.2` additive / `v2.0` breaking),
 landing as a reviewed diff — never an in-place edit. A token whose derivation
