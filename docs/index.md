@@ -47,6 +47,7 @@ tutorial
 :caption: Using it
 
 reading-the-output
+closing-the-loop
 equivalent-mutants
 making-runs-fast
 troubleshooting
