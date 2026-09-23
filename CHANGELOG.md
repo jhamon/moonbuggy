@@ -8,6 +8,22 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Batch re-injection with verdict transitions: `moonbuggy run - --trace-json
+  --against survivors.jsonl` (C3 Phase C).** Each fresh verdict is paired with
+  its export record under a `reinject` subdocument (`reinject_schema: 1`):
+  the prior status and `survival_reason`, plus a closed transition token —
+  `survived->assertion_failed` (a real catch; `no_coverage->assertion_failed`
+  likewise), `survived->killed_by_error` (**not** a kill — a crash, per
+  docs/closing-the-loop.md), `survived->survived` (no transition; silence is a
+  fact about the new tests). The stderr summary adds `transitions=...` and
+  `caught=N`, counting assertion_failed catches only. Exit codes are
+  unchanged (1 when any re-measured id is still a finding), the
+  survivor-export-v1 and survival-reason-v1 contracts are read and never
+  written, and `--flaky-probe 0` stays the documented re-injection invocation
+  rather than a changed default. Cost-model grounding:
+  docs/development/reinjection-cost-model.md (~5.0s/id batched vs ~122s/id
+  one-at-a-time).
+
 - **The survival-reason vocabulary (C3 Phase B): `survival_reason` widens from
   always-null to a closed, mechanically-derivable token set —
   survivor-export.v1.0 → v1.1.** Four tokens, each derivable from the record's

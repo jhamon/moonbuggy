@@ -162,6 +162,21 @@ def _add_run_one_parser(
         "mutation, or the crash that prevented one. Written to "
         "<output-dir>/traces.jsonl as well, one line per re-measured mutant",
     )
+    one.add_argument(
+        "--against",
+        default=None,
+        metavar="SURVIVORS_JSONL",
+        help="a survivor-export file (as `moonbuggy export` writes it) to "
+        "pair each fresh verdict with -- requires --trace-json, and each "
+        "trace gains a `reinject` subdocument: the prior status and "
+        "survival_reason, plus a closed transition token such as "
+        "survived->assertion_failed (a real catch) or "
+        "survived->killed_by_error (not a kill). The batched re-injection "
+        "shape this exists for is "
+        "`jq -r '.id' survivors.jsonl | moonbuggy run - --trace-json "
+        "--against survivors.jsonl --flaky-probe 0` -- one coverage pass "
+        "serves every id (~5s/id on the C3 receipt, vs ~122s one at a time)",
+    )
     _add_logging_arguments(one)
     one.add_argument("--accept-file", default=None, help=_ACCEPT_FILE_HELP)
     one.add_argument(

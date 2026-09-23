@@ -105,16 +105,27 @@ one pytest subprocess startup against its test slice (~1-3s here even for
 1-9 tests). The batched numbers sit near that floor; the remaining headroom is
 in the baseline pass, not the per-mutant leg.
 
-## Implications for the dx CLI surface (not shipped here)
+## Implications for the dx CLI surface (shipped: `run --against`)
+
+The surface landed on top of these numbers, not beside them:
 
 - Primary path: read ids from stdin, one per line — `moonbuggy run -`.
-- Emit one stable token per id: transition tokens must distinguish
-  `survived->assertion_failed` (a real catch) from
-  `survived->killed_by_error` (not a kill) from `survived->survived` (no
-  transition).
-- Exit code: mirror the full run's contract — 1 when any re-measured id is
-  still a finding, so a CI gate can fail on it.
-- Default `--flaky-probe 0` for this surface (see lever 2), documented.
+- `--against survivors.jsonl` (requires `--trace-json`) pairs each fresh
+  verdict with its export record under a `reinject` subdocument
+  (`reinject_schema: 1`): the prior status/survival_reason, and a closed
+  transition token — `survived->assertion_failed` (a real catch),
+  `survived->killed_by_error` (**not** a kill, per the rule below),
+  `survived->survived` (no transition). The stderr summary adds
+  `transitions=...  caught=N`, and `caught` counts only assertion_failed
+  catches.
+- Exit code: unchanged — the full run's contract holds (1 when any
+  re-measured id is still a finding), so a CI gate can fail on it while
+  reading transitions for the humans.
+- `--flaky-probe 0` remains the documented recommendation for re-injection
+  (lever 2): the probes are worth a verdict about the suite, and a survivor
+  re-run is a verdict about a mutant. Deliberately a documented invocation
+  rather than a changed default — flipping `run`'s default would move the
+  SUSPICIOUS semantics, which is a verdict-behavior change.
 
 ## Receipts
 
