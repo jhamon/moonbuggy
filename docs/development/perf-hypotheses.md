@@ -1795,3 +1795,44 @@ mutmut ~15.6s).
 spread (38-43x) brackets the citation; the median reproduces it. The blog post
 was NOT edited — outreach may update the caveat line to "re-run on 2026-09-16,
 numbers held" against commit `c471709`, citing this section.
+
+---
+
+# C3 Phase C: batch re-injection CLI surface (2026-09-23)
+
+**Hypothesis (from PR #81's cost model).** The re-injection loop is ~24x
+cheaper batched (`moonbuggy run -` at ~5.0s/id) than one-at-a-time (~122s/id),
+but nothing on the CLI names what *changed* between an export and a batched
+re-measurement. Making batched run-over-ids the documented consumer surface —
+with machine-readable verdict transitions — converts a measured primitive into
+the closed loop, without touching the runner or the warm-session machinery.
+
+**What shipped (`--against`).** `moonbuggy run - --trace-json --against
+survivors.jsonl` pairs each fresh verdict with its export record under a
+`reinject` subdocument (`reinject_schema: 1`) with a closed transition token:
+`survived->assertion_failed` (a real catch) stays distinct from
+`survived->killed_by_error` (not a kill, per closing-the-loop.md) and from
+`survived->survived` (no transition). The stderr summary adds
+`transitions=...` and `caught=N` (assertion_failed catches only). Exit codes
+unchanged; `--flaky-probe 0` is the documented invocation, not a changed
+default (flipping it would move SUSPICIOUS semantics — a verdict-behavior
+change, out of scope here). Contracts untouched: survivor-export-v1 and
+survival-reason-v1 are read, never written.
+
+**Mechanism.** No runner change: the transition is a pure pairing made in
+`Verification.trace()` from data both sides already carry. The batch's ~24x
+economics are the existing `run -` behavior; this surface only makes its
+output consumable at loop scale (51 ids -> one `caught=` number).
+
+**Cost.** Zero on the hot path — `--against` is off by default and the pairing
+happens after verdicts exist. The batched-leg numbers (257s / ~5.0s/id for 51
+ids, PR #81 receipt) are unchanged by construction: same coverage pass, same
+subprocess-per-mutant floor.
+
+**Verified.** mypy --strict, ruff check/format, interrogate 100%,
+pydoclint, 598 fast tests, `check-cli` + `test_trace_e2e.py` slow suites, and
+two live smoke loops (a strengthened test flips both fixtures to
+`survived->assertion_failed caught=2`; the unchanged weak test reads
+`survived->survived caught=0`, exit 1). Unit coverage for the token
+vocabulary's closure and the KILLED_BY_ERROR-is-not-a-kill derivation in
+tests/test_reinject.py; the loop e2e in tests/test_reinject_e2e.py.

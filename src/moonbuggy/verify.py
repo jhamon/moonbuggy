@@ -65,6 +65,7 @@ from .killreason import EXECUTION_CRASH, KillReasonCode
 from .logging_policy import LoggingPolicy
 from .mutant import Mutant, parse_id
 from .operators import ALL_TIER, tier_members
+from .reinject import REINJECT_SCHEMA, PriorFinding, transition_token
 from .report import Record
 from .runner import Result, check_selection_is_runnable, run_one
 from .srcio import SourceError, read_source
@@ -119,6 +120,12 @@ class Verification:
     """The accepted-equivalents ledger's reason for this mutant, if a live
     acceptance covers it."""
 
+    prior: PriorFinding | None = None
+    """The export record this re-measurement was made against, when the run
+    named `--against`. None for a plain re-measurement. Kept separate from the
+    verdict on purpose: the transition is a *pairing* of frozen export record
+    and fresh trace, and only this field knows the prior side."""
+
     @property
     def mutant(self) -> Mutant:
         """The mutant this verifies."""
@@ -151,7 +158,11 @@ class Verification:
         Returns:
             A mapping with `trace_schema`, `id`, `file`, `line`, `operator`,
             `original`, `mutated`, `selection` (`selected`, `failed`) and
-            `verdict` (`status`, `killreason`, `assert`, `crash`).
+            `verdict` (`status`, `killreason`, `assert`, `crash`). When this
+            verification was made against a survivor-export record (`--against`
+            on the command line), a `reinject` key is added: the frozen prior
+            verdict paired with the fresh one, under `reinject_schema` 1, with
+            the closed transition token a consumer gates on.
         """
         status = self.status
         assert_failed: list[str] = []
@@ -165,7 +176,7 @@ class Verification:
             # The runner's crash-path mapping: pytest returned a code outside
             # {0, 1, 72}, so it never produced a verdict about the mutation.
             crash = "pytest did not complete (exit code outside {0, 1, 72})"
-        return {
+        trace: dict[str, object] = {
             "trace_schema": TRACE_SCHEMA,
             "id": self.mutant.id,
             "file": self.mutant.module,
@@ -188,6 +199,22 @@ class Verification:
                 "crash": crash,
             },
         }
+        if self.prior is not None:
+            killreason_token: str | None = None
+            if self.result.killreason is not None:
+                killreason_token = KillReasonCode(self.result.killreason).code
+            trace["reinject"] = {
+                "reinject_schema": REINJECT_SCHEMA,
+                "prior": {
+                    "status": self.prior.status,
+                    "survival_reason": self.prior.survival_reason,
+                    "tests_run": self.prior.tests_run,
+                },
+                "transition": transition_token(
+                    self.prior.status, status, killreason_token
+                ),
+            }
+        return trace
 
     def summary(self) -> dict[str, object]:
         """The verification as JSON-serialisable data.
@@ -590,6 +617,7 @@ def verify(
     cache: ResultCache | None = None,
     reasons: Mapping[str, str] | None = None,
     jobs: int = 1,
+    priors: Mapping[str, PriorFinding] | None = None,
 ) -> list[Verification]:
     """Re-measure each mutant against the tests that cover it.
 
@@ -619,6 +647,11 @@ def verify(
         jobs: how many mutant runs to hold open at once. 1 is the serial
             behaviour; each run is an independent subprocess, so the value
             changes overlap and nothing else.
+        priors: prior findings by mutant id, from the survivor-export the run
+            was named against (`--against`). Each verification carries its
+            prior so the trace can pair the frozen record with the fresh
+            verdict; an id with no prior gets none, and a prior nobody
+            re-measured is the caller's gap to report, not this function's.
 
     Returns:
         One :class:`Verification` per mutant, in the input order.
@@ -630,6 +663,7 @@ def verify(
     project_dir = Path(project_dir)
     python = python or sys.executable
     reasons = reasons or {}
+    priors = priors or {}
     jobs = max(1, jobs)
 
     linemap, flaky = run_baseline_pass(
@@ -656,7 +690,7 @@ def verify(
                 )
             )
             verification = Verification(
-                result, selected, failed, reasons.get(mutant.id)
+                result, selected, failed, reasons.get(mutant.id), priors.get(mutant.id)
             )
             if cache is not None and result.status not in _NOT_CACHEABLE:
                 cache.put(

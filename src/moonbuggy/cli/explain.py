@@ -16,6 +16,7 @@ from ..discover import (
     find_source_dir,
     looks_like_pytest_project,
 )
+from ..reinject import CAUGHT_TOKENS, load_prior
 from ..report import (
     FINDING_STATUSES,
     find_record,
@@ -94,10 +95,28 @@ def _run_one(args: argparse.Namespace) -> int:
             "Run moonbuggy from your project root, or pass --project."
         )
 
+    if args.against and not args.trace_json:
+        raise VerifyError(
+            "--against pairs fresh verdicts with an export's records, which "
+            "only the --trace-json output carries. Add --trace-json (the "
+            "re-injection loop is a machine loop; grep the human one)."
+        )
+    priors = load_prior(args.against) if args.against else None
+
     source_dir = (
         Path(args.source).resolve() if args.source else find_source_dir(project_dir)
     )
     mutants = resolve_targets(project_dir, ids, _logging_policy(args))
+    if priors is not None:
+        missing = [id_ for id_ in ids if id_ not in priors]
+        if missing:
+            shown = ", ".join(missing[:5])
+            more = f" (and {len(missing) - 5} more)" if len(missing) > 5 else ""
+            raise VerifyError(
+                f"--against {args.against} has no record for: {shown}{more}. "
+                "The export must name every id being re-measured -- re-run "
+                "`moonbuggy export` if the finding set has moved since."
+            )
 
     # Resolved the same way a full run resolves it, so a mutant a human has
     # already reviewed says so here too. It is an annotation and never a
@@ -131,6 +150,7 @@ def _run_one(args: argparse.Namespace) -> int:
         cache=cache,
         reasons=reasons,
         jobs=args.jobs,
+        priors=priors,
     )
     if cache is not None:
         cache.save()
@@ -159,14 +179,34 @@ def _run_one(args: argparse.Namespace) -> int:
     # So the summary lands after the report rather than in the middle of it
     # when both streams are the same terminal.
     sys.stdout.flush()
-    print(
+    summary = (
         "moonbuggy: "
         + "  ".join(f"{status}={count}" for status, count in sorted(counts.items()))
         + f"  re-measured={len(verifications)}"
         + f" ({_display_path(project_dir / args.output_dir, project_dir)}"
-        + "/results.jsonl is unchanged)",
-        file=sys.stderr,
+        + "/results.jsonl is unchanged)"
     )
+    if priors is not None:
+        # The transition tally: what the loop came back with, in the same
+        # closed tokens the traces carry. `caught` is the only number that
+        # says the new tests checked anything -- a survived->killed_by_error
+        # id is a crash, not a catch, so it never counts.
+        transitions: Counter[str] = Counter()
+        for v in verifications:
+            if v.prior is None:
+                continue
+            trace = v.trace()
+            reinject = trace.get("reinject")
+            assert isinstance(reinject, dict)
+            token = reinject["transition"]
+            assert isinstance(token, str)
+            transitions[token] += 1
+        summary += (
+            "  transitions="
+            + "  ".join(f"{token}={n}" for token, n in sorted(transitions.items()))
+            + f"  caught={sum(transitions[t] for t in CAUGHT_TOKENS)}"
+        )
+    print(summary, file=sys.stderr)
     return 1 if any(v.status in FINDING_STATUSES for v in verifications) else 0
 
 

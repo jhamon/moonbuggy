@@ -115,6 +115,29 @@ set replays at once:
 $ jq -r '.id' survivors.jsonl | moonbuggy run -
 ```
 
+For the machine loop — replay the whole finding set and get one JSON line per
+id that names what *changed* — add `--trace-json --against`:
+
+```{code-block} console
+$ jq -r '.id' survivors.jsonl | moonbuggy run - --trace-json \
+    --against survivors.jsonl --flaky-probe 0
+```
+
+Each trace gains a `reinject` subdocument: the export record's prior status
+and `survival_reason`, plus a `transition` token from a closed vocabulary. The
+token to gate on is `survived->assertion_failed` (or
+`no_coverage->assertion_failed`) — a real catch. The same table as above, in
+tokens:
+
+```{code-block} text
+survived->assertion_failed   fixed: the new test objects to the mutation
+survived->killed_by_error    not verified: something crashed first
+survived->survived           still a finding (silence is a fact about the new tests)
+```
+
+The stderr summary tallies the transitions and a `caught=N` that counts only
+the assertion_failed catches.
+
 **The one verdict rule to get right:** `killreason` on the verdict line is
 what tells you the kill was *real*.
 
