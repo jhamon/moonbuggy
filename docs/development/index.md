@@ -15,6 +15,7 @@ not work — is worth more than a tidy tree.
 | [acceptance-criteria.md](acceptance-criteria.md) | Phase 0 + Phase 1 criteria, and their status |
 | [next-milestones.md](next-milestones.md) | the four Phase 2 milestones, written as checkable claims |
 | [phase-2-status.md](phase-2-status.md) | criterion-by-criterion outcome for the above |
+| [quickstart-validation.md](quickstart-validation.md) | checklist for a human first-run of the quickstart (M3.3.11's unmet half) |
 | [spike-a-findings.md](spike-a-findings.md) | in-memory mutation, pytest, and xdist |
 | [spike-b-findings.md](spike-b-findings.md) | coverage mechanism for the line→test map |
 | [perf-hypotheses.md](perf-hypotheses.md) | predicted vs actual saving for every optimisation attempted |

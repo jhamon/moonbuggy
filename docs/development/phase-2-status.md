@@ -55,7 +55,7 @@ docstring.
 
 | # | criterion | status |
 |---|---|---|
-| M1.3.1 | ≥10 projects, per-mutant correspondence table | met on count, **not as specified** — see below |
+| M1.3.1 | ≥10 projects, per-mutant correspondence table | met on count, **not as specified** — see below; rewrite pending QA's differential-on-real-libraries task |
 | M1.3.2 | every disagreement classified, zero unclassified | met — the harness exits non-zero otherwise |
 | M1.3.3 | moonbuggy bugs get a failing regression test first | vacuous — no disagreement was classified *moonbuggy bug* |
 | M1.3.4 | table checked in with counts per category | met |
@@ -70,6 +70,11 @@ own dependencies. The count is made up with generated projects instead, which is
 a weaker substitution — generated code has no decorators, classes, closures or
 third-party imports, so it cannot surface the disagreements those produce. Said
 plainly at the top of the generated report as well as here.
+
+**Update.** Running the harness against the five real M4 libraries is tracked
+as a separate task (differential-on-real-libraries); when it lands, this
+caveat will be rewritten to describe the real-projects table instead of the
+generated-projects substitution. Until then the text above stands.
 
 ## M1.4 — Robustness and fault injection
 
@@ -158,6 +163,11 @@ seen — which is the mechanical part of the criterion. What has *not* been done
 is a human following the quickstart page on a machine that never had moonbuggy
 on it. That is the part the criterion is really about, and it cannot be
 self-certified.
+
+The script for that human run now exists: [quickstart-validation.md](quickstart-validation.md)
+— a step-by-step walkthrough of the quickstart page with expected outputs and
+what a failure looks like at each step. It is prepared, not executed: the human
+run itself is Jennifer's call.
 
 ## M4 — Open-source defect hunt
 
