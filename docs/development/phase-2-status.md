@@ -55,26 +55,40 @@ docstring.
 
 | # | criterion | status |
 |---|---|---|
-| M1.3.1 | ≥10 projects, per-mutant correspondence table | met on count, **not as specified** — see below; rewrite pending QA's differential-on-real-libraries task |
-| M1.3.2 | every disagreement classified, zero unclassified | met — the harness exits non-zero otherwise |
-| M1.3.3 | moonbuggy bugs get a failing regression test first | vacuous — no disagreement was classified *moonbuggy bug* |
+| M1.3.1 | ≥10 projects, per-mutant correspondence table | **met as specified** — 15 projects: the ten generated ones plus the five pinned M4 libraries (more-itertools, boltons, humanize, sqlparse, tomli) |
+| M1.3.2 | every disagreement classified, zero unclassified | met — the harness exits non-zero otherwise; the live run reports zero unclassified |
+| M1.3.3 | moonbuggy bugs get a failing regression test first | still vacuous as literally worded — no disagreement was classified *moonbuggy bug*; the disagreements the real libraries surfaced were **mutmut** false kills, and those are pinned by `tests/test_differential_classification.py` (see below) |
 | M1.3.4 | table checked in with counts per category | met |
 | M1.3.5 | re-runnable, reports drift | met — the table is regenerated each run |
 
-**Not as specified.** M1.3.1 names the five M4 libraries as five of the ten
-projects. They are not included. mutmut cannot be pointed at an arbitrary
-checkout: it rewrites the project into a `mutants/` tree and requires the
-project's pytest configuration to be replaced with one that reads from it, and
-running it needs a virtualenv per target carrying both mutmut and that project's
-own dependencies. The count is made up with generated projects instead, which is
-a weaker substitution — generated code has no decorators, classes, closures or
-third-party imports, so it cannot surface the disagreements those produce. Said
-plainly at the top of the generated report as well as here.
+**Real-library results.** The five pinned M4 libraries run through the same
+harness, each in the virtualenv its M4 harness built (mutmut 3.x runs pytest
+in-process, so it needs the target's own interpreter and dependencies;
+moonbuggy runs against the same environment). On the shared mutants the two
+tools agree 444/923; every disagreement is classified, and every one of the
+`mutmut false kill (verified)` entries was decided by direct experiment: the
+mutant activated through mutmut's own trampoline (or applied to the real
+source) leaves the target's whole suite green, so mutmut's recorded exit-1
+kill cannot have come from a failing test. Two mechanisms were confirmed by
+reproduction:
 
-**Update.** Running the harness against the five real M4 libraries is tracked
-as a separate task (differential-on-real-libraries); when it lands, this
-caveat will be rewritten to describe the real-projects table instead of the
-generated-projects substitution. Until then the text above stands.
+- mutmut's per-function test selection derives its id list from a stats cache
+  that can outlive the collection it describes, so a recorded exit 1 can be
+  stale (boltons `cardinalize`/`ordinalize` kill records read exit 0 in a
+  fresh tree).
+- mutmut's clean-test gate can reject a green project (its own in-process
+  trampoline changes the environment the baseline runs in), and on some runs
+  mutmut's per-function invocation crashes the whole gate — the humanize
+  number.py mutants were verified against a valid tree instead
+  (`VERIFIED_MUTMUT_FALSE_KILLS` in `scripts/differential.py` carries the
+  exact reproductions; 123/123 metric mutants verified green, plus a
+  22,210-case output sweep showing the mutant is semantically equivalent).
+
+**Regression test.** `tests/test_differential_classification.py` pins the
+verified-false-kill ledger: every entry is structurally complete, every entry
+classifies its own triple through `classify()` (so a mis-keyed or drift-stale
+entry fails the test instead of resurfacing as UNCLASSIFIED), and the ledger
+cannot shade a run where moonbuggy's verdict differs from the verified one.
 
 ## M1.4 — Robustness and fault injection
 
