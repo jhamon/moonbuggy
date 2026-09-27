@@ -61,6 +61,15 @@ docstring.
 | M1.3.4 | table checked in with counts per category | met |
 | M1.3.5 | re-runnable, reports drift | met — the table is regenerated each run |
 
+**Why the generated projects existed.** mutmut cannot be pointed at an
+arbitrary checkout: it rewrites the project into a `mutants/` tree and
+requires the project's pytest configuration to be replaced with one that
+reads from it, and running it needs a virtualenv per target carrying both
+mutmut and that project's own dependencies. Until that constraint was
+handled, the count was made up with generated projects instead — a weaker
+substitution, since generated code has no decorators, classes, closures or
+third-party imports, so it cannot surface the disagreements those produce.
+
 **Real-library results.** The five pinned M4 libraries run through the same
 harness, each in the virtualenv its M4 harness built (mutmut 3.x runs pytest
 in-process, so it needs the target's own interpreter and dependencies;
