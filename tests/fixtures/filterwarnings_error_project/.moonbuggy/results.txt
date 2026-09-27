@@ -1,0 +1,4 @@
+SURVIVED  widget/__init__.py:5 comparison_swap line=5 nearest_test=tests/test_shout.py::test_clamp_negative tests_run=2 killreason=- id=widget/__init__.py:5:comparison_swap:0
+KILLED    widget/__init__.py:5 condition_negation line=5 nearest_test=- tests_run=2 killreason=assertion_failed id=widget/__init__.py:5:condition_negation:0
+SURVIVED  widget/__init__.py:5 constant_int line=5 nearest_test=tests/test_shout.py::test_clamp_negative tests_run=2 killreason=- id=widget/__init__.py:5:constant_int:0
+KILLED    widget/__init__.py:6 constant_int line=6 nearest_test=- tests_run=1 killreason=assertion_failed id=widget/__init__.py:6:constant_int:0

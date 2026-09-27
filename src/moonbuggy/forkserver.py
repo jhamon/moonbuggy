@@ -250,7 +250,11 @@ def prebuild_mutant_config(extra_args: Iterable[str] = ()) -> object | None:
         return None
 
 
-def precollect(config: object, node_ids: Iterable[str]) -> object | None:
+def precollect(
+    config: object,
+    node_ids: Iterable[str],
+    extra_args: Iterable[str] = (),
+) -> object | None:
     """Collect every test any mutant can select, once, in the warm host.
 
     With the prebuilds landed, `cProfile` put `perform_collect` at **4ms of a
@@ -273,9 +277,31 @@ def precollect(config: object, node_ids: Iterable[str]) -> object | None:
     the same property that already makes the host's own imports safe to
     inherit.
 
+    **Why this gets its own config.** Collecting configures the config it
+    runs under, registers plugins (the session, the fixture manager, the
+    terminal reporter) and mutates `args`. All of that is exactly what the
+    prebuilt mutant config must NOT have picked up when the grandchild later
+    runs it: a half-configured config makes the fallback grandchild fail in
+    one of several ways -- a registered Session under the name "session"
+    makes `wrap_session` raise "Plugin name already registered", a
+    `_do_configure`d config trips `assert not self._configured` -- and each
+    failure is a CHILD_CRASHED per mutant, read as SUSPICIOUS
+    execution_crash for the whole run. Found on humanize 4.16.0, where one
+    unresolvable duplicate-named test id under pytest 9 rejected the whole
+    precollect. So this builds a throwaway config for the collection and
+    leaves the caller's untouched: on failure the caller falls back to the
+    pristine one, and on success the session's config IS this throwaway and
+    nothing else ever runs under it.
+
     Args:
-        config: the config from :func:`prebuild_mutant_config`.
+        config: the config from :func:`prebuild_mutant_config`, kept pristine
+            for the fallback grandchild.
         node_ids: every test node id any mutant selects.
+        extra_args: the pytest arguments every mutant run shares. The
+            collected session runs under them, exactly as the grandchild
+            would have: a project whose args change what fails (`-W error`
+            being the sharpest case) must not be collected under arguments
+            that cannot fail.
 
     Returns:
         the collected `Session`, or None to fall back to collecting inside
@@ -287,17 +313,26 @@ def precollect(config: object, node_ids: Iterable[str]) -> object | None:
     if not ids:
         return None
     try:
+        from _pytest.config import _prepareconfig
+
+        collect_config = _prepareconfig(
+            _mutant_args((), extra_args, False), [_SELECTED_ONLY, _KILL_REASON]
+        )
+    except BaseException:
+        return None
+    session = None
+    try:
         from _pytest.main import Session
 
-        config.args = ids  # type: ignore[attr-defined]  # a pytest Config
-        config.option.file_or_dir = ids  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
-        session = Session.from_config(config)  # type: ignore[arg-type]  # pytest's typeshed omits this runtime attribute
+        collect_config.args = ids
+        collect_config.option.file_or_dir = ids
+        session = Session.from_config(collect_config)
         session.exitstatus = 0
         # Both of these ran once per grandchild before and now run once here.
         # The mirror-image `pytest_sessionfinish` stays in the grandchild, so
         # a plugin still sees exactly one finish per process that runs tests.
-        config._do_configure()  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
-        config.hook.pytest_sessionstart(session=session)  # type: ignore[attr-defined]  # pytest's typeshed omits this runtime attribute
+        collect_config._do_configure()
+        collect_config.hook.pytest_sessionstart(session=session)
         session.perform_collect()
     except BaseException:
         return None
@@ -769,6 +804,7 @@ def _warm_session_host(
                     for node in runs[0]
                     if "::" in node and not node.endswith("::<collection>")
                 ),
+                extra_args,
             )
         )
 

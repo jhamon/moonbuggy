@@ -1,0 +1,14 @@
+[project]
+name = "widget"
+version = "0.0.0"
+requires-python = ">=3.10"
+
+# The whole point of the fixture: pytest emits PytestAssertRewriteWarning
+# when a `-p`-named plugin module is already in sys.modules, and this
+# setting escalates every warning to an exception. A project doing this is
+# ordinary (humanize 4.16.0 does), so moonbuggy's fork paths must survive
+# it.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["error"]
