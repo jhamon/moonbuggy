@@ -21,15 +21,91 @@ The four are independent and can run in any order. §5 recommends one.
 evidence. Three techniques, each aimed at a class of bug the current suite
 structurally cannot find.
 
-*The M1.1 slot is intentionally vacant. It held self-mutation — running
-moonbuggy on its own source — which was dropped for now. It is the sharpest
-available test, but the code under mutation would be the mutation engine itself,
-so a defective mutant could corrupt the run meant to detect it, and the failure
-would read as a finding rather than an error. Doing it safely needs a pinned
-separate install mutating a separate checkout, which is enough machinery to
-deserve its own milestone rather than a subsection of this one. The slot is left
-empty rather than renumbered so existing references to M1.2/M1.3/M1.4 keep
-meaning what they meant.*
+### M1.1 Self-mutation (moonbuggy mutating its own source)
+
+Running moonbuggy on its own source is the sharpest correctness test
+available: the code under mutation is the mutation engine itself. The danger
+that kept this out of Phase 1 is real — the code under mutation would be the
+mutation engine itself, so a defective mutant could corrupt the run meant to
+detect it, and the failure would read as a finding rather than an error. The
+containment scheme (probed and stress-tested by the spike, see
+[spike-selfmutation-findings.md](spike-selfmutation-findings.md)) is three
+isolations, with a fourth constraint round 2 of the spike added:
+
+- the **runner** is a pinned moonbuggy installed non-editably in its own venv,
+  and the runner *parent process* must execute that pinned copy — not the
+  target. Exporting `PYTHONPATH=<target>/src` for the children silently makes
+  the parent import the target's engine too (spike Finding 4), so the rig
+  launches the parent with `python -E -m moonbuggy.cli` while still exporting
+  `PYTHONPATH` for the children;
+- the **target** is a separate checkout of the repo;
+- the **import boundary** is `PYTHONPATH=<target>/src`, which makes every
+  child pytest process import the target's package rather than the runner's
+  installed copy — without that third piece the runner mutates files the
+  suite never imports and the verdicts are vacuous (spike Finding 1);
+- and because a forked child inherits the parent's `sys.path`, the
+  `-E`-pinned parent must run each mutant's tests in a **fresh subprocess**
+  (`--workers N`, the cold path), not the fork-based warm path — an `-E`
+  parent's forked grandchildren would import the pinned copy and every
+  mutation would silently not apply.
+
+Each criterion is a claim an evaluator can check by running the rig.
+
+- **M1.1.1** A self-mutation rig exists as a re-runnable script that: clones
+  the repo twice (runner source pinned at a tag or commit; target at the ref
+  under test), builds a runner venv, installs the pinned checkout into it
+  **non-editably** (site-packages copy), and runs the pinned runner against
+  the target's `src/` with the parent launched `-E` and `PYTHONPATH` pointing
+  at the target's `src/`, each mutant's tests executed as a fresh subprocess
+  (`--workers`), per spike Findings 4 and 1.
+- **M1.1.2** Both sides of the import boundary are verified *by the rig
+  before the run*: a probe child process run with the rig's environment
+  reports `moonbuggy.__file__` resolving under the target checkout, and a
+  probe parent run with `-E` reports it resolving under the pinned venv.
+  Both probes must also verify **semantics, not just paths** — the pinned
+  side asserts a known module-level constant (spike Finding 7: a stale
+  `.pyc` compiled from mutated source passes staleness validation forever
+  and defeats a path-only check). If any probe fails, the rig refuses to
+  run rather than producing vacuous verdicts or a corrupted run.
+- **M1.1.3** The target's test suite is green under the rig's environment
+  before mutation begins (the pinned runner's own red-baseline gate fires
+  otherwise — the M1.4.4 behaviour, exercised on ourselves in spike
+  Finding 6). The rig cleans the target's run artifacts (`.moonbuggy/`,
+  `survivors.jsonl`) before the baseline check: a crashed prior
+  self-mutation run leaves `.moonbuggy/results.jsonl` behind in the target
+  (its child suites invoke moonbuggy with the default output dir), and a
+  stale file makes the next run refuse — the gate catches it, but the rig
+  must not trip its own trap.
+- **M1.1.4** A planted defect is detected end to end: the rig (or its docs)
+  names a hand-edit to the target's `src/` that changes at least one verdict
+  relative to the same run without the edit — or, when the edit breaks the
+  suite outright, the red-baseline gate refuses to start and names the
+  failing tests (both outcomes observed in spike Finding 6; either is
+  detection). This is the proof that the runner sees defects in the code it
+  is mutating, not a fantasy of them.
+- **M1.1.5** A planted defect in the target **cannot corrupt the runner**: the
+  pinned runner's package files are byte-identical to the pinned commit's
+  install (hash-checked) after a run that included the planted defect, and
+  the runner's own machinery kept running — verdicts changed or the gate
+  refused, but the engine did not.
+- **M1.1.6** The run reaches a verdict on every mutant of the target's `src/`
+  that has test coverage; the surviving/no-coverage ratio on moonbuggy itself
+  is recorded in a checked-in receipt so later runs can measure drift
+  (round 2 snapshot: 281/1702 covered, 122 KILLED, 57 KILLED_BY_ERROR, 91
+  SURVIVED, 11 TIMEOUT — *not* a receipt, a spike snapshot). Gate: the
+  endgame silent death of spike Finding 5 must be resolved first — under the
+  boundary-fixed fork configuration the rig never survived to write the
+  report.
+- **M1.1.7** Run-to-run stability is stated with numbers: two runs of the
+  identical rig on a quiet machine agree on all non-`SUSPICIOUS` verdicts, or
+  every disagreement is listed and explained (timing-boundary TIMEOUTs
+  included). A self-mutation run whose verdicts cannot be reproduced is worse
+  than none. (Encouraging: the three boundary-fixed full runs agreed
+  record-for-record on all 281 covered verdicts — but they died at the same
+  point, so stability of the *full* run is unproven.)
+- **M1.1.8** The rig is not wired into CI and no criterion above is marked
+  met by a manual one-off: the rig is a script checked into the repo, and any
+  claim of M1.1 being "met" requires re-running it.
 
 ### M1.2 Property-based testing (Hypothesis)
 
