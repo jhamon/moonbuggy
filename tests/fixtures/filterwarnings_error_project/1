@@ -1,0 +1,25 @@
+{
+  "attributed": 0.9175516427404028,
+  "notes": {
+    "mutants": 4,
+    "mutants_run": 4,
+    "source_files": 1
+  },
+  "other": 0.019342041050549597,
+  "phases": {
+    "cache I/O": 3.883300814777613e-05,
+    "cold fallback": 0.0,
+    "coverage pass": 0.10781245899852365,
+    "discovery": 0.00036516698310151696,
+    "flaky probe": 4.279200220480561e-05,
+    "generation": 0.0012985829962417483,
+    "import chain": 0.06464937498094514,
+    "in-child test execution": 0.017849915000861395,
+    "parent warm-up": 0.0,
+    "per-mutant fork": 0.02092945798880432,
+    "planning": 0.0014262089971452951,
+    "reporting": 0.000802833994384855,
+    "warm-session startup": 3.816699609160423e-05
+  },
+  "wall": 0.2345958329970017
+}

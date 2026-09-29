@@ -1,0 +1,50 @@
+{
+  "acceptance": {
+    "accepted": 0,
+    "ambiguous": 0,
+    "fail_on_unexplained": false,
+    "ledger": ".moonbuggy/accepted.toml",
+    "orphaned": 0,
+    "relocated": 0,
+    "stale": 0,
+    "unexplained": 2
+  },
+  "cached": 0,
+  "config": {
+    "cache": false,
+    "exclude": [],
+    "flaky_probe": 1,
+    "include": [],
+    "include_logging_mutants": false,
+    "jobs": 0,
+    "logger_names": [],
+    "operators": null,
+    "operators_selector": null,
+    "pytest_args": [],
+    "timeout": 30.0,
+    "workers": 0
+  },
+  "counts": {
+    "killed": 2,
+    "killed_by_error": 0,
+    "no_coverage": 0,
+    "skipped": 0,
+    "survived": 2,
+    "suspicious": 0,
+    "timeout": 0
+  },
+  "elapsed": 0.172,
+  "exit_code": 1,
+  "measured": 4,
+  "moonbuggy": "0.2.0",
+  "record_schema": 4,
+  "schema": 1,
+  "scope": {
+    "changed_lines": 0,
+    "diff_scoped": false,
+    "files": 0,
+    "merge_base": null,
+    "since": null
+  },
+  "total": 4
+}
