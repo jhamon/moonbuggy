@@ -32,7 +32,9 @@ def _probe_module(tmp_path, pythonpath_dir):
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text("HERE = __file__\n")
     probe = tmp_path / "test_probe_rigprobe.py"
-    probe.write_text("import rigprobe\n\n\ndef test_imports():\n    assert rigprobe.HERE\n")
+    probe.write_text(
+        "import rigprobe\n\n\ndef test_imports():\n    assert rigprobe.HERE\n"
+    )
     return probe
 
 
