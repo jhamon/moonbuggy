@@ -206,6 +206,37 @@ the rig must either adopt the `-E`+subprocess configuration or the endgame
 kill must be explained. Both are recorded as rig requirements, not product
 changes.
 
+### Resolution (perf branch `perf/f5-endgame-silent-death`, 2026-09-29)
+
+Root-caused to a runner bug, not the OS kill the round-2 note suspected. The
+audit-hook log of an instrumented repro (`f5c`) shows the mutant on
+`cli/__init__.py:176`'s entry guard `if __name__ == "__main__": run()`
+(condition_negation) is a module-level statement, so the warm-path grandchild
+applies it with `codeswap._exec_module_level`, which re-executes the whole
+statement in the module's namespace. In a forked child `__name__` is
+`"moonbuggy.cli"`, so the *inverted* guard is TRUE and `run()` executes — a
+full recursive moonbuggy campaign on the inherited argv, in a process that
+inherited the parent's open `results.jsonl` descriptor. The nested campaign
+truncates that file (`StreamingJSONL` opens `mode='w'`), the parent's writes
+at the inherited offset re-create the data as a NUL hole (matching the
+396,958-byte prefix exactly), and the nested `run()` ends in `os._exit`,
+killing the grandchild before it can report a verdict. Five-for-five
+determinism and the "no traceback" signature follow.
+
+Fix: `_exec_module_level` now refuses (`SwapFailed`) any module-level
+statement that binds no names — re-execution exists to rebind names, and a
+statement that binds none (`__all__ +=`, `del`-only, a bare `if`/`try` with
+no `def`/assign/for targets) has no mutation to apply, only side effects to
+re-trigger. The existing `_rerun_unapplied` machinery sends the refused
+mutant down the cold fork path, where the import hook re-imports the module
+from mutated source and the guard is evaluated once, at import, as it would
+be in production. Regression tests: `tests/test_statement_side_effects.py`
+(4 tests; RED before the fix, GREEN after). End-to-end verification on a
+minimal entry-guard fixture under the fork path: run exits 0,
+`results.jsonl` intact with no NUL prefix, guard mutants settled SUSPICIOUS
+(the documented semantics of a mutated guard that breaks test collection —
+`runner.py`'s `_status_from_exit`), no nested campaign.
+
 ## Finding 6 (round 2) — the `-E`+subprocess rig detects a planted defect, end to end
 
 With the runner parent launched `-E` (pinned engine), `--workers 2` (fresh

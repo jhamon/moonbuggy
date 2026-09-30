@@ -189,6 +189,24 @@ def _exec_module_level(module: ModuleType, source: str, line: int) -> None:
         raise SwapFailed(f"no module-level statement at line {line}")
 
     names = _bound_names(statement)
+    if not names:
+        # A statement that binds nothing has no names to rebind, so running it
+        # again is not a mutation application at all -- it is a second, live
+        # execution of its side effects. The canonical victim is the entry
+        # guard `if __name__ == "__main__": run()`: in a forked mutant process
+        # `__name__` is the module's import name, a condition_negation mutant
+        # on that guard is therefore TRUE here, and the "mutation" starts the
+        # whole program inside the engine's own child -- with the parent's
+        # open results.jsonl descriptor inherited, which is how a run's
+        # artifacts got truncated from inside their own runner (M1.1 Finding
+        # 5). Refuse, and the caller sends this mutant down the cold path,
+        # where the import hook re-imports the module from mutated source and
+        # the guard is evaluated once, at import, as it would be in production.
+        raise SwapFailed(
+            f"module-level statement at line {line} binds no names; "
+            "re-executing it would re-run its side effects rather than "
+            "rebind anything"
+        )
     before = {name: module.__dict__.get(name, _MISSING) for name in names}
 
     try:
