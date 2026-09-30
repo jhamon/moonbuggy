@@ -344,6 +344,113 @@ def test_a_mutant_that_kills_its_own_process_is_still_classified(tmp_path):
     assert all(r["status"] in STATUS_KEYWORDS for r in records(project))
 
 
+def test_sys_exit_branch_mutants_are_pinned_and_classified(tmp_path):
+    """The sys.exit branch is classified, not just present (M1.4.6, M1.4.11).
+
+    The scenario above proves the branch produced *a* record; it does not pin
+    what the record says, so a regression that reported every mutant here as
+    SURVIVED -- or dropped the two sys.exit-branch statuses into NO_COVERAGE --
+    would pass it. The honest labels for this fixture, reasoned from the
+    source and confirmed against the naive oracle:
+
+    - `if value < 0` -> `not value < 0`: bail(-1) no longer exits, so
+      `pytest.raises(SystemExit)` sees nothing and objects -- KILLED.
+    - `if value < 0` -> `if value <= 0`: bail(-1) still exits exactly as
+      before; the suite cannot tell the difference -- SURVIVED. A genuine
+      surviving mutant of the module under test, which is what the report
+      must be allowed to say.
+    - `if value < 0` -> `if value < 1`: likewise exits for -1 and passes for
+      2 -- SURVIVED.
+    """
+    project = write_project(
+        tmp_path,
+        {
+            "exiting.py": EXITING,
+            "test_exiting.py": (
+                "import pytest\n\n"
+                "from exiting import bail, guard\n\n"
+                "def test_guard():\n    assert guard(3, 1) == 4\n\n"
+                "def test_bail_exits():\n"
+                "    with pytest.raises(SystemExit):\n        bail(-1)\n\n"
+                "def test_bail_passes_through():\n    assert bail(2) == 2\n"
+            ),
+        },
+    )
+
+    proc = moonbuggy("--timeout", "10", cwd=project, timeout=180)
+
+    assert_no_traceback(proc)
+    assert proc.returncode in (0, 1), proc.stderr
+    assert status_of_mutation(project, "if value < 0:", "if not value < 0:") == "KILLED"
+    assert status_of_mutation(project, "if value < 0:", "if value <= 0:") == "SURVIVED"
+    assert status_of_mutation(project, "if value < 0:", "if value < 1:") == "SURVIVED"
+
+
+def test_os_exit_truncates_the_suite_and_is_reported_suspicious(tmp_path):
+    """An `os._exit(0)` mid-suite looks like a green run to anything that only
+    reads pytest's exit code (M1.4.6, M1.4.11).
+
+    The scenario test above pins the outcome; this one pins *why* the outcome
+    is honest, by holding the two halves of the story apart:
+
+    - The mutant triggers during `test_guard`, which calls `guard(3, 1)`. The
+      mutated `>=` fires, `os._exit(0)` ends the interpreter immediately, and
+      the remaining tests never run. pytest's exit code is 0 -- identical to a
+      fully-passing suite.
+    - moonbuggy must not read that 0 as "nothing noticed the mutation". The
+      run completed suspiciously early, and `execution_crash` is the
+      killreason stamp on exactly that: a process that died without giving
+      pytest a verdict. The status is therefore SUSPICIOUS, whatever the
+      exit code, and the killreason is pinned so the mechanism cannot quietly
+      become an exit-code guess.
+
+    The naive oracle disagrees here by construction, and the disagreement is
+    the point: it runs the whole suite under plain pytest and has no record of
+    how many tests were *supposed* to run, so a truncated green run is
+    indistinguishable from a complete one and it answers SURVIVED. That is a
+    documented, labelled difference in the same family as NO_COVERAGE --
+    moonbuggy declines a confident status where the oracle gives a wrong
+    confident one -- and this test is the executable record of it.
+    """
+    project = write_project(
+        tmp_path,
+        {
+            "exiting.py": EXITING,
+            "test_exiting.py": (
+                "import pytest\n\n"
+                "from exiting import bail, guard\n\n"
+                "def test_guard():\n    assert guard(3, 1) == 4\n\n"
+                "def test_bail_exits():\n"
+                "    with pytest.raises(SystemExit):\n        bail(-1)\n\n"
+                "def test_bail_passes_through():\n    assert bail(2) == 2\n"
+            ),
+        },
+    )
+
+    proc = moonbuggy("--timeout", "10", cwd=project, timeout=180)
+
+    assert_no_traceback(proc)
+    assert proc.returncode in (0, 1), proc.stderr
+
+    mutants = records(project)
+    guard_exit = [
+        r
+        for r in mutants
+        if r["diff"]
+        in (
+            "- if value * scale > 3:\n+ if value * scale >= 3:",
+            "- if value * scale > 3:\n+ if not value * scale > 3:",
+        )
+    ]
+    assert len(guard_exit) == 2, [r["id"] for r in guard_exit]
+    for record in guard_exit:
+        assert record["status"] == "SUSPICIOUS", record
+        # The stamp that distinguishes "the process died mid-suite" from the
+        # flakiness detector: a SUSPICIOUS here must never be attributed to a
+        # probe disagreement, because the probe saw a stable suite.
+        assert record["killreason"] == "execution_crash", record
+
+
 # --------------------------------------------------------------------------
 # M1.4.7 -- non-UTF8 / unusual encoding
 # --------------------------------------------------------------------------
