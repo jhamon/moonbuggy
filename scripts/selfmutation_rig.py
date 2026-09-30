@@ -100,13 +100,14 @@ print(report.__file__)
 print(report.RECORD_SCHEMA)
 """
 
-# The plant used for M1.1.4/M1.1.5. The same edit moonbuggy's own
-# condition_negation operator generates at export.py:83. With the plant live
-# the red-baseline gate refuses to start naming the three test_survivor_export
-# tests (spike Finding 6) — that is detection, and the refusal is the correct
-# outcome because the gate's verdicts would be meaningless.
-PLANT_LINE = 'if record["accepted"]:'
-PLANT_MUTATED = 'if not record["accepted"]:'
+# The plant used for M1.1.4/M1.1.5. Data-driven rather than a hardcoded line:
+# the hardcoded spike plant (export.py:83, condition_negation) is NO_COVERAGE
+# at later refs, so a plant there changes nothing the tests can see. Instead
+# the rig reads the clean run's receipt and plants the INVERSE of a mutant
+# the clean run reported KILLED — turning a covered, asserted line into its
+# mutated text, which the clean run proved the suite detects. Detection is
+# then measured as: verdicts changed relative to the clean run (Finding 2's
+# signature) or the red-baseline gate refused (Finding 6's).
 
 FAILURES: list = []
 
@@ -133,14 +134,17 @@ def run(command, cwd=None, timeout=1800, check=True, env=None):
 
 
 def clone_at(ref, dest, repo=REPO):
-    """Clone the repo at a ref into dest (a separate checkout by construction)."""
+    """Clone the repo at a ref into dest (a separate checkout by construction).
+    A branch name is resolved to its commit first: the checkout and the
+    runner-venv install must be pinned to exactly one tree."""
+    commit = run(["git", "rev-parse", ref], cwd=REPO).stdout.strip()
     if dest.exists():
         run(["git", "fetch", "--tags"], cwd=dest, timeout=600)
-        run(["git", "checkout", ref], cwd=dest, timeout=600)
-        run(["git", "reset", "--hard", ref], cwd=dest, timeout=600)
+        run(["git", "checkout", commit], cwd=dest, timeout=600)
+        run(["git", "reset", "--hard", commit], cwd=dest, timeout=600)
         return dest
     run(["git", "clone", "--no-checkout", str(repo), str(dest)], timeout=1200)
-    run(["git", "checkout", ref], cwd=dest, timeout=600)
+    run(["git", "checkout", commit], cwd=dest, timeout=600)
     return dest
 
 
@@ -285,17 +289,64 @@ def hash_package(python):
     return out[0], dict(line.split(":", 1) for line in out[1:])
 
 
-def plant(target):
-    """Apply the M1.1.4 plant. Returns (applied, original_line)."""
-    export = target / "src" / "moonbuggy" / "export.py"
-    lines = export.read_text().splitlines(keepends=True)
-    hits = [i for i, line in enumerate(lines) if PLANT_LINE in line]
-    if not hits:
-        return False, None
-    i = hits[0]
-    lines[i] = lines[i].replace(PLANT_LINE, PLANT_MUTATED)
-    export.write_text("".join(lines))
-    return True, lines[i]
+def _moonbuggy_cmd(python, output_dir, args):
+    """The scoped/full mutation run command. --output-dir lives OUTSIDE the
+    target tree (see the run_dir comment for why)."""
+    cmd = [
+        python,
+        "-E",
+        "-m",
+        "moonbuggy.cli",
+        "--project",
+        ".",
+        "--source",
+        "src",
+        "--report",
+        "human",
+        "--quiet",
+        # --no-cache: the verdict cache lives in the target's .moonbuggy and
+        # is keyed per mutant id — the planted tree generates the same ids for
+        # mutated-text-inverted mutants, so a planted run would read the clean
+        # run's cached verdicts and detection would silently fail. Measuring,
+        # not reusing, is the point of every run this rig performs.
+        "--no-cache",
+        "--workers",
+        str(args.workers),
+        "--timeout",
+        str(args.timeout),
+        "--output-dir",
+        str(output_dir),
+    ]
+    for fragment in args.include:
+        cmd += ["--include", fragment]
+    return cmd
+
+
+def plant(target, run_dir):
+    """Apply the M1.1.4 plant. Returns (applied, description)."""
+    receipt = run_dir / "results.jsonl"
+    chosen = None
+    if receipt.exists():
+        for line in receipt.read_text().splitlines():
+            rec = json.loads(line)
+            if rec["status"] == "KILLED" and rec.get("mutated"):
+                chosen = rec
+                break
+    if chosen is None:
+        return False, "no KILLED mutant with mutated text in the clean run"
+    module = REPO_NAME_FROM_ID(chosen["id"])
+    path = target / "src" / module
+    original, mutated = chosen["original"], chosen["mutated"]
+    text = path.read_text()
+    if original not in text:
+        return False, f"original text not found in {module}"
+    path.write_text(text.replace(original, mutated, 1))
+    return True, f"{chosen['id']} applied by hand (inverse of a KILLED mutant)"
+
+
+def REPO_NAME_FROM_ID(mutant_id):
+    """'src/moonbuggy/export.py:46:arithmetic_swap:0' -> 'moonbuggy/export.py'."""
+    return mutant_id.split(":")[0].split("src/", 1)[1]
 
 
 def main(argv=None):
@@ -352,6 +403,10 @@ def main(argv=None):
     pkg_dir = run(
         [
             python,
+            # -E: the probe must see what the runner PARENT will see. Without
+            # it, a PYTHONPATH exported in the invoking shell (or by a wrapper)
+            # makes the probe resolve the target and falsely fail the pin.
+            "-E",
             "-c",
             "import moonbuggy, os; print(os.path.dirname(moonbuggy.__file__))",
         ],
@@ -413,42 +468,69 @@ def main(argv=None):
     )
 
     # --- M1.1.4 + M1.1.5: planted defect, end to end -----------------------
+    # --output-dir points OUTSIDE the target tree: a run that wrote into the
+    # target's default .moonbuggy/ would leave an in-flight (empty)
+    # results.jsonl at the target root, and the target's own
+    # test_no_results_is_an_exit_2 reads the cwd fallback and fails — a
+    # self-inflicted red baseline the spike's launch scripts avoided with the
+    # same outside-tree output dir.
+    run_dir = workdir / f"run-{int(time.time())}"
     pkg_before, hashes_before = hash_package(python)
-    applied, _ = plant(target)
-    step("M1.1.4 plant applied", applied, "export.py condition_negation hand-edit")
+
+    # Clean scoped run FIRST, so M1.1.4 can compare the planted run's verdicts
+    # against it (the plant may be survivable at refs where the planted line's
+    # behaviour is not covered by an assertion — Finding 2's signature).
+    clean_counts = None
+    if not args.skip_full_run:
+        clean = run(
+            _moonbuggy_cmd(python, run_dir, args),
+            cwd=target,
+            env=env,
+            timeout=8 * 3600,
+            check=False,
+        )
+        clean_summary = run_dir / "summary.json"
+        if clean_summary.exists():
+            clean_counts = json.loads(clean_summary.read_text())["counts"]
+        step(
+            "M1.1.6 clean scoped run completed",
+            clean.returncode in (0, 1),
+            f"exit={clean.returncode}, counts={clean_counts}",
+        )
+
+    applied, plant_desc = plant(target, run_dir)
+    step("M1.1.4 plant applied", applied, plant_desc)
     if applied:
         gate = run(
-            [
-                python,
-                "-E",
-                "-m",
-                "moonbuggy.cli",
-                "--project",
-                ".",
-                "--source",
-                "src",
-                "--report",
-                "human",
-                "--quiet",
-                *(f"--include {f}" for f in args.include),
-            ],
+            _moonbuggy_cmd(python, str(run_dir) + "-planted", args),
             cwd=target,
             env=env,
             timeout=3600,
             check=False,
         )
-        # Detection = verdicts changed OR the red-baseline gate refused naming
-        # the broken tests (spike Finding 6: with the plant live the gate's
-        # refusal is the correct outcome).
-        detected = gate.returncode != 0 and (
-            "test_survivor_export" in gate.stderr or "FAILED" in gate.stderr
+        # Detection = verdicts changed relative to the clean run OR the
+        # red-baseline gate refused naming the broken tests. Both observed in
+        # the spike (Finding 6 saw the refusal; a survivable plant flips
+        # KILLED -> SURVIVED — the plant becomes the baseline, Finding 2's
+        # signature).
+        gate_refused = gate.returncode == 2 and "red baseline" in gate.stderr
+        planted_summary = run_dir.with_name(run_dir.name + "-planted") / "summary.json"
+        clean_summary = run_dir / "summary.json"
+        detected = gate_refused or (
+            planted_summary.exists()
+            and clean_summary.exists()
+            and json.loads(planted_summary.read_text())["counts"]
+            != json.loads(clean_summary.read_text())["counts"]
+        )
+        detail = (
+            gate.stderr.strip().splitlines()[-1]
+            if gate_refused and gate.stderr.strip()
+            else plant_desc
         )
         step(
             "M1.1.4 plant detected (verdicts changed or gate refused)",
             detected,
-            gate.stderr.strip().splitlines()[-1]
-            if gate.stderr.strip()
-            else "run was clean?!",
+            detail,
         )
 
         _, hashes_after = hash_package(python)
@@ -457,51 +539,40 @@ def main(argv=None):
             hashes_after == hashes_before,
             f"hashed {len(hashes_before)} engine modules before/after the planted run",
         )
-        # Revert the plant.
-        export = target / "src" / "moonbuggy" / "export.py"
-        text = export.read_text()
-        export.write_text(text.replace(PLANT_MUTATED, PLANT_LINE))
-        step("M1.1.4 plant reverted", PLANT_MUTATED not in export.read_text())
+        # Revert the plant by restoring the planted file from git (the target
+        # is a checkout at a fixed commit, so git knows the pristine bytes).
+        planted_module = plant_desc.split()[0].split(":")[0].split("src/", 1)[1]
+        checkout = run(
+            ["git", "checkout", "--", f"src/{planted_module}"],
+            cwd=target,
+            timeout=60,
+            check=False,
+        )
+        step(
+            "M1.1.4 plant reverted",
+            checkout.returncode == 0,
+            f"restored src/{planted_module} from git",
+        )
 
     if args.skip_full_run:
         print("\n--skip-full-run: M1.1.6/M1.1.7 not exercised this pass.")
     else:
-        # --- M1.1.6: the full run, cold path, every covered mutant judged --
-        clean_target_artifacts(target)
-        began = time.perf_counter()
-        cmd = [
-            python,
-            "-E",
-            "-m",
-            "moonbuggy.cli",
-            "--project",
-            ".",
-            "--source",
-            "src",
-            "--report",
-            "human",
-            "--quiet",
-            "--workers",
-            str(args.workers),
-            "--timeout",
-            str(args.timeout),
-        ]
-        for fragment in args.include:
-            cmd += ["--include", fragment]
-        full = run(cmd, cwd=target, env=env, timeout=8 * 3600, check=False)
-        results = target / ".moonbuggy" / "results.jsonl"
-        ok = full.returncode == 0 and results.exists()
+        # --- M1.1.6: the receipt comes from the CLEAN scoped run above ------
+        # (with --include fragments it is the scoped receipt; without any it
+        # is the full 1702-mutant receipt). The run already happened before
+        # the plant, so the receipt reflects an unmutated target.
+        results = run_dir / "results.jsonl"
         verdicts = {}
+        ok = results.exists()
         if ok:
             text = results.read_text()
             records = [json.loads(rec) for rec in text.splitlines() if rec.strip()]
             for r in records:
                 verdicts[r["status"]] = verdicts.get(r["status"], 0) + 1
-            elapsed = time.perf_counter() - began
             step(
                 "M1.1.6 run reaches a verdict on every covered mutant",
-                ok,
-                f"{len(records)} records, {verdicts}, {elapsed:.0f}s",
+                True,
+                f"{len(records)} records, {verdicts}",
             )
             receipt = REPO / "docs" / "selfmutation-receipt.json"
             receipt.write_text(
@@ -509,6 +580,7 @@ def main(argv=None):
                     {
                         "target_ref": args.target_ref,
                         "runner_ref": args.runner_ref,
+                        "scope": args.include or ["<full src/>"],
                         "records": len(records),
                         "verdicts": verdicts,
                         "machinery": f"-E parent, --workers {args.workers} (cold path)",
@@ -522,7 +594,7 @@ def main(argv=None):
             step(
                 "M1.1.6 run reaches a verdict on every covered mutant",
                 False,
-                f"exit={full.returncode}; {full.stderr[-300:] if full.stderr else ''}",
+                "no results.jsonl from the clean run — see its step above",
             )
 
     # --- M1.1.7/M1.1.8 are process criteria, stated here -------------------
