@@ -13,6 +13,26 @@ of ad-hoc probes (this document records them); a checked-in rig script is the
 deliverable that would make M1.1's criteria verifiable, and none of M1.1's
 criteria are marked met here.
 
+**Addendum (round 3, 2026-09-30, the rig milestone itself).** Building the
+checked-in rig (`scripts/selfmutation_rig.py`) surfaced one engine divergence
+round 2's Finding 4 verification missed: the `-E` scoped run of Finding 6
+worked only because its target (`da363f3`) was import-compatible with the
+`v0.2.0` pin. The coverage pass forks (`forkserver.available()` is True on
+macOS even under `-E`), and a forked child inherits the parent's `sys.path` —
+the pinned venv, never the `PYTHONPATH` target. Against today's target the
+pinned copy cannot satisfy the tests' imports and the coverage pass dies at
+collection. Worse, while pin and target *were* compatible the forked coverage
+pass silently **measured the pinned tree, not the target** — vacuity in the
+exact pass that decides which mutants have coverage. Fix: `run_pytest_in_fork`'s
+child now applies `PYTHONPATH` from `os.environ` before its first import,
+making the forked child's import behavior identical to the spawned child's
+(a spawned `python -m pytest` applies `PYTHONPATH` at interpreter startup; a
+forked child skips that startup). Regression tests:
+`tests/test_fork_pythonpath.py` — RED on the pre-fix runner, GREEN after.
+The runner-v0.2.0 pin cannot receive the fix (it predates it), so the rig's
+`--runner-ref` default is the parent commit of the fix once merged; the M1.1.2
+child probe exists precisely to catch a pin/target pair that cannot work.
+
 Findings 1–3 are round 1; Findings 4–7 are round 2. Round 1's findings stand
 as written but describe runs made before the boundary fix or with it half
 applied; where round 2 re-derives a claim, the round-2 finding wins.
