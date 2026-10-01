@@ -26,6 +26,7 @@ import contextlib
 import os
 import pickle
 import signal
+import sys
 import time
 from collections.abc import Callable, Iterable
 from typing import Literal, NamedTuple, TypedDict, cast
@@ -570,6 +571,16 @@ def run_pytest_in_fork(
         try:
             os.chdir(cwd)
             os.environ.update(env_updates)
+            # A spawned `python -m pytest` child would apply PYTHONPATH at
+            # interpreter startup; this child skipped that startup by being
+            # forked instead, so it must apply it here or its imports silently
+            # diverge from the subprocess path's. Without this, an -E-pinned
+            # parent (the self-mutation rig, spike Finding 4) forks a coverage
+            # pass that imports the runner's installed copy rather than the
+            # PYTHONPATH target -- and measures the wrong tree.
+            pythonpath = os.environ.get("PYTHONPATH", "")
+            if pythonpath:
+                sys.path[:0] = [p for p in pythonpath.split(os.pathsep) if p]
             devnull = os.open(os.devnull, os.O_WRONLY)
             os.dup2(devnull, 1)
             os.dup2(devnull, 2)
