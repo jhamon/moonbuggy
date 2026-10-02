@@ -27,7 +27,10 @@ fourth constraint round 2 added:
 
 Each criterion of M1.1 maps to a step of this script (M1.1.1 through M1.1.8);
 the steps are labelled in the output so an evaluator can check them by running
-the rig. The rig is deliberately NOT wired into CI (M1.1.8): the stability
+the rig. The receipt (docs/selfmutation-receipt.json) is written only by a
+run that produced records covering every covered mutant (M1.1.6): a failed or
+empty run never overwrites the previous good receipt. The rig is
+deliberately NOT wired into CI (M1.1.8): the stability
 question (Finding 3) is unresolved and a full run costs laptop-scale tens of
 minutes.
 
@@ -157,6 +160,17 @@ def build_runner_venv(workdir, ref):
     python = str(venv / "bin" / "python")
     run([python, "-m", "pip", "install", "-q", "--upgrade", "pip"], timeout=600)
     run([python, "-m", "pip", "install", "-q", "pytest", "pytest-cov"], timeout=1200)
+    # The runner venv runs the TARGET's test suite (M1.1.3), which needs the
+    # dev extras (hypothesis, pytest-xdist) — installing only pytest made a
+    # fresh rig workdir fail M1.1.3 with collection errors, which cascaded
+    # into a zero-record run overwriting a good receipt (QA finding F-1).
+    # Take the dev extra from the PINNED checkout, so the deps match the tree
+    # being measured rather than this script's working tree.
+    run(
+        [python, "-m", "pip", "install", "-q", str(runner_src) + "[dev]"],
+        cwd=runner_src,
+        timeout=1200,
+    )
     # Non-editable: this MUST be a real site-packages copy, never -e.
     run(
         [python, "-m", "pip", "install", "-q", "--force-reinstall", str(runner_src)],
@@ -349,6 +363,25 @@ def REPO_NAME_FROM_ID(mutant_id):
     return mutant_id.split(":")[0].split("src/", 1)[1]
 
 
+def covered_mutant_count(run_dir):
+    """How many mutants of the clean run have test coverage (M1.1.6 gate).
+
+    A covered mutant is one whose record is not NO_COVERAGE: the clean run
+    either measured it or recorded a fact about it. Records absent entirely
+    (a collection error upstream meant the engine never reached them) are NOT
+    covered by definition — the gate compares the record count against this
+    number, so a run that silently dropped mutants fails instead of passing
+    vacuously (QA finding F-3). A summary missing this field (an older
+    runner) returns 0, which keeps the gate satisfiable while the warning
+    print above still surfaces a shortfall against a real receipt.
+    """
+    summary = run_dir / "summary.json"
+    if not summary.exists():
+        return 0
+    data = json.loads(summary.read_text())
+    return data.get("covered", 0)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -398,6 +431,15 @@ def main(argv=None):
     print(f"runner pinned at: {args.runner_ref}  target at: {args.target_ref}")
 
     # --- M1.1.1: rig setup — clones, pinned non-editable runner venv ------
+    if args.runner_ref == args.target_ref:
+        print(
+            "WARNING: --runner-ref and --target-ref are both "
+            f"{args.runner_ref!r} — the runner and the target are the same "
+            "code, so a defect in the branch under test hides inside the "
+            "engine judging it. Pass --runner-ref to pin an independent ref "
+            "(the default is HEAD only because the fork-path fix is recent; "
+            "see the module docstring)."
+        )
     runner_src, venv, python = build_runner_venv(workdir, args.runner_ref)
     target = clone_at(args.target_ref, workdir / "target")
     pkg_dir = run(
@@ -561,19 +603,35 @@ def main(argv=None):
         # (with --include fragments it is the scoped receipt; without any it
         # is the full 1702-mutant receipt). The run already happened before
         # the plant, so the receipt reflects an unmutated target.
+        #
+        # Guarded write: a run that produced no records (the old dependency
+        # gap failed M1.1.3 and cascaded to an empty results.jsonl here)
+        # overwrote the last good receipt with records: 0, destroying the
+        # drift baseline this file exists to hold. Never write a zero-record
+        # receipt, and fail the step rather than passing over nothing.
         results = run_dir / "results.jsonl"
+        records = []
         verdicts = {}
-        ok = results.exists()
-        if ok:
-            text = results.read_text()
-            records = [json.loads(rec) for rec in text.splitlines() if rec.strip()]
+        if results.exists():
+            lines = [rec for rec in results.read_text().splitlines() if rec.strip()]
+            records = [json.loads(rec) for rec in lines]
             for r in records:
                 verdicts[r["status"]] = verdicts.get(r["status"], 0) + 1
-            step(
-                "M1.1.6 run reaches a verdict on every covered mutant",
-                True,
-                f"{len(records)} records, {verdicts}",
+        covered = covered_mutant_count(run_dir)
+        ok = bool(records) and len(records) >= covered
+        step(
+            "M1.1.6 run reaches a verdict on every covered mutant",
+            ok,
+            f"{len(records)} records (expected >= {covered}), {verdicts}"
+            if records
+            else "no results.jsonl from the clean run — see its step above",
+        )
+        if records and not ok:
+            print(
+                f"  WARNING: {covered} mutants have coverage but the run "
+                f"produced {len(records)} records; the receipt is not written."
             )
+        if records and ok:
             receipt = REPO / "docs" / "selfmutation-receipt.json"
             receipt.write_text(
                 json.dumps(
@@ -590,12 +648,6 @@ def main(argv=None):
                 + "\n"
             )
             print(f"  receipt written: {receipt}")
-        else:
-            step(
-                "M1.1.6 run reaches a verdict on every covered mutant",
-                False,
-                "no results.jsonl from the clean run — see its step above",
-            )
 
     # --- M1.1.7/M1.1.8 are process criteria, stated here -------------------
     print(
