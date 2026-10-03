@@ -112,6 +112,22 @@ print(report.RECORD_SCHEMA)
 # then measured as: verdicts changed relative to the clean run (Finding 2's
 # signature) or the red-baseline gate refused (Finding 6's).
 
+# Verdict statuses the M1.1.6 gate treats as covered. Every public status
+# except NO_COVERAGE: a record is a verdict, and NO_COVERAGE is the one that
+# says nothing about whether the mutation was noticed (it never reached a
+# run). The set is pinned by tests/test_selfmutation_rig_gate.py, which fails
+# if the report vocabulary moves and this tuple is not updated -- the same
+# closed-set discipline as report.STATUS_KEYWORDS, mirrored here because the
+# rig must run without the engine importable.
+VERDICT_STATUSES = (
+    "KILLED",
+    "KILLED_BY_ERROR",
+    "SURVIVED",
+    "TIMEOUT",
+    "SUSPICIOUS",
+    "SKIPPED",
+)
+
 FAILURES: list = []
 
 
@@ -363,23 +379,132 @@ def REPO_NAME_FROM_ID(mutant_id):
     return mutant_id.split(":")[0].split("src/", 1)[1]
 
 
+def _clean_counts(run_dir):
+    """The clean run's counts, as its summary.json reports them.
+
+    Returns:
+        The lower-cased ``counts`` mapping a real runner writes, or None for
+        a run directory with no summary (an older runner, or a run that never
+        got that far) -- the caller decides what absence means, so this says
+        "absent" rather than disguising it as a number.
+    """
+    summary = run_dir / "summary.json"
+    if not summary.exists():
+        return None
+    data = json.loads(summary.read_text())
+    counts = data.get("counts")
+    if isinstance(counts, dict):
+        return counts
+    # An older summary with no per-status counts: derive the only total it
+    # honestly offers. Every verdict that is not NO_COVERAGE counts as covered,
+    # so with no split the safe derivation is 0 (satisfiable gate) -- the
+    # shortfall against the receipt is still surfaced by the warning print.
+    return None
+
+
 def covered_mutant_count(run_dir):
     """How many mutants of the clean run have test coverage (M1.1.6 gate).
 
     A covered mutant is one whose record is not NO_COVERAGE: the clean run
-    either measured it or recorded a fact about it. Records absent entirely
-    (a collection error upstream meant the engine never reached them) are NOT
-    covered by definition — the gate compares the record count against this
-    number, so a run that silently dropped mutants fails instead of passing
-    vacuously (QA finding F-3). A summary missing this field (an older
-    runner) returns 0, which keeps the gate satisfiable while the warning
-    print above still surfaces a shortfall against a real receipt.
+    either measured it or recorded a fact about it. The number is derived from
+    the clean run's OWN summary -- the ``counts`` object the runner has always
+    written -- because the summary carries no ``covered`` key (QA finding F-4:
+    the old code read a key that does not exist and so compared against 0,
+    making the gate pass vacuously on every real run).
+
+    A summary with no ``counts`` object (an older runner) returns 0, which
+    keeps the gate satisfiable; the warning print still surfaces a shortfall
+    against a real receipt.
     """
-    summary = run_dir / "summary.json"
-    if not summary.exists():
+    counts = _clean_counts(run_dir)
+    if counts is None:
         return 0
-    data = json.loads(summary.read_text())
-    return data.get("covered", 0)
+    return sum(
+        counts.get(status.lower(), 0)
+        for status in VERDICT_STATUSES
+        if status != "NO_COVERAGE"
+    )
+
+
+def gate_check(clean_run_dir, this_run_dir):
+    """The M1.1.6 gate: did this run reach a verdict on every covered mutant?
+
+    Args:
+        clean_run_dir: the clean run's directory, whose summary.json names
+            the covered-mutant count and whose records define the verdict
+            vocabulary the statuses come from.
+        this_run_dir: the run being checked; its records.jsonl is read here.
+
+    Returns:
+        True only when this run has at least one record and its record count
+        covers every covered mutant of the clean run. A zero-record run fails
+        (the receipt guard), a dropped covered mutant fails, and a clean
+        summary with no derivable count keeps the gate satisfiable.
+    """
+    covered = covered_mutant_count(clean_run_dir)
+    records = this_run_dir / "results.jsonl"
+    if not records.exists():
+        return False
+    n = sum(1 for line in records.read_text().splitlines() if line.strip())
+    return bool(n) and n >= covered
+
+
+def gate_step(clean_run_dir, this_run_dir, args):
+    """Run the M1.1.6 gate as a rig step, printing what a fail means.
+
+    One place for the criterion's label, detail line, receipt warning and
+    guarded receipt write, so the step in main() and the F-4 semantics the
+    tests pin cannot drift apart. The receipt is written only on a pass.
+
+    Args:
+        clean_run_dir: the clean run's directory.
+        this_run_dir: the run the gate judges.
+        args: the parsed rig command line (target/runner refs, include scope).
+
+    Returns:
+        True when the gate passes and the receipt was written or already
+        agreed; False otherwise. Also records the step via ``step()``.
+    """
+    covered = covered_mutant_count(clean_run_dir)
+    records = this_run_dir / "results.jsonl"
+    verdicts = {}
+    lines = []
+    if records.exists():
+        lines = [rec for rec in records.read_text().splitlines() if rec.strip()]
+        for line in lines:
+            rec = json.loads(line)
+            verdicts[rec["status"]] = verdicts.get(rec["status"], 0) + 1
+    ok = gate_check(clean_run_dir, this_run_dir)
+    step(
+        "M1.1.6 run reaches a verdict on every covered mutant",
+        ok,
+        f"{len(lines)} records (expected >= {covered}), {verdicts}"
+        if lines
+        else "no results.jsonl from the clean run — see its step above",
+    )
+    if lines and not ok:
+        print(
+            f"  WARNING: {covered} mutants have coverage but the run "
+            f"produced {len(lines)} records; the receipt is not written."
+        )
+    if lines and ok:
+        receipt = REPO / "docs" / "selfmutation-receipt.json"
+        receipt.write_text(
+            json.dumps(
+                {
+                    "target_ref": args.target_ref,
+                    "runner_ref": args.runner_ref,
+                    "scope": args.include or ["<full src/>"],
+                    "records": len(lines),
+                    "verdicts": verdicts,
+                    "machinery": (f"-E parent, --workers {args.workers} (cold path)"),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        print(f"  receipt written: {receipt}")
+    return ok
 
 
 def main(argv=None):
@@ -609,45 +734,11 @@ def main(argv=None):
         # overwrote the last good receipt with records: 0, destroying the
         # drift baseline this file exists to hold. Never write a zero-record
         # receipt, and fail the step rather than passing over nothing.
-        results = run_dir / "results.jsonl"
-        records = []
-        verdicts = {}
-        if results.exists():
-            lines = [rec for rec in results.read_text().splitlines() if rec.strip()]
-            records = [json.loads(rec) for rec in lines]
-            for r in records:
-                verdicts[r["status"]] = verdicts.get(r["status"], 0) + 1
-        covered = covered_mutant_count(run_dir)
-        ok = bool(records) and len(records) >= covered
-        step(
-            "M1.1.6 run reaches a verdict on every covered mutant",
-            ok,
-            f"{len(records)} records (expected >= {covered}), {verdicts}"
-            if records
-            else "no results.jsonl from the clean run — see its step above",
-        )
-        if records and not ok:
-            print(
-                f"  WARNING: {covered} mutants have coverage but the run "
-                f"produced {len(records)} records; the receipt is not written."
-            )
-        if records and ok:
-            receipt = REPO / "docs" / "selfmutation-receipt.json"
-            receipt.write_text(
-                json.dumps(
-                    {
-                        "target_ref": args.target_ref,
-                        "runner_ref": args.runner_ref,
-                        "scope": args.include or ["<full src/>"],
-                        "records": len(records),
-                        "verdicts": verdicts,
-                        "machinery": f"-E parent, --workers {args.workers} (cold path)",
-                    },
-                    indent=2,
-                )
-                + "\n"
-            )
-            print(f"  receipt written: {receipt}")
+        # The gate semantics live in gate_step (tested by
+        # tests/test_selfmutation_rig_gate.py): the covered count is derived
+        # from the clean run's own summary counts, not from a "covered" key
+        # the runner never writes (QA finding F-4).
+        gate_step(run_dir, run_dir, args)
 
     # --- M1.1.7/M1.1.8 are process criteria, stated here -------------------
     print(
