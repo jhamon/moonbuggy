@@ -1,0 +1,13 @@
+{
+  "target_ref": "HEAD",
+  "runner_ref": "HEAD",
+  "scope": [
+    "export.py"
+  ],
+  "records": 54,
+  "verdicts": {
+    "NO_COVERAGE": 51,
+    "KILLED": 3
+  },
+  "machinery": "-E parent, --workers 2 (cold path)"
+}
