@@ -23,6 +23,7 @@ fallback rather than this being the only way to run.
 """
 
 import contextlib
+import json
 import os
 import pickle
 import signal
@@ -1208,6 +1209,7 @@ def _fork_grandchildren(
     # slot runs which *isolated* grandchild changes -- statuses are keyed by
     # the original index below, so no record can move, and the parent's result
     # stream is reassembled by index regardless of schedule.
+    diag_enabled = bool(os.environ.get(_TEARDOWN_DIAG_ENV))
     pending = [
         (index, jobs[index])
         for index in _cheap_first_order(jobs, _operator_dispatch_rank())
@@ -1218,6 +1220,8 @@ def _fork_grandchildren(
         while pending and len(running) < concurrency:
             index, (mutant, selected) = pending.pop(0)
             read_fd, write_fd = os.pipe()
+            if diag_enabled:
+                os.environ["MOONBUGGY_DIAG_FORK_AT"] = repr(time.perf_counter())
             pid = os.fork()
             if pid == 0:
                 os.close(read_fd)
@@ -1281,6 +1285,8 @@ def _grandchild(
 ) -> None:
     code = CHILD_CRASHED
     micros = 0
+    diag_fork_at = float(os.environ.get("MOONBUGGY_DIAG_FORK_AT", 0.0) or 0.0)
+    entered = swapped = imported = tested = time.perf_counter()
     try:
         try:
             apply_swap(mutant)
@@ -1290,7 +1296,10 @@ def _grandchild(
             # know to do that if the child says which failure it was.
             code = COULD_NOT_APPLY
             raise
+        swapped = time.perf_counter()
         import pytest
+
+        imported = time.perf_counter()
 
         began = time.perf_counter()
         if config is None:
@@ -1312,12 +1321,23 @@ def _grandchild(
         # "in-child test execution" are one indivisible bucket, which is
         # exactly the bucket the optimisation question is about.
         micros = int((time.perf_counter() - began) * 1_000_000)
+        tested = time.perf_counter()
     except BaseException:
         if code != COULD_NOT_APPLY:
             code = CHILD_CRASHED
     finally:
         with contextlib.suppress(OSError):
             os.write(write_fd, _child_payload(code, micros))
+            if diag_fork_at:
+                _teardown_diag_record(
+                    diag_fork_at,
+                    entered,
+                    swapped,
+                    imported,
+                    tested,
+                    time.perf_counter(),
+                    micros / 1_000_000,
+                )
         os._exit(0)
 
 
@@ -1333,6 +1353,65 @@ def _child_payload(code: int, micros: int) -> bytes:
 def _micros(seconds: float) -> bytes:
     """Seconds as 4 big-endian bytes of microseconds, saturating at 71 minutes."""
     return min(max(int(seconds * 1_000_000), 0), 0xFFFFFFFF).to_bytes(4, "big")
+
+
+# Tag-gated diagnostic for the h33 child-teardown hypothesis. When the env var
+# names a file, every warm-session grandchild appends one JSON line naming where
+# its wall time went; the parent records when it forked each child so the
+# fork-to-first-statement gap is measurable too. Off by default and free when
+# off -- the same contract profiling.py documents for itself.
+_TEARDOWN_DIAG_ENV = "MOONBUGGY_TEARDOWN_DIAG"
+# Set immediately before each `os.fork` in the warm host when the diagnostic is
+# on, so the forked grandchild can measure how long the fork plus its own resume
+# took. Read-only for the child; the host overwrites it before the next fork.
+_DIAG_FORK_AT = 0.0
+
+
+def _teardown_diag_record(
+    fork_at: float,
+    entered: float,
+    swapped: float,
+    imported: float,
+    tested: float,
+    wrote: float,
+    test_seconds: float,
+) -> None:
+    """Append one grandchild's teardown decomposition to the diagnostic file.
+
+    All timestamps are `time.perf_counter` values from the same clock the fork
+    was stamped on, so every delta is exact. Best-effort: a diagnostic that
+    could fail a mutant run would be worse than no diagnostic.
+
+    Args:
+        fork_at: when the warm host called `os.fork` for this grandchild.
+        entered: first statement inside `_grandchild`.
+        swapped: after `apply_swap` returned.
+        imported: after the pytest import resolved.
+        tested: after the test run returned.
+        wrote: after the result payload was written to the status pipe.
+        test_seconds: the same in-child test duration the payload carries.
+    """
+    path = os.environ.get(_TEARDOWN_DIAG_ENV)
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as diag:
+            diag.write(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "fork_to_entry_us": int((entered - fork_at) * 1_000_000),
+                        "swap_us": int((swapped - entered) * 1_000_000),
+                        "import_us": int((imported - swapped) * 1_000_000),
+                        "test_us": int((tested - imported) * 1_000_000),
+                        "report_write_us": int((wrote - tested) * 1_000_000),
+                        "test_seconds": test_seconds,
+                    }
+                )
+                + "\n"
+            )
+    except OSError:
+        pass
 
 
 def run_batch(

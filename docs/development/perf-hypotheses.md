@@ -1753,6 +1753,80 @@ this round touched passes `ruff check`, `ruff format --check`, `pydoclint` and
 
 ---
 
+# Sixth round: H33 (child teardown, the H31 spike's named alternative)
+
+**Where this came from.** Spike C's verdict named one shape worth a second
+look: single-mutant-per-process with shared suite import — attack *teardown*
+rather than the fork boundary. H29 already took the interpreter-finalisation
+half of that in round four (13ms flat, adopted). This round asks what remains:
+not the fork itself, and not the finalisation, but everything else a
+grandchild's wall clock pays for that is not running the user's tests.
+
+### H33 — Compress the per-grandchild non-test overhead (fork-to-entry, swap)
+
+- **Phase:** per-mutant fork
+- **Premise, measured first.** A tag-gated diagnostic
+  (`MOONBUGGY_TEARDOWN_DIAG`, commit on this branch) appends one JSON line per
+  warm-session grandchild decomposing its life into fork-to-entry, swap,
+  pytest-import, test run, and result-write, using one monotonic clock and the
+  warm host's fork timestamp. Measured on all three shapes plus a heavy-test
+  shape (10 modules / 2 functions / 3 tests @ 200k iterations, 160 mutants):
+
+  | shape | wall | children | fork→entry | swap | import | test | write |
+  |---|---|---|---|---|---|---|---|
+  | fast-tests | 0.325s | 24 | 1.21ms | 1.05ms | 0.01ms | 4.28ms | 0.01ms |
+  | slow-tests | 0.471s | 96 | 0.98ms | 0.99ms | 0.01ms | 5.31ms | 0.01ms |
+  | many-files | ~0.73s | 160 | 1.09ms | 0.89ms | 0.01ms | 2.39ms | 0.01ms |
+  | heavy (10×2×3@200k) | 1.110s | 160 | 1.05ms | 0.83ms | 0.01ms | 13.93ms | 0.01ms |
+
+  The decomposition says where the ~5% the M2.4.1 profile attributed to
+  teardown actually lives: **~1.1ms fork→first-statement (fork call, COW page
+  copy, scheduler resume) plus ~0.9ms codeswap (`apply_swap`) per grandchild,
+  and essentially nothing after the tests end** — the child writes a 5-byte
+  payload and `os._exit`s (H29), so there is no interpreter finalisation, no
+  atexit, no GC collapse left to attack. The post-test teardown is already
+  zero. Import of pytest in the grandchild is 0.01ms (inherited, already
+  loaded). Both remaining components are per-child constants: they do not
+  scale with test time, so their *share* shrinks as tests get slower
+  (2.2ms/1.1s ≈ 0.2% heavy; 2.2ms/0.33s ≈ 0.7% fast-tests wall-share).
+- **Predicted saving (written before any implementation):** the only concrete
+  lever found is a vfork-style/posix_spawn-adjacent reduction of the
+  fork→entry cost and micro-shaving inside `apply_swap`. Optimistically both
+  halve: ~1.1ms/child on fast-tests' 24-children/4-slot schedule ≈
+  2–3% on fast-tests, ~1% on many-files, <0.5% on slow-tests. Nothing else in
+  the measured window is reducible without touching the fork boundary itself
+  (H1/H31 territory, verdict risk) or the coverage pass (H26, rejected).
+- **Correctness risk:** low-to-medium — it is process-creation mechanics, not
+  verdict selection; the payload protocol and the warm-session contract are
+  untouched. But the absolute numbers are small enough that an implementation
+  must beat the A/B harness's indistinguishability bar on fast-tests, not just
+  on the heavy shape where the share is negligible by construction.
+- **Attempted:** no. Refuted by headroom before implementation, H32's way.
+  The closing measurement reconciles the two instruments: 24 children x
+  ~2.2ms/child ≈ 53ms, which matches the profile's `per-mutant fork` phase
+  (52ms on fast-tests) exactly — the diagnostic accounted for the whole
+  bucket, and the swap microbench (`scripts/_h33_swap_microbench.py`) prices
+  the Python work inside it at ~195µs (ast.parse 55µs + enclosing-path 70µs +
+  compile 60µs on a 27-line module). So the ~0.9ms gap between the in-process
+  swap cost and the grandchild's swap window is **first-touch COW page faults
+  after fork**, not Python work — and the fork→entry ~1.1ms is the fork call
+  and scheduler resume itself. Three conclusions, in order of reachability:
+  1. **Post-test teardown is already zero.** The child writes a 5-byte payload
+     and `os._exit`s (H29): no atexit, no GC, no interpreter finalisation
+     remains. The teardown the task brief describes has already been taken.
+  2. **The Python work in `apply_swap` is ~0.2ms/child.** Even eliminating it
+     entirely (a host-precomputed qualname map) buys ~0.2-0.7% of wall — below
+     what the A/B harness can distinguish on the shapes it judges.
+  3. **The remaining ~2ms/child is fork mechanics and COW first-touch** —
+     reducible only by abandoning COW inheritance (posix_spawn/exec), which
+     discards the warm host's imported pytest state. That is the fork
+     boundary itself: H1/H31 territory, NO-GO by the spike's own findings.
+- **Actual saving:** none available; not implemented. The instrument
+  (`MOONBUGGY_TEARDOWN_DIAG`) is committed — it is how the next round verifies
+  this reading rather than re-measuring it.
+
+---
+
 # Fresh-harness verification run (2026-09-16)
 
 **Purpose.** The honor-system benchmark post
