@@ -1,15 +1,15 @@
 {
-  "commit": "ba384da",
+  "commit": "500c54a",
   "harness": "bench_mutation.py",
   "host": "Linux 6.17.0-1022-azure",
   "hypothesis": "baseline",
   "moonbuggy": "0.2.0",
   "mutants": 96,
-  "mutants_per_sec": 71.3515,
+  "mutants_per_sec": 90.2069,
   "purpose": "bench",
   "python": "3.12.14",
   "schema": 1,
   "suite": "speed",
-  "timestamp": "2026-10-04T09:12:40+00:00",
-  "wall_clock": 1.3455
+  "timestamp": "2026-10-05T09:53:29+00:00",
+  "wall_clock": 1.0642
 }
