@@ -10,4 +10,4 @@ coverage (source line %), and gate status.
 
 | date | commit | source_lines | test_lines | gate | owner | oracle_agree | diff_shared | diff_agree | diff_disagree | diff_unclassified | oracle_s | fast_suite_s | cov_pct | notes |
 |------|--------|------------:|-----------:|------|-------|-------------:|------------:|-----------:|--------------:|------------------:|--------:|------------:|-------:|-------|
-| 2026-10-04 | 6500258 |  | | oracle+differential | @moonbuggy-boss | 444/923 | 923 | 444 (48.1%) | 573 |  | 0 | | n/a | Auto row via scripts/metrics_dashboard.py. Differential: 15 projects, 923 shared, 444 agree (48.1%), 573 disagreements, 0 unclassified. Oracle gate: 0 disagreements, 0 FP, 0 FN.
+| 2026-10-06 | a1e5a0f |  | | oracle+differential | @moonbuggy-boss | 444/923 | 923 | 444 (48.1%) | 573 |  | 0 | | n/a | Auto row via scripts/metrics_dashboard.py. Differential: 15 projects, 923 shared, 444 agree (48.1%), 573 disagreements, 0 unclassified. Oracle gate: 0 disagreements, 0 FP, 0 FN.
