@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from bench_ci import WALL_SLACK, latest_gate, verdict
+from bench_ci import WALL_SLACK, gate_stat, latest_gate, verdict
 
 
-def _speed_row(wall, host="Darwin 24.1.0"):
-    return {
+def _speed_row(wall, host="Darwin 24.1.0", min_=None, runs=None):
+    row = {
         "suite": "speed",
         "hypothesis": "baseline",
         "wall_clock": wall,
@@ -19,6 +19,11 @@ def _speed_row(wall, host="Darwin 24.1.0"):
         "commit": "aaaaaaa",
         "host": host,
     }
+    if min_ is not None:
+        row["min"] = min_
+    if runs is not None:
+        row["runs"] = runs
+    return row
 
 
 def test_priming_without_a_baseline_is_a_pass():
@@ -82,3 +87,33 @@ def test_unreadable_baseline_raises(tmp_path):
 
     with pytest.raises(ValueError):
         load_base(str(bad))
+
+
+def test_gate_stat_uses_min_on_rep_rows():
+    # H34: rep-set rows gate on the min, not the noisy single-run wall.
+    assert gate_stat(_speed_row(1.52, min_=1.10, runs=3)) == 1.10
+
+
+def test_gate_stat_falls_back_for_legacy_single_rep_rows():
+    assert gate_stat(_speed_row(1.52)) == 1.52
+    assert gate_stat(_speed_row(1.52, min_=1.10, runs=1)) == 1.52
+
+
+def test_min_stat_absorbs_runner_noise_the_wall_slack_cannot():
+    # The 10-06 failure, reconstructed: baseline ratcheted to a lucky 1.06s
+    # single-rep draw; an ordinary 1.52s draw tripped 1.06 * 1.25 = 1.33.
+    lucky = _speed_row(1.06)
+    assert not verdict(_speed_row(1.52), lucky)[0]
+    # With rep rows the min absorbs the same draw: 1.10 min gates fine.
+    lucky_rep = _speed_row(1.06, min_=1.06, runs=3)
+    ok, _ = verdict(_speed_row(1.52, min_=1.10, runs=3), lucky_rep)
+    assert ok
+
+
+def test_ratchet_requires_a_genuinely_faster_min():
+    # A ratchet-down now compares min-to-min: a lucky median with an ordinary
+    # min does not lower the bar.
+    base = _speed_row(1.20, min_=1.20, runs=3)
+    ok, why = verdict(_speed_row(1.10, min_=1.18, runs=3), base)
+    assert ok
+    assert why is None  # 1.18 is not < 1.20 * 0.95, so no ratchet

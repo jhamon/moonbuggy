@@ -17,6 +17,27 @@ BASELINE_PATH = os.path.join(REPO, "intel", "perf-baseline.json")
 ROW_FILE = os.path.join(REPO, "intel", "perf-bench.md")
 
 
+def gate_stat(row):
+    """The noise-robust wall-clock statistic the gate compares.
+
+    H34: a single cold run of the speed workload carries up to ~30%
+    one-sided scheduling noise on shared CI runners, which both tripped the
+    gate on ordinary draws and let the baseline ratchet lower the bar on one
+    lucky one. Rows that carry a rep-set ``min`` (runs > 1) are therefore
+    gated on that minimum -- scheduling noise can only make a run slower,
+    never faster. Legacy single-rep rows fall back to ``wall_clock``.
+
+    Args:
+        row: a harness-output row from the numbers pipe.
+
+    Returns:
+        The wall-clock seconds to gate on.
+    """
+    if row.get("runs", 1) > 1 and row.get("min") is not None:
+        return row["min"]
+    return row["wall_clock"]
+
+
 def resolve_python():
     return os.environ.get("MB_PYTHON") or sys.executable
 
@@ -67,6 +88,11 @@ def store_base(path, row):
     )
     for k in keys:
         data[k] = row[k]
+    # Carry the rep-set fields so the gate can keep comparing min-to-min
+    # across nights (H34); absent on legacy single-rep rows.
+    for k in ("runs", "median", "min"):
+        if k in row:
+            data[k] = row[k]
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, sort_keys=True)
         fh.write("\n")
@@ -79,15 +105,13 @@ def verdict(new, base):
         return True, (
             f"host changed: {base['host']} -> {new['host']}; re-priming baseline"
         )
-    if new["wall_clock"] > base["wall_clock"] * WALL_SLACK:
+    new_stat, base_stat = gate_stat(new), gate_stat(base)
+    if new_stat > base_stat * WALL_SLACK:
         return False, (
-            f"REGRESSION: {new['wall_clock']:.2f}s past "
-            f"{base['wall_clock']:.2f}s ({base['commit']})"
+            f"REGRESSION: {new_stat:.2f}s past {base_stat:.2f}s ({base['commit']})"
         )
-    if new["wall_clock"] < base["wall_clock"] * IMPROVE:
-        return True, (
-            f"baseline improved: {base['wall_clock']:.2f}s -> {new['wall_clock']:.2f}s"
-        )
+    if new_stat < base_stat * IMPROVE:
+        return True, (f"baseline improved: {base_stat:.2f}s -> {new_stat:.2f}s")
     return True, None
 
 
@@ -177,13 +201,15 @@ def main(argv=None):
 
     ok, why = verdict(new, base)
     print("speed workload: %.2fs / %d mutants" % (new["wall_clock"], new["mutants"]))
+    if gate_stat(new) != new["wall_clock"]:
+        print("  gate on best-of-%d min: %.2fs" % (new.get("runs", 1), gate_stat(new)))
     if why:
         print("  %s" % why)
     if base is None or new["host"] != base["host"]:
         store_base(BASELINE_PATH, new)
         print("  primed baseline: arming the speed-moat gate")
     elif ok:
-        if new["wall_clock"] < base["wall_clock"] * IMPROVE:
+        if gate_stat(new) < gate_stat(base) * IMPROVE:
             store_base(BASELINE_PATH, new)
             print("  wrote updated baseline")
 

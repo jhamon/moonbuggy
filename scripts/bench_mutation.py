@@ -18,6 +18,7 @@ import os
 import platform
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -73,6 +74,13 @@ WORKLOAD_FUNCS = 4
 WORKLOAD_TESTS_PER_MODULE = 30
 WORKLOAD_ITERATIONS = 6000
 
+# The speed-workload moonbuggy leg is measured best-of-N (H34): a single cold
+# ~1-2s run carries up to ~30% scheduling noise on shared CI runners, which
+# both poisoned the reported median and let the gate's baseline ratchet trip
+# on one lucky draw. Three fresh-copy reps give the gate a min statistic that
+# noise can only move in one direction.
+SPEED_REPS = 3
+
 
 def generate_workload(root, name):
     project = root / name
@@ -127,6 +135,35 @@ def timed(command, cwd, allow_failure=True):
     if not allow_failure and proc.returncode != 0:
         raise SystemExit(f"failed: {' '.join(command)}\n{proc.stdout}\n{proc.stderr}")
     return elapsed, proc
+
+
+def run_moonbuggy_speed(root, reps=SPEED_REPS):
+    """The speed-workload moonbuggy leg, best-of-N.
+
+    A single cold run of this ~1-2s workload carries up to ~30% scheduling
+    noise on shared CI runners (H34: nightly spread 0.87-1.52s on identical
+    code+host), which both poisoned the reported median and let the gate's
+    baseline ratchet trip on one lucky draw. Running N reps on fresh workload
+    copies and reporting the median (with min carried in the row) gives the
+    gate a stable estimator: scheduling noise is one-sided, so the minimum is
+    the robust statistic and the median the honest headline.
+
+    Args:
+        root: the scratch root directory for workload copies.
+        reps: how many measurements to run (default SPEED_REPS).
+
+    Returns:
+        (median_elapsed, mutant_count, verdict_counts, min_elapsed).
+    """
+    runs = []
+    count = 0
+    counts = {}
+    for rep in range(reps):
+        elapsed, n, c = run_moonbuggy(generate_workload(root, f"wl-moon-{rep}"))
+        runs.append(elapsed)
+        count, counts = n, c
+    runs.sort()
+    return statistics.median(runs), count, counts, runs[0]
 
 
 def run_moonbuggy(project):
@@ -230,8 +267,9 @@ def main():
             ("naive baseline", *run_naive(fresh_copy(root, "fx-naive"))),
         ]
 
+        moon_speed = run_moonbuggy_speed(root)
         speed_rows = [
-            ("moonbuggy", *run_moonbuggy(generate_workload(root, "wl-moon"))),
+            ("moonbuggy", moon_speed[0], moon_speed[1], moon_speed[2]),
             (
                 "mutmut",
                 *run_mutmut(generate_workload(root, "wl-mutmut"), package="app"),
@@ -303,7 +341,7 @@ def main():
             "  proving every expected mutant is generated."
         )
 
-    emit_numbers(speed_rows, fixture_rows)
+    emit_numbers(speed_rows, fixture_rows, speed_min=moon_speed[3])
 
     failures = []
     if not beats_mutmut:
@@ -318,7 +356,7 @@ def _verdict(ok):
     return "PASS" if ok else "FAIL"
 
 
-def emit_numbers(speed_rows, fixture_rows):
+def emit_numbers(speed_rows, fixture_rows, speed_min=None):
     """Write every moonbuggy measurement to the numbers-pipe JSONL.
 
     Emits one row per measurement *of moonbuggy* (the G1-G4 verdict compares
@@ -330,6 +368,9 @@ def emit_numbers(speed_rows, fixture_rows):
         speed_rows: the three (label, elapsed, count, counts) rows for the
             speed workload.
         fixture_rows: the same for the fixture workload.
+        speed_min: the fastest speed-workload moonbuggy run in the rep set,
+            recorded on the speed row so the gate can use the noise-robust
+            statistic (H34). None for single-rep rows.
 
     Returns:
         None.
@@ -352,6 +393,9 @@ def emit_numbers(speed_rows, fixture_rows):
         for label, elapsed, count, _counts in group:
             if label != "moonbuggy":
                 continue
+            extra: dict = {}
+            if suite == "speed" and speed_min is not None:
+                extra = {"runs": SPEED_REPS, "median": elapsed, "min_": speed_min}
             doc = harness_output.build(
                 suite=suite,
                 purpose="bench",
@@ -360,6 +404,7 @@ def emit_numbers(speed_rows, fixture_rows):
                 mutants=count,
                 hypothesis=BENCH_HYPOTHESIS,
                 moonbuggy=__version__,
+                **extra,
             )
             errors = harness_output.validate(doc)
             if errors:
