@@ -1,15 +1,18 @@
 {
-  "commit": "500c54a",
+  "commit": "52a7f28",
   "harness": "bench_mutation.py",
   "host": "Linux 6.17.0-1022-azure",
   "hypothesis": "baseline",
+  "median": 0.8349,
+  "min": 0.8303,
   "moonbuggy": "0.2.0",
   "mutants": 96,
-  "mutants_per_sec": 90.2069,
+  "mutants_per_sec": 114.981,
   "purpose": "bench",
-  "python": "3.12.14",
+  "python": "3.12.15",
+  "runs": 3,
   "schema": 1,
   "suite": "speed",
-  "timestamp": "2026-10-05T09:53:29+00:00",
-  "wall_clock": 1.0642
+  "timestamp": "2026-10-08T06:05:17+00:00",
+  "wall_clock": 0.8349
 }

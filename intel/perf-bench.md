@@ -5,5 +5,5 @@ Bench gate: **PASS**. Gate host: Linux 6.17.0-1022-azure. The gate compares runs
 
 | date | commit | suite | wall_s | mut | mut/sec |
 |------|--------|------|------:|----:|--------:|
-| 2026-10-07 | a8e887c | speed |    1.24 | 96 |     77.7 |
-| 2026-10-07 | a8e887c | fixture |    8.97 | 29 |      3.2 |
+| 2026-10-08 | 52a7f28 | speed |    0.83 | 96 |    115.0 |
+| 2026-10-08 | 52a7f28 | fixture |    8.63 | 29 |      3.4 |
