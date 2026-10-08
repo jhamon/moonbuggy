@@ -1910,3 +1910,89 @@ two live smoke loops (a strengthened test flips both fixtures to
 `survived->survived caught=0`, exit 1). Unit coverage for the token
 vocabulary's closure and the KILLED_BY_ERROR-is-not-a-kill derivation in
 tests/test_reinject.py; the loop e2e in tests/test_reinject_e2e.py.
+
+---
+
+# H34: speed-moat gate poisoned by single-rep runner noise + baseline ratchet (2026-10-07)
+
+**Prediction (written before the change).** The nightly Bench speed-moat gate
+failures since 2026-09-22 are not code regressions. The gate measures the speed
+workload with a *single cold run* (`runs: 1` in every archived row), GitHub
+shared runners have ~±30% run-to-run scheduling noise on that ~1-2s
+measurement, and `bench_ci.py` ratchets the baseline *down* to any run 5%
+faster (`IMPROVE = 0.95`). A lucky fast draw permanently lowers the bar; an
+ordinary draw then trips the 1.25x wall. Two ingredients of one bug:
+unreplicated measurement + a ratchet that trusts it.
+
+**Evidence from run history** (all from Actions logs, not inferred):
+
+| run | date | host | speed wall | outcome |
+|-----|------|------|-----------|---------|
+| 35703038695 | 09-22 | azure | 1.35s | re-primed (push failed, exit 128) |
+| 35835501762 | 09-23 | azure | 1.08s | re-primed (push failed) |
+| 35972687187 | 09-24 | azure | 0.98s | re-primed (push failed) |
+| 36112721974 | 09-25 | azure | 1.36s | re-primed (push failed) |
+| 36229017399 | 09-26 | azure | 1.22s | re-primed (push failed) |
+| 36307325579 | 09-27 | azure | 1.37s | re-primed (push failed) |
+| 36401953727 | 09-28 | azure | 1.38s | re-primed (push failed) |
+| 36548531555 | 09-29 | azure | 1.37s | re-primed (push failed) |
+| 36694448672 | 09-30 | azure | 1.39s | re-primed (push failed) |
+| 36844051328 | 10-01 | azure | 0.87s | re-primed (push failed) |
+| 36988457647 | 10-02 | azure | 1.35s | re-primed (push failed) |
+| 37110749853 | 10-03 | azure | 1.03s | re-primed (push failed) |
+| 37191297688 | 10-04 | azure | 1.35s | re-primed; #93 fixed the push, so this baseline landed (1.3455) |
+| 37292801318 | 10-05 | azure | 1.06s | PASS + **ratcheted baseline down to 1.0642** |
+| 37444435414 | 10-06 | azure | 1.52s | FAIL: 1.52 > 1.0642 * 1.25 = 1.33 |
+
+Alternatives ruled out:
+
+- No perf-relevant commit merged in the window; the only source changes are
+  M1.1 rig work the speed workload does not exercise, and every run in the
+  table ran the *same* image (`ubuntu-24.04`, host `Linux 6.17.0-1022-azure`).
+  The Ubuntu 26 migration (from 2026-10-19) has not happened yet.
+- The spread 0.87-1.52s (max/min = 1.75x) on identical code+host is runner
+  scheduling noise on a single cold ~1-2s subprocess measurement. The local
+  Darwin numbers for the same workload are ~0.52-0.55s on the same code.
+- PR #93 (6500258) made the failure *visible*: before it the commit-back push
+  always failed (`could not read Username ... exit 128`) and baselines never
+  landed, so every night re-primed and the gate never had a cross-night bar.
+  Once #93 landed, the first ratchet-down (10-05's lucky 1.06s draw) armed the
+  trap for 10-06's ordinary draw.
+
+**Prediction if the fix is right.** Measuring the speed workload best-of-3
+(median for reporting, min for the gate) drops the archived row's cross-night
+spread well inside the 1.25x wall (expected nightly minima within ~10% of each
+other) and the gate stops failing on noise. G2 is untouched. If a real
+regression existed, best-of-3 would still show a sustained shift across
+consecutive nights — the gate still catches that, with the noise floor removed.
+
+**Fix.** `scripts/bench_mutation.py` runs the moonbuggy speed leg 3 times
+(fresh workload copy per rep) and reports the median; the archived row carries
+`runs: 3` plus the `median`/`min` fields harness-output.v1 already supports.
+`scripts/bench_ci.py` gates on `min` when present (falling back to
+`wall_clock` for legacy single-rep rows), because the minimum is the robust
+estimator under one-sided scheduling noise: noise only makes a run slower,
+never faster. The ratchet-down compares min-to-min, so lowering the bar now
+requires three consecutive good runs. The 1.25x WALL_SLACK is NOT loosened.
+
+**Verified.** `make bench-ci` end-to-end on the local tree: the speed row now
+carries `runs: 3`, `median`, `min` (validated by the frozen schema, so
+harness-output.v1 needed no bump), the gate prints `gate on best-of-3 min`
+and passes; with a foreign host in the baseline it re-primes exactly as
+before. The 10-06 failure is reconstructed as a unit test
+(`test_min_stat_absorbs_runner_noise_the_wall_slack_cannot`): old gate
+verdict on those rows is FAIL, new gate is PASS. Gate unit tests cover
+min-gating, legacy-row fallback, and the ratchet now comparing min-to-min.
+Full strict gate green: pytest 613 passed (fast suite), mypy --strict
+(44 files), ruff check + format, interrogate 100% / pydoclint over
+src/moonbuggy (the gates scope to src/; scripts/ is deliberately outside).
+The prediction's second half — that nightly minima land within ~10% of each
+other — is falsifiable at the next two Bench runs; the 1.25x wall is
+unchanged, so a genuine regression still trips it.
+
+**Cost.** ~4s extra wall per nightly Bench (two extra speed reps of ~2s).
+mutmut/naive legs and G1-G4 verdict logic untouched; no moonbuggy-source
+change, so `make ab` is not applicable.
+
+**Status: accepted-pending-confirmation** — mechanism verified locally; the
+cross-night noise claim confirms when the next two nightly Bench runs pass.
