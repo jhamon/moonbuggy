@@ -117,3 +117,28 @@ def test_ratchet_requires_a_genuinely_faster_min():
     ok, why = verdict(_speed_row(1.10, min_=1.18, runs=3), base)
     assert ok
     assert why is None  # 1.18 is not < 1.20 * 0.95, so no ratchet
+
+
+def test_genuinely_slow_candidate_still_fails_on_rep_rows():
+    # H34 must not loosen the gate: a real regression shows up in the min
+    # (noise only ever makes runs slower, so the min still exposes it) and
+    # must trip WALL_SLACK exactly as a single-rep row would.
+    base = _speed_row(1.00, min_=1.00, runs=3)
+    ok, why = verdict(_speed_row(1.52, min_=1.40, runs=3), base)
+    assert not ok
+    assert "REGRESSION" in why
+    assert "1.40s" in why and "1.00s" in why
+
+
+def test_rep_row_candidate_gates_against_legacy_single_rep_baseline():
+    # The first post-merge nightly: the stored baseline predates the rep set
+    # (no runs/min), the candidate row is a rep row. The gate must fall back
+    # to wall_clock on the legacy side and still gate.
+    base = _speed_row(1.00)
+    ok, why = verdict(_speed_row(1.52, min_=1.40, runs=3), base)
+    assert not ok
+    assert "REGRESSION" in why
+    # ...and the noisy-but-honest legacy transition passes: the candidate's
+    # min 1.10 vs a possibly-lucky 1.00 baseline draw sits inside the slack.
+    ok2, _ = verdict(_speed_row(1.52, min_=1.10, runs=3), _speed_row(1.20))
+    assert ok2
