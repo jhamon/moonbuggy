@@ -1994,5 +1994,70 @@ unchanged, so a genuine regression still trips it.
 mutmut/naive legs and G1-G4 verdict logic untouched; no moonbuggy-source
 change, so `make ab` is not applicable.
 
-**Status: accepted-pending-confirmation** — mechanism verified locally; the
-cross-night noise claim confirms when the next two nightly Bench runs pass.
+**Status: falsified (2026-10-10, superseded by H35)** — the mechanism was
+real and the fix shipped, but the core prediction ("nightly minima within
+~10% of each other, spread well inside the 1.25x wall") did not hold.
+Min-of-3 on a single cold ~1-2s subprocess measurement still carries >25%
+cross-night spread on azure: the 10-08 run ratcheted the baseline to a
+lucky min of 0.8303, arming the wall at ~1.04s, and the next two nights
+(10-08 run 37758951785, 10-09 run 37913952284) failed on ordinary min
+draws of 1.35s (1.63x the lucky baseline) with G1-G4 all green. More reps
+cannot fix this — min-of-5 only sinks the ratchet lower. The sustained
+multi-night criterion H34 leaned on for real regressions is now enforced
+directly (H35).
+
+---
+
+# H35: speed-moat gate gated on a sustained two-night shift, not one night (2026-10-10)
+
+**Prediction (written before the change).** H34's best-of-3 fix cannot stop
+the nightly gate failures: on a single cold ~1-2s subprocess measurement,
+even the min-of-3 statistic carries >25% cross-night spread on shared azure
+runners (observed nightly minima 0.83s-1.35s on identical code+host), so
+any wall anchored to a lucky min trips on ordinary draws. The failure mode
+is now proven twice: the 10-08 baseline row (min 0.8303) ratcheted the bar
+to 1.04s; runs 37758951785 (10-08) and 37913952284 (10-09) drew min 1.35s
+and failed -- G1-G4 all PASS both nights, the wall gate only. Raising reps
+makes it worse (min-of-5 lowers the ratchet further); calibrating the
+slack from observed spread (~1.7x) loosens the wall for real regressions.
+The remaining lever is time, not statistics: runner noise does not repeat
+on consecutive nights, a real regression does.
+
+**Nightly min tabulation since 10-08** (from the archived rows + run logs):
+
+| date | run | gate stat (min-of-3) | outcome |
+|------|-----|---------------------|---------|
+| 10-08 06:05 | baseline write | 0.8303 | lucky min landed as baseline |
+| 10-08 nightly | 37758951785 | 1.35 | FAIL: 1.35 > 0.8303*1.25 = 1.04 |
+| 10-09 nightly | 37913952284 | 1.35 | FAIL: same draw, same wall |
+
+**Fix.** `scripts/bench_ci.py` verdict changes, WALL_SLACK (1.25x) and
+IMPROVE (0.95) unchanged:
+1. An above-wall night fails the gate only when the immediately preceding
+   same-host night was also above the wall (`sustained_shift`); a lone
+   crossing passes with a loud WARNING naming the next nightly run as the
+   decision point. A real regression trips on the second night -- one day
+   of delay, not a loosened wall.
+2. The ratchet-down is symmetric (`sustained_improvement`): the baseline
+   lowers only after two consecutive nights below `base * IMPROVE`, so a
+   single lucky min can never again arm a trap wall (the H35 root cause).
+3. Alien-host history rows are skipped for both streaks (a host change
+   re-primes and must not count as either a regression night or a fast
+   night).
+
+**Prediction if the fix is right.** The next nightly Bench runs pass on
+ordinary draws; a warning appears on any lone above-wall night. If a real
+regression lands, the gate goes red on the second consecutive slow night.
+The two failing nights (37758951785, 37913952284) both drew the same 1.35s
+min against a 1.04s wall -- a coincidence of noise, not a regression (no
+perf-relevant commit between them; G2 at 3.15x over mutmut both nights) --
+so under H35's rule they pass (10-09 with a warning; the ratchet never
+landed 0.8303 in the first place).
+
+**Cost.** Zero extra bench wall (rep count unchanged at 3); the gate reads
+one more archived row. No moonbuggy-source change, so `make ab` is not
+applicable.
+
+**Status: implemented, pending-confirmation** -- falsifiable at the next
+two nightly Bench runs: both must pass (warnings allowed); the gate must
+still fail a reconstructed sustained regression (unit-tested).

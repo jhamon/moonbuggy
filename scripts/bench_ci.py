@@ -98,7 +98,84 @@ def store_base(path, row):
         fh.write("\n")
 
 
-def verdict(new, base):
+def _gate_rows(rows):
+    """Archive rows that carry the gate statistic, newest first.
+
+    Args:
+        rows: rows from the numbers pipe, oldest first.
+
+    Returns:
+        Speed/baseline rows only, newest first.
+    """
+    return [
+        row
+        for row in reversed(rows)
+        if row["suite"] == GATE_SUITE and row["hypothesis"] == GATE_HYPOTHESIS
+    ]
+
+
+def sustained_shift(new, base, history):
+    """H35: is the wall crossing a sustained shift, not one noisy night?
+
+    Min-of-3 on a single cold ~1-2s subprocess measurement still carries
+    >25% cross-night spread on shared runners (observed 0.83s-1.35s nightly
+    minima on identical code+host), so a 1.25x wall over a rep-min trips on
+    ordinary draws. But runner noise does not repeat on consecutive nights,
+    while a real regression does. The gate therefore fails only when the
+    wall is exceeded on this night AND the immediately preceding night --
+    H34's own "sustained shift across consecutive nights" criterion, which
+    its fix assumed the rep-min would make unnecessary.
+
+    Args:
+        new: tonight's gate row.
+        base: the stored baseline row.
+        history: prior gate rows, newest first (tonight's row excluded).
+
+    Returns:
+        (is_sustained, prev_stat) -- whether the crossing repeats on the
+        previous night, and that night's gate statistic (None when there
+        is no comparable previous night, in which case the crossing is
+        NOT treated as sustained: gate passes with a warning).
+    """
+    wall = gate_stat(base) * WALL_SLACK
+    if gate_stat(new) <= wall:
+        return False, None
+    for row in history:
+        if row.get("host") != base.get("host"):
+            continue  # a host change re-primes; skip alien-host rows
+        prev = gate_stat(row)
+        return prev > wall, prev
+    return False, None
+
+
+def sustained_improvement(new, base, history):
+    """H35: is the sub-IMPROVE reading a sustained shift, not one lucky draw?
+
+    Symmetric guard on the ratchet-down: the 10-08 baseline (min 0.8303)
+    was a lucky rep-min that armed the wall at 1.04s for ordinary 1.35s
+    nights. Lowering the bar now requires two consecutive nights below
+    ``base * IMPROVE``.
+
+    Args:
+        new: tonight's gate row.
+        base: the stored baseline row.
+        history: prior gate rows, newest first (tonight's row excluded).
+
+    Returns:
+        True when tonight AND the previous same-host night both read below
+        the improvement threshold.
+    """
+    bar = gate_stat(base) * IMPROVE
+    if gate_stat(new) >= bar:
+        return False
+    for row in history:
+        if row.get("host") != base.get("host"):
+            continue
+        return gate_stat(row) < bar
+    return False
+
+
+def verdict(new, base, history=()):
     if base is None:
         return True, f"priming: {new['wall_clock']:.2f}s (no baseline)"
     if new["host"] != base["host"]:
@@ -107,11 +184,24 @@ def verdict(new, base):
         )
     new_stat, base_stat = gate_stat(new), gate_stat(base)
     if new_stat > base_stat * WALL_SLACK:
-        return False, (
-            f"REGRESSION: {new_stat:.2f}s past {base_stat:.2f}s ({base['commit']})"
+        sustained, prev = sustained_shift(new, base, history)
+        if sustained:
+            return False, (
+                f"REGRESSION: {new_stat:.2f}s past {base_stat:.2f}s "
+                f"({base['commit']}), sustained (prev night {prev:.2f}s)"
+            )
+        return True, (
+            f"WARNING: {new_stat:.2f}s past {base_stat:.2f}s "
+            f"({base['commit']}) on one night; gate trips on a sustained "
+            "shift (H35), watch the next nightly run"
         )
     if new_stat < base_stat * IMPROVE:
-        return True, (f"baseline improved: {base_stat:.2f}s -> {new_stat:.2f}s")
+        if sustained_improvement(new, base, history):
+            return True, f"baseline improved: {base_stat:.2f}s -> {new_stat:.2f}s"
+        return True, (
+            f"below improve bar ({new_stat:.2f}s < {base_stat:.2f}s * "
+            f"{IMPROVE}) on one night; ratchet needs a sustained shift (H35)"
+        )
     return True, None
 
 
@@ -188,10 +278,16 @@ def main(argv=None):
         print("ERROR: %s" % exc, file=sys.stderr)
         return 3
 
+    gate_rows = _gate_rows(rows)
     new = latest_gate(rows)
     if new is None:
         print("ERROR: no speed/baseline rows in the archive", file=sys.stderr)
         return 3
+    # H35: the gate and the ratchet both need the cross-night history --
+    # every gate row older than tonight's, newest first.
+    history = gate_rows[1:] if gate_rows and gate_rows[0] is new else gate_rows
+    if not history:
+        history = [row for row in gate_rows if row is not new]
 
     try:
         base = load_base(BASELINE_PATH)
@@ -199,7 +295,7 @@ def main(argv=None):
         print("ERROR: baseline unreadable", file=sys.stderr)
         return 3
 
-    ok, why = verdict(new, base)
+    ok, why = verdict(new, base, history)
     print("speed workload: %.2fs / %d mutants" % (new["wall_clock"], new["mutants"]))
     if gate_stat(new) != new["wall_clock"]:
         print("  gate on best-of-%d min: %.2fs" % (new.get("runs", 1), gate_stat(new)))
@@ -208,10 +304,10 @@ def main(argv=None):
     if base is None or new["host"] != base["host"]:
         store_base(BASELINE_PATH, new)
         print("  primed baseline: arming the speed-moat gate")
-    elif ok:
-        if gate_stat(new) < gate_stat(base) * IMPROVE:
+    elif ok and gate_stat(new) < gate_stat(base) * IMPROVE:
+        if sustained_improvement(new, base, history):
             store_base(BASELINE_PATH, new)
-            print("  wrote updated baseline")
+            print("  wrote updated baseline (sustained improvement)")
 
     write_row_file(ok, gate_row=new)
     return 0 if ok else 2
