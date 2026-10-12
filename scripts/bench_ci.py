@@ -286,8 +286,6 @@ def main(argv=None):
     # H35: the gate and the ratchet both need the cross-night history --
     # every gate row older than tonight's, newest first.
     history = gate_rows[1:] if gate_rows and gate_rows[0] is new else gate_rows
-    if not history:
-        history = [row for row in gate_rows if row is not new]
 
     try:
         base = load_base(BASELINE_PATH)
