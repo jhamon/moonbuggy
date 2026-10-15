@@ -2025,11 +2025,14 @@ on consecutive nights, a real regression does.
 
 **Nightly min tabulation since 10-08** (from the archived rows + run logs):
 
-| date | run | gate stat (min-of-3) | outcome |
-|------|-----|---------------------|---------|
-| 10-08 06:05 | baseline write | 0.8303 | lucky min landed as baseline |
-| 10-08 nightly | 37758951785 | 1.35 | FAIL: 1.35 > 0.8303*1.25 = 1.04 |
-| 10-09 nightly | 37913952284 | 1.35 | FAIL: same draw, same wall |
+| date | run | gate stat (min-of-3) | naive baseline | outcome |
+|------|-----|---------------------|----------------|---------|
+| 10-08 06:05 | baseline write | 0.8303 | 51.86s | lucky min landed as baseline |
+| 10-08 nightly | 37758951785 | 1.35 | 51.86s | FAIL: 1.35 > 0.8303*1.25 = 1.04 |
+| 10-09 nightly | 37913952284 | 1.35 | 52.72s | FAIL: same draw, same wall |
+| 10-12 nightly | 38233793104 | 1.35 | — | FAIL on pre-merge d2f705b (old logic; not evidence) |
+| 10-13 nightly | 38379733587 | 1.45 | 56.31s | WARNING (lone crossing, H35 rule); no baseline write |
+| 10-14 nightly | 38533800174 | 1.35 | 53.01s | FAIL: sustained (prev night 1.45s) |
 
 **Fix.** `scripts/bench_ci.py` verdict changes, WALL_SLACK (1.25x) and
 IMPROVE (0.95) unchanged:
@@ -2058,6 +2061,33 @@ landed 0.8303 in the first place).
 one more archived row. No moonbuggy-source change, so `make ab` is not
 applicable.
 
-**Status: implemented, pending-confirmation** -- falsifiable at the next
-two nightly Bench runs: both must pass (warnings allowed); the gate must
-still fail a reconstructed sustained regression (unit-tested).
+**Confirmation outcome (2026-10-15): FALSIFIED as a confirmation gate; the
+mechanics work, the wall is miscalibrated.** The two post-merge nights did
+not both pass: 10-13 (38379733587) crossed with a WARNING as designed, and
+10-14 (38533800174) failed as "sustained (prev night 1.45s)". Investigation
+rules out a runner-environment shift: the naive-baseline control is flat
+across the four nights (51.86 / 52.72 / 56.31 / 53.01s, ±4% band), as are
+the fixture wall (9.28-9.65s) and G2 margins (3.07-3.15x over mutmut).
+Moonbuggy speed draws sit in the same ordinary band as before (1.34-1.47).
+What actually happened: the wall (0.8303 * 1.25 = 1.04s) sits BELOW the
+ordinary min-of-3 draw band (1.34-1.47s), so crossing is the norm and any
+two consecutive nights trip the sustained rule. H35's mechanics behaved
+exactly as specified -- lone crossing warned without touching the baseline
+(intel/perf-baseline.json still holds 52a7f28/0.8303; no ratchet-down
+occurred, AC 2 met) -- but the confirmation criterion "both nights pass"
+failed, so per the task's rule this is a falsification, not a bug to patch.
+The residual defect is upstream of H35: the stored baseline is a lucky
+rep-min and WALL_SLACK=1.25 does not clear the observed cross-night spread
+(>25%). The 0.8303 baseline row itself is the artifact; H35 was built to
+prevent the next lucky ratchet, not to defuse the armed one. Follow-up
+needed: re-prime the baseline from an ordinary (median-like) draw or raise
+WALL_SLACK to cover the observed 1.34-1.47 band, then re-confirm. (Boss
+note 10-15: ubuntu-latest migrates to Ubuntu 26 ~Oct 19; the naive control
+shows no shift yet, but a host change would re-prime the baseline anyway.)
+
+**Status: falsified (2026-10-15)** -- mechanics verified by two live
+nights (WARNING + no-baseline-write + sustained detection all observed);
+the two-night pass criterion failed because the wall sits below the
+ordinary draw band against a lucky-min baseline. Not a runner shift
+(naive-baseline control flat: 51.86/52.72/56.31/53.01s across the four
+nights).
