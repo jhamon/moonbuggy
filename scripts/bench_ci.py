@@ -8,7 +8,14 @@ import sys
 from pathlib import Path
 
 REPO = str(Path(__file__).resolve().parent.parent)
-WALL_SLACK = 1.25
+# H36: H35's falsification (2026-10-15) showed the wall must cover the
+# observed cross-night spread of the min-of-3 statistic itself, not just
+# rep-within-night noise. Nightly azure minima on identical code+host span
+# 0.83s-1.47s (~1.8x), so 1.25 left the wall below the ordinary draw band
+# whenever a lucky min primed the baseline. 1.8 clears the observed band
+# with headroom; a real regression still trips because the sustained rule
+# needs only two consecutive nights above this (still modest) wall.
+WALL_SLACK = 1.8
 IMPROVE = 0.95
 GATE_SUITE = "speed"
 GATE_HYPOTHESIS = "baseline"
