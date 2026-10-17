@@ -2091,3 +2091,75 @@ the two-night pass criterion failed because the wall sits below the
 ordinary draw band against a lucky-min baseline. Not a runner shift
 (naive-baseline control flat: 51.86/52.72/56.31/53.01s across the four
 nights).
+
+---
+
+# H36: WALL_SLACK calibrated to the observed cross-night spread (2026-10-17)
+
+**Prediction (written before the change).** H35's falsification proved the
+residual defect is calibration, not mechanics: the stored baseline is
+itself a lucky rep-min (0.8303 on 10-08, median 0.8349 that same night --
+all three reps drew fast), and the 1.25x wall (1.04s) sits below the
+ordinary min-of-3 draw band (1.34-1.47s), so crossing is the norm and the
+sustained rule trips on any two consecutive nights. Runner shift is ruled
+out (naive control flat ±4%). Three candidate levers, re-ranked after the
+falsification:
+
+- (a) Re-prime from a median-like draw: rejected alone -- the 10-08 row's
+  *median* (0.8349) is as lucky as its min; a representative draw of one
+  night does not bound the cross-night spread. The Ubuntu 26 migration
+  (~Oct 19) forces a re-prime anyway, which covers the stale-artifact half.
+- (b) Anchor the wall to the stored baseline's median instead of min:
+  rejected -- same defect as (a), median is not lucky-proof (10-08 proved
+  it), and it adds a second statistic to the gate.
+- (c) Raise WALL_SLACK to cover the observed spread: this is the lever
+  H35's falsification reverses. H35 rejected it because "calibrating the
+  slack from observed spread (~1.7x) loosens the wall for real
+  regressions" -- but the falsification showed the 1.25x wall is not a
+  gate at all against a lucky prime: it fails ordinary nights (a false
+  positive every night) while providing no real coverage (it never
+  measured a genuine regression). A wall that trips on noise has zero
+  moat value; the calibrated slack restores coverage where it exists.
+
+**Fix.** `WALL_SLACK` 1.25 -> 1.8 in `scripts/bench_ci.py` (comment
+carries the derivation). 1.8 covers the observed cross-night span of the
+min-of-3 statistic (nightly azure minima 0.83-1.47, ratio 1.77) with a
+margin. The migration fold-in (boss note 10-15): the `ubuntu-latest` ->
+Ubuntu 26 host change re-primes the baseline on the first post-migration
+nightly run via the existing `verdict()` host-change branch -- that
+re-prime IS the calibrated prime; do NOT prime twice, and do NOT
+hand-write a baseline. The naive control leg (flat 51.86-56.31s ±4%)
+must be re-read across the migration before calling any post-migration
+draw ordinary: if the naive control shifts >10%, the speed draw is
+contaminated and the gate re-primes on contaminated ground.
+
+**Trade accepted.** A real regression of 1.0-1.8x sustained will not trip
+the wall gate; such shifts are covered by the existing A/B harness
+(per-commit) and G2 competitive margin, which measure relative change and
+are immune to absolute-wall noise. The wall gate's job is catching the
+sustained *environmental/infra* scale shifts (>1.8x, e.g. a Python or
+runner-image change doubling workload time), and that it still does on
+night 2 of the shift.
+
+**Verified.** `pytest tests/test_bench_ci.py` 24 passed (21 pre-existing,
+updated to H36 numbers with comments; 3 new: the ordinary-band coverage
+test replays the real 1.34/1.47 draws against both a lucky-min and an
+ordinary baseline, the sustained-regression test proves >1.8x still
+fails and sub-1.8x does not, and the ratchet test proves IMPROVE is
+unchanged). Live replay against the real archive
+(`scripts/h36_check.py`, run then deleted -- scratch diagnostic): the
+10-13 row (min 1.4461, the night that WARNED under H35's 1.04 wall)
+passes clean under the H36 wall of 1.4945; the full archived azure
+nightly-min span 0.83-1.47 is inside the wall for any prime in the
+observed range. Strict gates over src/ are unaffected (no moonbuggy
+source change; scripts/ is deliberately outside the src/ scope per
+H34's precedent).
+
+**Prediction if the fix is right.** (1) The 10-17/10-18 nightly runs on
+azure pass with no WARNING. (2) The Ubuntu 26 migration re-primes once
+via the host-change branch and the first post-migration night passes; the
+naive control is re-read and flat before that draw is called ordinary.
+(3) A future sustained >1.8x shift still fails on night 2.
+
+**Cost.** Zero extra bench wall; one constant + one comment. No
+moonbuggy-source change, so `make ab` is not applicable.
