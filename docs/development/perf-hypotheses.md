@@ -2163,3 +2163,17 @@ naive control is re-read and flat before that draw is called ordinary.
 
 **Cost.** Zero extra bench wall; one constant + one comment. No
 moonbuggy-source change, so `make ab` is not applicable.
+
+**Status: confirmed (2026-10-19)** -- the falsification criterion (next two
+nightly Bench runs must pass, warnings allowed) is met: run 39108356157
+(10-18) and run 39221977224 (10-19) both passed clean, no WARNING (speed
+min-of-3 1.41s and 1.32s against the H36 wall of 1.4945 -- the stored
+baseline is still the 10-08 lucky prime 52a7f28/0.8303 x 1.8; the IMPROVE
+ratchet never fired and no host change occurred). Naive control flat:
+54.88s and 51.08s, inside the 51.86-56.31s band. Prediction (2) is still
+open, not failed: the 10-19 run shows the
+runner image still ubuntu-24.04 (20261012.334), so the Ubuntu 26
+host-change re-prime has not been exercised yet; when it lands, re-read
+the naive control before calling the first post-migration draw ordinary.
+Prediction (3) (a sustained >1.8x shift still fails on night 2) remains
+covered by the unit-tested sustained-regression path.
