@@ -13,10 +13,16 @@ that the profile which would have prevented it was cheap. So: profile first
 declines to call a winner when the confidence intervals overlap.
 
 **CI speed-moat defense (criterion C2)**. `make bench-ci` (wired into `.github/workflows/bench.yml`, daily) runs the
-comparative bench and gates moonbuggy's own speed: the speed workload's
-wall-clock must not regress >25% (`WALL_SLACK`) past the last committed
-`intel/perf-baseline.json` (primed on the first green run). A G1-G4 verdict
-failure (no longer faster than mutmut) fails the workflow directly. Evidence
+comparative bench and gates moonbuggy's own speed. The wall gate: the speed
+workload's wall-clock must not regress past `WALL_SLACK` (1.8x, calibrated in
+H36 to the observed cross-night min-of-3 spread) times the last committed
+`intel/perf-baseline.json` (primed on the first green run) — and (H35) a
+crossing fails the gate only when it repeats on the immediately preceding
+same-host night; a lone crossing passes with a loud WARNING naming the next
+nightly run as the decision point. The ratchet-down is symmetric: the baseline
+lowers only after two consecutive nights below the `IMPROVE` (0.95) bar, so a
+single lucky min can never arm a trap wall. A G1-G4 verdict failure (no longer
+faster than mutmut) fails the workflow directly. Evidence
 travels along the D2 numbers pipe to `intel/perf-bench.jsonl` (`intel/perf-bench.md`
 is the legible projection). This is the amplification of the measurement rule, and
 the moat defense: a regressed speed bench is caught by CI, not assumed away.
