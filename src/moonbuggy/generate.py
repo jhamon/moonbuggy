@@ -106,6 +106,10 @@ def generate_mutants(
     lines = source.splitlines()
     wanted = set(tier_members(DEFAULT_TIER) if operators is None else operators)
     chosen = [op for op in all_operators() if op.name in wanted]
+    # H37: resolve each operator's shape once, not once per node. The protocol
+    # isinstance is ~1us per call and generation makes one call per node per
+    # operator; a boolean in the dispatch loop is free.
+    contextual = [isinstance(op, ContextualOperator) for op in chosen]
     policy = logging_policy if logging_policy is not None else LoggingPolicy()
     deferred = _function_body_lines(tree)
 
@@ -114,7 +118,7 @@ def generate_mutants(
     sys.setrecursionlimit(max(previous_limit, DEEP_RECURSION_LIMIT))
     try:
         for node, context in _walk(tree):
-            for operator in chosen:
+            for operator, is_contextual in zip(chosen, contextual, strict=True):
                 _mutate_node(
                     node,
                     context,
@@ -125,6 +129,7 @@ def generate_mutants(
                     deferred=deferred,
                     on_skip=on_skip,
                     policy=policy,
+                    contextual=is_contextual,
                 )
     finally:
         sys.setrecursionlimit(previous_limit)
@@ -184,13 +189,23 @@ def _mutate_node(
     deferred: set[int],
     on_skip: OnSkip | None,
     policy: LoggingPolicy,
+    contextual: bool,
 ) -> None:
     """Apply one operator to one node, tolerating a site too deep to rewrite.
 
-    Which of the two operator shapes this is, is decided by which method the
-    operator provides: `mutations_in_context` gets the context, `mutations`
-    does not. The engine still never learns an operator's name, and an
-    operator that does not need context does not have to accept it.
+    `contextual` says which of the two operator shapes this is, decided once
+    per operator at selection time in :func:`generate_mutants`:
+    `mutations_in_context` gets the context, `mutations` does not. The engine
+    still never learns an operator's name, and an operator that does not need
+    context does not have to accept it.
+
+    H37: the shape test was `isinstance(operator, ContextualOperator)` -- a
+    runtime-checkable Protocol, whose isinstance goes through
+    `typing.__instancecheck__` and `inspect.getattr_static` at ~1us a call.
+    Generation makes one call per node per operator, so on many-files the
+    check was most of the generation phase. The answer cannot change between
+    nodes: an operator's shape is a property of its class, so the caller
+    resolves it once and hands the boolean down.
 
     Beyond the raised limit, deep-copying or unparsing a single expression can
     still fail. That costs one mutant, which is a smaller loss than abandoning
@@ -199,10 +214,10 @@ def _mutate_node(
     "this code has fewer mutable sites".
     """
     try:
-        if isinstance(operator, ContextualOperator):
-            mutations = operator.mutations_in_context(node, context)
+        if contextual:
+            mutations = operator.mutations_in_context(node, context)  # type: ignore[union-attr]
         else:
-            mutations = operator.mutations(node)
+            mutations = operator.mutations(node)  # type: ignore[union-attr]
         for mutation in mutations:
             # A pair names the node to rewrite; a bare node means the one the
             # operator was handed.
