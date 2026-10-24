@@ -96,5 +96,6 @@ a survivor.
 
 **It only runs the tests that could possibly notice.** A mutation on line 14 can
 only be caught by a test that executes line 14. One instrumented run of your
-suite builds that map, and each mutant then runs against a handful of tests
+suite builds that line→test map, and each mutant then runs against a handful of
+tests
 instead of all of them. See [Making runs fast](making-runs-fast.md).

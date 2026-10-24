@@ -3,7 +3,8 @@
 **Audience:** your codebase is large enough that "run the whole suite once per
 mutant" is not a plan.
 
-Mutation testing is *N* test runs for *N* mutants. The naive version of that is
+Mutation testing is *N* test runs for *N* mutants. The "obvious" way to do it
+— re-running your whole suite once per mutant — is the naive version, and it is
 unusable on anything real: moonbuggy's own benchmark workload has 84 mutants and
 a suite that takes 0.15 seconds, and the naive approach takes 13 seconds. The
 whole design is about making that number smaller without making any status

@@ -54,6 +54,13 @@ say about this module.
 
 ## The first run
 
+The examples on this page use three helpers provided by the documentation
+build itself: `make_project` writes a throwaway pytest project, `moonbuggy`
+runs the moonbuggy CLI in it, and `records` reads the JSONL results it
+produced. If you are following along outside this page, the equivalent is
+creating those two files yourself and running `moonbuggy run` in the
+directory — see the [quickstart](quickstart.md) for the exact commands.
+
 ```{doctest}
 >>> project = make_project({"pricing.py": PRICING, "test_pricing.py": TESTS})
 >>> run = moonbuggy(cwd=project)
