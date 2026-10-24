@@ -2254,8 +2254,26 @@ measured it at 9.5ms for 560 mutants and read the phase as finished.
   `_mutate_node` takes a `contextual: bool` and dispatches on it. The
   protocol itself is untouched — `ContextualOperator` stays
   `@runtime_checkable` for any external checker.
-- **Actual saving:** measured after with `make ab`; see the Results table
-  below.
+- **Actual saving:** **indistinguishable on all three shapes** —
+  `make ab BASELINE=ccbb1e3 CANDIDATE=HEAD`, 7 interleaved runs each:
+
+  | shape | ccbb1e3 median (95% int.) | HEAD median (95% int.) |
+  |---|---|---|
+  | fast-tests | 0.426s [0.388, 0.430] | 0.418s [0.401, 0.440] |
+  | slow-tests | 0.576s [0.550, 0.652] | 0.582s [0.571, 0.634] |
+  | many-files | 0.874s [0.732, 0.929] | 0.824s [0.775, 0.883] |
+
+  Intervals overlap on all three; no shape regressed. The many-files
+  medians (-5.7%) sit inside the run-to-run spread the fourth round named
+  for this shape, and the in-process generation micro-benchmark
+  (36.5ms → 15.0ms, 2.4x) is confirmed real but is too small a slice of
+  the 0.87s run to clear the A/B floor — the ~2–3% predicted saving was
+  optimistic by roughly the width of one bucket. **Status: accepted at
+  neutral cost.** The change is a strict micro-win on a hot path with
+  identical output (625 non-slow tests pass, mutant reprs verified
+  identical on all three shapes), but it must not be booked as a
+  measured run-level win: the hypothesis's run-level prediction is
+  *unconfirmed at the A/B's resolution*.
 - **Also settled this round, H36 prediction (2):** the Ubuntu 26 migration
   has *not* landed as of the 10-23 nightly and the 10-24 Bench — both still
   provision `ubuntu-24.04` (20261012.334), so the host-change re-prime
