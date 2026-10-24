@@ -2183,3 +2183,96 @@ host-change re-prime has not been exercised yet; when it lands, re-read
 the naive control before calling the first post-migration draw ordinary.
 Prediction (3) (a sustained >1.8x shift still fails on night 2) remains
 covered by the unit-tested sustained-regression path.
+
+---
+
+# Seventh round: H37 (dispatch, the shape test that paid per node)
+
+**Where this came from.** The first profile round after the H34–H36 gate
+autopsies. `make profile` on `ccbb1e3`, five runs per shape, median:
+
+| phase | fast-tests | slow-tests | many-files |
+|---|---:|---:|---:|
+| coverage pass | 42.4% | 34.7% | 29.3% |
+| per-mutant fork | 17.5% | 24.3% | 37.8% |
+| import chain | 16.1% | 10.4% | 8.5% |
+| in-child test execution | 9.8% | 20.1% | 9.0% |
+| interpreter start/teardown | 5.1% | 3.8% | 2.7% |
+| generation | 1.8% | 1.4% | 5.7% |
+| planning, reporting, discovery, flaky probe | ~1.5% | ~1% | ~3.2% |
+| **unattributed** | **5.8%** | **3.3%** | **3.8%** |
+
+Absolute medians: fast-tests 0.348s / 96 mutants, slow-tests 0.538s / 96
+mutants, many-files 0.657s / 640 mutants. M2.1.2 failed on fast-tests
+(94.2%) on this read and passed on the next (95.8%) — run-to-run spread in
+the unattributed bucket, which the fourth round already named as a 16–20ms
+absolute residue.
+
+The top three phases are all closed: the coverage pass by H2/H19/H20/H26
+(trace core + other people's imports, correctness-rejected), the fork by
+H1 (deferred) and H33 (already at 1.1ms fork→entry + 0.9ms COW swap per
+child, teardown zero since H29). What is left is the phases nobody had
+re-profiled since their last entry: generation was 0.4–2.0% when H27
+measured it at 9.5ms for 560 mutants and read the phase as finished.
+
+### H37 — Resolve each operator's shape once, not once per node
+
+- **Phase:** generation (0.4–2.0% historically; 5.7% on many-files in this
+  round's profile)
+- **Premise, measured first.** cProfile of `generate_mutants` over the
+  many-files source set: **~84% of generation self-time is
+  `typing.__instancecheck__` plus `inspect.getattr_static`**, entered from
+  one call site — `generate.py`'s `isinstance(operator,
+  ContextualOperator)`. `ContextualOperator` is a `@runtime_checkable`
+  Protocol, so every isinstance routes through `typing._ProtocolMeta`'s
+  structural check: `_shadowed_dict` walks, `getattr_static` per protocol
+  attribute. Measured ~0.98–1.48µs per check against the registry;
+  a plain tuple isinstance is 0.07µs (22x). Generation makes one check per
+  node per operator — 18,767 calls on many-files for 640 mutants — and the
+  answer cannot change between nodes: an operator's shape is a property of
+  its class.
+- **Predicted saving (written before the change):** the check is 10.8–12ms
+  of an 114ms generation on many-files per the sweep; dispatch on a
+  precomputed boolean removes essentially all of it, so generation should
+  fall to roughly half or better on that shape. Against the *run*, that is
+  ~2–3% on many-files and under 1% on the two 3-module shapes — near the
+  A/B's resolution floor, honestly stated in advance. Nothing downstream
+  can change: the flag is resolved from the same protocol the isinstance
+  used, once, before any node exists.
+- **Correctness risk:** low. The dispatch decision is the same decision made
+  in the same place it always was — only how often it is re-derived
+  changes. A pre-check (`h37_equiv_all.py` scratch, run then not committed)
+  patched the dispatch test in place and compared every mutant's full
+  dataclass repr across all three shapes: 96/96/640 mutants, identical.
+  The residual risk is a non-registry operator reaching `_mutate_node`
+  through a path that skips `generate_mutants` — there is none (`_mutate_node`
+  has no other caller), and the shape is still resolved from the same
+  `isinstance` the protocol defines.
+- **Attempted:** yes, on branch `h37-dispatch-tuple` (commit `782c7ff`):
+  `generate_mutants` resolves `contextual = [isinstance(op,
+  ContextualOperator) for op in chosen]` once at selection time;
+  `_mutate_node` takes a `contextual: bool` and dispatches on it. The
+  protocol itself is untouched — `ContextualOperator` stays
+  `@runtime_checkable` for any external checker.
+- **Actual saving:** measured after with `make ab`; see the Results table
+  below.
+- **Also settled this round, H36 prediction (2):** the Ubuntu 26 migration
+  has *not* landed as of the 10-23 nightly and the 10-24 Bench — both still
+  provision `ubuntu-24.04` (20261012.334), so the host-change re-prime
+  remains unexercised and prediction (2) stays open. What *did* move: the
+  azure kernel flipped 6.17↔7.0 across 10-21..10-23, which tripped the
+  `verdict()` host-change branch twice (re-primes on 10-21 and 10-23) —
+  those re-primes are the gate working as designed, not the migration. The
+  naive control was re-read per H36's instruction before calling the 10-24
+  draw ordinary: 42.60s (10-21), 54.46s (10-22), 51.92s (10-23),
+  **33.36s (10-24)** — a 1.56x single-night swing against a historical
+  51.86–56.31s band. The 10-24 speed draw (min 0.86s, the fastest on
+  record) sits against a *contaminated* control, and the gate correctly
+  refused to ratchet on it ("below improve bar ... on one night; ratchet
+  needs a sustained shift"). No re-prime was needed: the baseline host
+  (6.17.0-1022-azure) matches the 10-24 draw's host, and the ratchet guard
+  held the lucky min out of the baseline. Conclusion recorded for the next
+  round: **the naive control is noisier than the ±4% band it was calibrated
+  on** — a single night's control reading cannot certify a draw as ordinary
+  or contaminated at the 10% threshold H36 specifies; the threshold needs
+  the same sustained-two-night treatment the wall got in H35.
