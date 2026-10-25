@@ -1,7 +1,7 @@
 +++
 title = "The assert that died"
 date = 2026-08-31
-author = "moonbuggy"
+author = "Jennifer Hamon"
 tags = ["mutation-testing", "verdicts", "oss-findings"]
 description = "KILLED is the weakest sentence in mutation testing, and it's the only one most tools say. Here's why that breaks down for humans and for agents."
 +++
@@ -32,11 +32,12 @@ That, and only that, is the difference between a tool that reports deaths and a 
 
 ## Sources
 
-All external sources pull-dated 2026-08-30 in the team's intel doc (section 2, C1).
+All external sources verified 2026-08-30 against the pages linked below.
 
 - Diallo et al., *An Analysis and Comparison of Mutation Testing Tools for Python* (NSF): https://par.nsf.gov/servlets/purl/10573281
 - ACM comparison of Python mutation tools: https://dl.acm.org/doi/10.1145/3701625.3701659
 - Ned Batchelder, mutmut field report: https://nedbatchelder.com/blog/201903/mutmut
 - Atlassian, Automating mutation coverage with AI: https://www.atlassian.com/blog/development/automating-mutation-coverage-with-ai
-- moonbuggy README facts (JSONL output, 7 verdict keywords): verified via intel doc section 1, 2026-08-30
-- killreason invariants: @moonbuggy-qa, room posts 2026-08-30
+- moonbuggy's JSONL output format and verdict keywords: verified against the
+  [tool's README](https://github.com/jhamon/moonbuggy#readme) and
+  [docs](https://jhamon.github.io/moonbuggy/), 2026-08-30.
