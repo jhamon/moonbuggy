@@ -6,7 +6,16 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from bench_ci import WALL_SLACK, gate_stat, latest_gate, verdict
+from bench_ci import (
+    CONTAMINATION,
+    WALL_SLACK,
+    contamination_note,
+    gate_stat,
+    latest_control,
+    latest_gate,
+    sustained_contamination,
+    verdict,
+)
 
 
 def _speed_row(wall, host="Darwin 24.1.0", min_=None, runs=None):
@@ -313,3 +322,218 @@ def test_h36_ratchet_still_needs_two_consecutive_improve_nights():
     )
     assert ok2
     assert "improved" in why2
+
+
+# --- H38: the naive control's contamination call needs two nights ----------
+
+
+def _control_row(wall, host="Linux azure", timestamp="2026-10-25T08:00:00+00:00"):
+    return {
+        "suite": "naive-control",
+        "hypothesis": "control",
+        "wall_clock": wall,
+        "mutants": 96,
+        "mutants_per_sec": wall / 96,
+        "commit": "aaaaaaa",
+        "host": host,
+        "timestamp": timestamp,
+    }
+
+
+def test_lone_control_shift_is_a_note_not_a_fail():
+    # The 10-24 replay: prime 52.64s, tonight's control 33.36s (36% off),
+    # no prior control night agrees -> NOT contaminated, just a lone-night
+    # note; the gate passes and the ratchet logic is the caller's to gate.
+    tonight = _control_row(33.36)
+    ok, why = verdict(
+        _speed_row(1.35, min_=1.35, runs=3, host="Linux azure"),
+        _speed_row(1.40, min_=1.40, runs=3, host="Linux azure"),
+        [],
+        control=tonight,
+        control_history=[],
+    )
+    # No naive_control prime on this baseline -> silence (legacy archive).
+    assert ok and why is None
+
+
+def test_lone_control_shift_warns_with_a_prime():
+    base = dict(
+        _speed_row(1.40, min_=1.40, runs=3, host="Linux azure"), naive_control=52.64
+    )
+    ok, why = verdict(
+        _speed_row(1.35, min_=1.35, runs=3, host="Linux azure"),
+        base,
+        [],
+        control=_control_row(33.36),
+        control_history=[],
+    )
+    assert ok
+    assert why is not None and "NOTE" in why
+    assert "sustained shift (H38)" in why
+
+
+def test_sustained_control_shift_is_flagged_contaminated():
+    # Two consecutive nights >10% off the prime: the contamination call
+    # fires. The gate still passes (a shifted environment invalidates the
+    # reading, not the code) but the note is the CONTAMINATED verdict.
+    base = dict(
+        _speed_row(1.40, min_=1.40, runs=3, host="Linux azure"), naive_control=52.64
+    )
+    prev = _control_row(33.0, timestamp="2026-10-24T08:00:00+00:00")
+    ok, why = verdict(
+        _speed_row(1.35, min_=1.35, runs=3, host="Linux azure"),
+        base,
+        [],
+        control=_control_row(33.36),
+        control_history=[prev],
+    )
+    assert ok
+    assert "CONTAMINATED" in why
+    assert "sustained" in why
+
+
+def test_control_back_within_band_breaks_the_streak():
+    base = dict(
+        _speed_row(1.40, min_=1.40, runs=3, host="Linux azure"), naive_control=52.64
+    )
+    prev = _control_row(33.0, timestamp="2026-10-24T08:00:00+00:00")
+    ok, why = verdict(
+        _speed_row(1.35, min_=1.35, runs=3, host="Linux azure"),
+        base,
+        [],
+        control=_control_row(52.0),
+        control_history=[prev],
+    )
+    assert ok and why is None
+
+
+def test_alien_host_control_rows_do_not_sustain_the_streak():
+    base = dict(
+        _speed_row(1.40, min_=1.40, runs=3, host="Linux azure"), naive_control=52.64
+    )
+    prev = _control_row(33.0, host="Linux old-azure")
+    ok, why = verdict(
+        _speed_row(1.35, min_=1.35, runs=3, host="Linux azure"),
+        base,
+        [],
+        control=_control_row(33.36),
+        control_history=[prev],
+    )
+    assert ok
+    assert why is not None and "NOTE" in why and "CONTAMINATED" not in why
+
+
+def test_control_within_band_is_silent():
+    base = dict(
+        _speed_row(1.40, min_=1.40, runs=3, host="Linux azure"), naive_control=52.64
+    )
+    ok, why = verdict(
+        _speed_row(1.35, min_=1.35, runs=3, host="Linux azure"),
+        base,
+        [],
+        control=_control_row(54.0),
+        control_history=[],
+    )
+    assert ok and why is None
+
+
+def test_sustained_contamination_helper_scopes():
+    prime = 52.64
+    # No prime: never contaminated (pre-H38 baseline).
+    assert sustained_contamination(33.36, None, []) == (False, None)
+    # Lone night: not sustained.
+    assert sustained_contamination(33.36, prime, [], host="Linux azure") == (
+        False,
+        None,
+    )
+    # Previous night agrees: sustained.
+    prev = _control_row(33.0)
+    sustained, prev_val = sustained_contamination(
+        33.36, prime, [prev], host="Linux azure"
+    )
+    assert sustained and prev_val == 33.0
+    # Within the band: not a shift at all.
+    assert sustained_contamination(54.0, prime, [prev]) == (False, None)
+    # Alien-host previous night: not sustained.
+    alien = _control_row(33.0, host="Linux old-azure")
+    assert sustained_contamination(33.36, prime, [alien], host="Linux azure") == (
+        False,
+        None,
+    )
+
+
+def test_contamination_threshold_is_ten_percent():
+    assert CONTAMINATION == 0.10
+    prime = 52.64
+    # A 9% shift is inside the band; a 10%+ shift (exclusive) is a crossing.
+    assert abs(prime * 1.09 - prime) <= prime * CONTAMINATION
+    assert abs(prime * 1.10 - prime) > prime * CONTAMINATION - 1e-9
+
+
+def test_contamination_note_classifies():
+    base = _speed_row(1.40)
+    prime = 52.64
+    quiet = _control_row(54.0)
+    lone = _control_row(33.36)
+    prev = _control_row(33.0)
+    assert contamination_note(_speed_row(1.0), base, quiet, prime, []) is None
+    assert "NOTE" in contamination_note(_speed_row(1.0), base, lone, prime, [])
+    note = contamination_note(_speed_row(1.0), base, lone, prime, [prev])
+    assert note.startswith("CONTAMINATED")
+    # Legacy archive: no control row -> silence.
+    assert contamination_note(_speed_row(1.0), base, None, prime, []) is None
+    # Pre-H38 baseline: no prime -> silence.
+    assert contamination_note(_speed_row(1.0), base, lone, None, [prev]) is None
+
+
+def test_latest_control_picks_the_newest_control_row():
+    rows = [
+        {"suite": "speed", "hypothesis": "baseline", "wall_clock": 1.0},
+        {"suite": "naive-control", "hypothesis": "control", "wall_clock": 51.0},
+        {"suite": "naive-control", "hypothesis": "control", "wall_clock": 33.36},
+    ]
+    assert latest_control(rows)["wall_clock"] == 33.36
+    assert latest_control([{"suite": "speed", "hypothesis": "baseline"}]) is None
+
+
+def test_h37_ten_twentyfour_full_replay_lone_shift_does_not_ratchet():
+    # The exact H37-round scenario, end to end: baseline 1.40 prime,
+    # control prime 52.64s, tonight draws min 0.86 (below the improve bar)
+    # against a lone 33.36s control reading. Under H36's single-night rule
+    # this draw was "contaminated"; under H38 it is one noisy control night,
+    # so the draw is ordinary noise on the control and the ratchet decision
+    # falls to the sustained_improvement rule (which alone withholds it).
+    base = dict(
+        _speed_row(1.40, min_=1.40, runs=3, host="Linux azure"), naive_control=52.64
+    )
+    ok, why = verdict(
+        _speed_row(0.8868, min_=0.8599, runs=3, host="Linux azure"),
+        base,
+        [],
+        control=_control_row(33.36),
+        control_history=[],
+    )
+    assert ok
+    # The draw is below the improve bar, so the ratchet message wins -- the
+    # point of the replay is that the control's lone shift does NOT upgrade
+    # it to CONTAMINATED under H38 (under H36's single-night rule it did).
+    assert why is not None
+    assert "CONTAMINATED" not in why
+    assert "ratchet needs a sustained shift" in why
+
+
+def test_ratchet_is_not_withheld_when_control_is_quiet():
+    # The improve path still works untouched when the control is in band.
+    base = dict(
+        _speed_row(1.40, min_=1.40, runs=3, host="Linux azure"), naive_control=52.64
+    )
+    prev_gate = _speed_row(1.30, min_=1.30, runs=3, host="Linux azure")
+    ok, why = verdict(
+        _speed_row(1.30, min_=1.30, runs=3, host="Linux azure"),
+        base,
+        [prev_gate],
+        control=_control_row(52.0),
+        control_history=[],
+    )
+    assert ok
+    assert "improved" in why

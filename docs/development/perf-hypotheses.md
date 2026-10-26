@@ -21,8 +21,13 @@ crossing fails the gate only when it repeats on the immediately preceding
 same-host night; a lone crossing passes with a loud WARNING naming the next
 nightly run as the decision point. The ratchet-down is symmetric: the baseline
 lowers only after two consecutive nights below the `IMPROVE` (0.95) bar, so a
-single lucky min can never arm a trap wall. A G1-G4 verdict failure (no longer
-faster than mutmut) fails the workflow directly. Evidence
+single lucky min can never arm a trap wall. (H38) The H36 contamination check
+against the naive control is also sustained-two-night: a control shift >10%
+off its prime flags the draw CONTAMINATED only when the previous same-host
+night's control also shifted >10%; a lone-night shift is a watch-note, and a
+contaminated (but not a lone-shifted) draw withholds the ratchet — a fast
+draw on shifted ground is not evidence the code got faster. A G1-G4 verdict
+failure (no longer faster than mutmut) fails the workflow directly. Evidence
 travels along the D2 numbers pipe to `intel/perf-bench.jsonl` (`intel/perf-bench.md`
 is the legible projection). This is the amplification of the measurement rule, and
 the moat defense: a regressed speed bench is caught by CI, not assumed away.
@@ -2294,3 +2299,93 @@ measured it at 9.5ms for 560 mutants and read the phase as finished.
   on** — a single night's control reading cannot certify a draw as ordinary
   or contaminated at the 10% threshold H36 specifies; the threshold needs
   the same sustained-two-night treatment the wall got in H35.
+
+---
+
+# Eighth round: H38 — the contamination call needs two nights, like the wall
+
+**Where this came from.** The H37 round conclusion (above): the 10-24 naive
+control read 33.36s against a historical 51.86-56.31s band — a 1.56x
+single-night swing while the speed draw itself was ordinary (min 0.86s, but
+the ratchet guard, not contamination, held it out of the baseline). H36
+specified contamination at a 10% threshold against a *single* night's
+control reading, calibrated when the control looked flat ±4%; the 10-24
+evidence shows the control's single-night noise exceeds that band, so the
+single-night rule has false-positive power and would eventually prime the
+baseline on contaminated ground or reject an ordinary draw.
+
+**Prediction (written before the change).** If the contamination call
+requires two consecutive same-host nights >10% off the prime (mirroring
+H35's sustained-wall rule), the 10-24-style lone control swing becomes a
+watch-note instead of a contamination verdict, a genuine environment shift
+still flags CONTAMINATED on the second night, and the ratchet is withheld
+only on the sustained call. Cost: one extra night of latency before a real
+contamination is called — the same latency H35 already accepted for the
+wall, and the ratchet-withhold protects the interim.
+
+**Fix.**
+- `scripts/bench_ci.py`: new `CONTAMINATION = 0.10` constant;
+  `sustained_contamination()` mirrors `sustained_shift()` for control rows
+  (same-host scoping, immediately-previous-night check, None prime ⇒ never
+  contaminated — a pre-H38 baseline has no trusted reference);
+  `contamination_note()` classifies quiet / lone-night NOTE /
+  sustained CONTAMINATED; `verdict()` gains `control` and
+  `control_history` arguments and emits the note above the wall/ratchet
+  verdicts (the gate passes on contamination — a shifted environment
+  invalidates the *reading*, not the code); `main()` keys the
+  ratchet-withhold off the CONTAMINATED note, primes the baseline with
+  tonight's control (`naive_control` field) so the contamination gate has a
+  reference from night one, and refreshes that prime on a sustained-
+  improvement ratchet.
+- `scripts/bench_mutation.py`: the speed-workload naive baseline is emitted
+  to the numbers pipe as its own row — suite `naive-control`, reserved
+  hypothesis tag `control` — so a cross-night archive of the control
+  exists. The fixture-side naive row is not emitted (the contamination gate
+  reads the speed shape only). The control is a comparator, not a moonbuggy
+  number; the distinct tag keeps it from being mistaken for a
+  gate/ratchet candidate row. No schema-version bump: the row shape is
+  unchanged, only the suite/hypothesis tag values (both strings the schema
+  already permits).
+
+**Verified.** `pytest tests/test_bench_ci.py tests/test_harness_output_integration.py`
+40 passed (29 bench_ci, 11 harness-output integration; the bench_ci file
+gains 12 H38 tests: lone-night note, sustained CONTAMINATED, band-break,
+alien-host scoping, threshold constant, helper scoping, note classification,
+`latest_control` picker, the exact 10-24 full replay proving the lone shift
+no longer upgrades the draw to CONTAMINATED, and the quiet-control ratchet
+path; the integration file proves the control row is emitted with the speed
+shape's mutant count and the fixture-side naive row is skipped). Strict
+gates over `src/` are unaffected: `make typecheck` clean (44 files), no
+moonbuggy-source change, so `make ab` is not applicable (scripts/ is
+deliberately outside the src/ scope, per the H34/H36 precedent).
+
+**Live replay against the real archive.** The current `intel/perf-bench.jsonl`
+still carries zero `naive-control` rows (the pre-H38 nightly emitted only
+the two moonbuggy rows), so the first post-merge nightlies will run with
+`control=None`/no prime ⇒ silence, exactly the legacy-archive behavior the
+tests pin; the baseline picks up a `naive_control` prime on its next
+re-prime. The 10-26 nightly (run 40291514025, 08:22 UTC) was checked as the
+H36 re-check evidence step required by this task: the runner image is still
+**ubuntu-24.04 (20261012.334)** — GitHub's announced ubuntu-latest → Ubuntu
+26 migration has not landed on this repo's Bench — so the H36 host-change
+re-prime remains unexercised, and prediction (2) of H36 stays open. The
+10-26 speed min-of-3 was 1.18s (below the 1.34s × 0.95 improve bar, lone
+night, ratchet correctly withheld under H35), passing clean under the H36
+wall.
+
+**Prediction if the fix is right.** (1) The first post-merge nightlies
+emit one `naive-control` row per night (3 numbers-pipe rows total) and the
+gate stays silent on the control until a prime exists. (2) A future
+two-night control shift >10% off the prime flags CONTAMINATED on night 2
+and the ratchet is withheld on that night's draw. (3) A lone 10-24-style
+swing produces only the NOTE and can no longer influence the baseline.
+
+**Cost.** Zero extra bench wall (the naive control was already being run
+every night; it is now recorded instead of printed). One extra archive row
+per night. No moonbuggy-source change.
+
+**Status: implemented, pending confirmation (2026-10-26)** — mechanics
+verified by the unit path above; the live confirmation criterion is the
+next two post-merge nightly Bench runs (control rows present, no
+CONTAMINATED false-fire), the same shape H35/H36 used. QA co-sign on the
+gate change requested per standing convention.

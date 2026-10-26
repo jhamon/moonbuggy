@@ -50,6 +50,12 @@ HARNESS_OUTPUT = os.environ.get("MB_HARNESS_OUTPUT")
 # honest tag is the reserved "baseline" marker rather than a single H-number.
 BENCH_HYPOTHESIS = "baseline"
 
+# H38: the speed-workload naive baseline is moonbuggy's environment control --
+# the same operators, no coverage selection, so it moves when the runner moves
+# and not when moonbuggy's own code does. Its rows carry the reserved
+# "control" hypothesis tag so the gate can read a cross-night history of it.
+CONTROL_HYPOTHESIS = "control"
+
 # mutmut needs the project's imports to resolve to the mutants/ tree it builds.
 # The fixture's own pytest.ini points at the real source, so it is rewritten in
 # mutmut's copy only. This is tool-specific setup, not a handicap: without it
@@ -391,27 +397,47 @@ def emit_numbers(speed_rows, fixture_rows, speed_min=None):
     rows = [("fixture", fixture_rows), ("speed", speed_rows)]
     for suite, group in rows:
         for label, elapsed, count, _counts in group:
-            if label != "moonbuggy":
-                continue
-            extra: dict = {}
-            if suite == "speed" and speed_min is not None:
-                extra = {"runs": SPEED_REPS, "median": elapsed, "min_": speed_min}
-            doc = harness_output.build(
-                suite=suite,
-                purpose="bench",
-                harness="bench_mutation.py",
-                wall_clock=elapsed,
-                mutants=count,
-                hypothesis=BENCH_HYPOTHESIS,
-                moonbuggy=__version__,
-                **extra,
-            )
-            errors = harness_output.validate(doc)
-            if errors:
-                raise SystemExit(f"harness-output row invalid: {errors}")
-            harness_output.write_jsonl(doc, out_path)
+            if label == "moonbuggy":
+                extra: dict = {}
+                if suite == "speed" and speed_min is not None:
+                    extra = {"runs": SPEED_REPS, "median": elapsed, "min_": speed_min}
+                doc = harness_output.build(
+                    suite=suite,
+                    purpose="bench",
+                    harness="bench_mutation.py",
+                    wall_clock=elapsed,
+                    mutants=count,
+                    hypothesis=BENCH_HYPOTHESIS,
+                    moonbuggy=__version__,
+                    **extra,
+                )
+                errors = harness_output.validate(doc)
+                if errors:
+                    raise SystemExit(f"harness-output row invalid: {errors}")
+                harness_output.write_jsonl(doc, out_path)
+            elif label == "naive baseline" and suite == "speed":
+                # H38: the naive-control time rides the same numbers pipe, as
+                # its own row (hypothesis "control"). The contamination gate
+                # needs a cross-night archive of the control to apply the
+                # sustained-two-night rule; a printed table line cannot do
+                # that. The control is a comparator, not a moonbuggy number,
+                # so it carries a distinct hypothesis tag and is never
+                # mistaken for a gate/ratchet candidate row.
+                doc = harness_output.build(
+                    suite="naive-control",
+                    purpose="bench",
+                    harness="bench_mutation.py",
+                    wall_clock=elapsed,
+                    mutants=count,
+                    hypothesis=CONTROL_HYPOTHESIS,
+                    moonbuggy=__version__,
+                )
+                errors = harness_output.validate(doc)
+                if errors:
+                    raise SystemExit(f"harness-output row invalid: {errors}")
+                harness_output.write_jsonl(doc, out_path)
 
-    print(f"  wrote {len(rows)} numbers-pipe rows to {out_path}")
+    print(f"  wrote 3 numbers-pipe rows to {out_path}")
 
 
 if __name__ == "__main__":

@@ -17,8 +17,22 @@ REPO = str(Path(__file__).resolve().parent.parent)
 # needs only two consecutive nights above this (still modest) wall.
 WALL_SLACK = 1.8
 IMPROVE = 0.95
+# H36/H38: the naive control is moonbuggy's environment control -- same
+# operators, no selection, so it moves when the runner moves and not when
+# moonbuggy's code does. H36 set the contamination bar at 10% on a single
+# night's control reading. The H37 round record (10-24: 33.36s vs the
+# historical 51.86-56.31s band, a 1.56x single-night swing while the speed
+# draw itself was ordinary) proved the control is noisier than the ±4% band
+# it was calibrated on: a single night's reading cannot certify a draw as
+# ordinary or contaminated. Like the wall in H35, the contamination call
+# therefore needs two consecutive nights agreeing before the gate acts.
+CONTAMINATION = 0.10
 GATE_SUITE = "speed"
 GATE_HYPOTHESIS = "baseline"
+# H38: the naive-control rows in the archive (suite "naive-control",
+# hypothesis "control", emitted by bench_mutation.py alongside the speed row).
+CONTROL_SUITE = "naive-control"
+CONTROL_HYPOTHESIS = "control"
 ARCHIVE = os.path.join(REPO, "intel", "perf-bench.jsonl")
 BASELINE_PATH = os.path.join(REPO, "intel", "perf-baseline.json")
 ROW_FILE = os.path.join(REPO, "intel", "perf-bench.md")
@@ -97,7 +111,7 @@ def store_base(path, row):
         data[k] = row[k]
     # Carry the rep-set fields so the gate can keep comparing min-to-min
     # across nights (H34); absent on legacy single-rep rows.
-    for k in ("runs", "median", "min"):
+    for k in ("runs", "median", "min", "naive_control"):
         if k in row:
             data[k] = row[k]
     with open(path, "w", encoding="utf-8") as fh:
@@ -119,6 +133,135 @@ def _gate_rows(rows):
         for row in reversed(rows)
         if row["suite"] == GATE_SUITE and row["hypothesis"] == GATE_HYPOTHESIS
     ]
+
+
+def latest_control(rows):
+    """The newest naive-control row, or None when the archive has none.
+
+    Args:
+        rows: rows from the numbers pipe, oldest first.
+
+    Returns:
+        The newest row with suite ``naive-control`` / hypothesis ``control``
+        (H38), or None on a legacy archive predating control rows.
+    """
+    for row in reversed(rows):
+        if row["suite"] == CONTROL_SUITE and row["hypothesis"] == CONTROL_HYPOTHESIS:
+            return row
+    return None
+
+
+def _control_prime(base):
+    """The control reading the stored baseline was primed against.
+
+    Args:
+        base: the stored baseline row (may predate the control field).
+
+    Returns:
+        The baseline's ``naive_control`` seconds, or None when the baseline
+        predates H38 and carries no control prime.
+    """
+    return base.get("naive_control") if base else None
+
+
+def sustained_contamination(control, prime, history, host=None):
+    """H38: is the control shift sustained, not one noisy night?
+
+    H36 called a speed draw contaminated when that night's naive control
+    shifted >10% off its prime. The H37 round record showed the control
+    itself swings up to 1.56x on a single night (33.36s on 10-24 vs the
+    51.86-56.31s band) with the speed draw ordinary -- so the single-night
+    reading has false-positive power the ±4% calibration never anticipated.
+    Runner noise does not repeat on consecutive nights; a real environment
+    shift does. The contamination call therefore fires only when tonight's
+    control AND the previous same-host night's control are both >10% off the
+    prime.
+
+    Args:
+        control: tonight's control seconds.
+        prime: the control reading the baseline was primed against (None on
+            a pre-H38 baseline, in which case nothing is contaminated --
+            there is no trusted reference to be >10% off of).
+        history: prior control rows, newest first (tonight's excluded). The
+            streak is scoped to rows matching ``host``.
+        host: tonight's host, for the same-host streak scoping (H35 rule).
+            None disables scoping.
+
+    Returns:
+        (is_contaminated, prev_control) -- whether the shift repeats on the
+        previous night, and that night's control reading (None when there is
+        no comparable previous night, in which case the shift is NOT treated
+        as sustained).
+    """
+    if prime is None:
+        return False, None
+    if abs(control - prime) <= prime * CONTAMINATION:
+        return False, None
+    for row in history:
+        if host is not None and row.get("host") != host:
+            continue  # a host change re-primes; skip alien-host rows
+        prev = row["wall_clock"]
+        return abs(prev - prime) > prime * CONTAMINATION, prev
+    return False, None
+
+
+def control_host_of(row):
+    """The row's host (helper kept symmetric with gate_stat for tests).
+
+    Args:
+        row: a control row.
+
+    Returns:
+        The row's ``host`` value, or None when absent.
+    """
+    return row.get("host")
+
+
+def contamination_note(new, base, control, prime, control_history):
+    """Classify tonight's draw against the naive control, H38 rules.
+
+    The gate does not fail on contamination -- a contaminated environment
+    invalidates the *reading*, not the code, so the verdict is "do not trust
+    or ratchet this draw; re-prime if sustained" -- the same
+    warning-not-fail posture H35 gives a lone wall crossing. The ratchet is
+    what must be withheld.
+
+    Args:
+        new: tonight's gate row.
+        base: the stored baseline row.
+        control: tonight's control row (None on a legacy archive).
+        prime: the control prime from the stored baseline (None pre-H38).
+        control_history: prior control rows, newest first (tonight's excluded).
+
+    Returns:
+        A note string when the control is flagged (lone-night shift or
+        sustained contamination), None when the control is quiet.
+    """
+    if control is None or prime is None:
+        return None
+    off = control["wall_clock"] - prime
+    if abs(off) <= prime * CONTAMINATION:
+        return None
+    sustained, prev = sustained_contamination(
+        control["wall_clock"],
+        prime,
+        control_history,
+        host=control.get("host"),
+    )
+    if sustained:
+        return (
+            f"CONTAMINATED: naive control {control['wall_clock']:.2f}s is "
+            f"{abs(off) / prime:.0%} off its prime ({prime:.2f}s), sustained "
+            f"(prev night {prev:.2f}s); tonight's speed draw is not "
+            "trustworthy evidence -- the baseline re-primes on contaminated "
+            "ground"
+        )
+    return (
+        f"NOTE: naive control {control['wall_clock']:.2f}s is "
+        f"{abs(off) / prime:.0%} off its prime ({prime:.2f}s) on one night; "
+        "contamination needs a sustained shift (H38), watch the next "
+        "nightly run"
+    )
 
 
 def sustained_shift(new, base, history):
@@ -182,13 +325,34 @@ def sustained_improvement(new, base, history):
     return False
 
 
-def verdict(new, base, history=()):
+def verdict(new, base, history=(), control=None, control_history=()):
+    """Tonight's gate verdict, including the H38 contamination check.
+
+    Args:
+        new: tonight's gate row.
+        base: the stored baseline row (None to prime).
+        history: prior gate rows, newest first (tonight's excluded).
+        control: tonight's naive-control row, or None on a legacy archive.
+        control_history: prior control rows, newest first (tonight's excluded).
+
+    Returns:
+        (ok, message) as before; on a sustained contamination the message is
+        the CONTAMINATED note. The gate passes (ok=True) on contamination --
+        a shifted environment invalidates the reading, not the code -- but
+        the caller withholds the baseline ratchet on it.
+    """
     if base is None:
         return True, f"priming: {new['wall_clock']:.2f}s (no baseline)"
     if new["host"] != base["host"]:
         return True, (
             f"host changed: {base['host']} -> {new['host']}; re-priming baseline"
         )
+    # H38: the contamination check rides *before* the wall/ratchet verdicts
+    # only as a note on top of them; the sustained-contamination note is what
+    # the caller keys the ratchet-withhold off. A contaminated draw must not
+    # lower the bar (the control 10-24 draw, min 0.86s, sat against exactly
+    # such a control).
+    note = contamination_note(new, base, control, _control_prime(base), control_history)
     new_stat, base_stat = gate_stat(new), gate_stat(base)
     if new_stat > base_stat * WALL_SLACK:
         sustained, prev = sustained_shift(new, base, history)
@@ -209,6 +373,8 @@ def verdict(new, base, history=()):
             f"below improve bar ({new_stat:.2f}s < {base_stat:.2f}s * "
             f"{IMPROVE}) on one night; ratchet needs a sustained shift (H35)"
         )
+    if note:
+        return True, note
     return True, None
 
 
@@ -293,6 +459,15 @@ def main(argv=None):
     # H35: the gate and the ratchet both need the cross-night history --
     # every gate row older than tonight's, newest first.
     history = gate_rows[1:] if gate_rows and gate_rows[0] is new else gate_rows
+    # H38: same for the naive control -- tonight's row plus the cross-night
+    # control history, for the sustained-contamination rule.
+    control = latest_control(rows)
+    control_rows = [
+        row
+        for row in reversed(rows)
+        if row["suite"] == CONTROL_SUITE and row["hypothesis"] == CONTROL_HYPOTHESIS
+    ]
+    control_history = control_rows[1:] if control_rows else []
 
     try:
         base = load_base(BASELINE_PATH)
@@ -300,18 +475,40 @@ def main(argv=None):
         print("ERROR: baseline unreadable", file=sys.stderr)
         return 3
 
-    ok, why = verdict(new, base, history)
+    ok, why = verdict(
+        new, base, history, control=control, control_history=control_history
+    )
     print("speed workload: %.2fs / %d mutants" % (new["wall_clock"], new["mutants"]))
     if gate_stat(new) != new["wall_clock"]:
         print("  gate on best-of-%d min: %.2fs" % (new.get("runs", 1), gate_stat(new)))
+    if control is not None:
+        print("  naive control: %.2fs" % control["wall_clock"])
     if why:
         print("  %s" % why)
     if base is None or new["host"] != base["host"]:
-        store_base(BASELINE_PATH, new)
+        prime = {}
+        # H38: the fresh prime carries tonight's control reading, so the
+        # contamination gate has a reference from night one.
+        if control is not None:
+            prime["naive_control"] = control["wall_clock"]
+        store_base(BASELINE_PATH, {**new, **prime})
         print("  primed baseline: arming the speed-moat gate")
     elif ok and gate_stat(new) < gate_stat(base) * IMPROVE:
-        if sustained_improvement(new, base, history):
-            store_base(BASELINE_PATH, new)
+        # H38: the ratchet is withheld on sustained contamination -- a fast
+        # draw against a shifted control is not evidence the code got faster.
+        contaminated = contamination_note(
+            new, base, control, _control_prime(base), control_history
+        )
+        if contaminated and contaminated.startswith("CONTAMINATED"):
+            print("  %s" % contaminated)
+            print("  ratchet withheld: contaminated ground (H38)")
+        elif sustained_improvement(new, base, history):
+            fresh = load_base(BASELINE_PATH)
+            if control is not None and fresh is not None:
+                fresh["naive_control"] = control["wall_clock"]
+                with open(BASELINE_PATH, "w", encoding="utf-8") as fh:
+                    json.dump(fresh, fh, indent=2, sort_keys=True)
+                    fh.write("\n")
             print("  wrote updated baseline (sustained improvement)")
 
     write_row_file(ok, gate_row=new)
