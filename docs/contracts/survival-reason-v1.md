@@ -63,7 +63,9 @@ output, the one thing the vocabulary must not do. The path is: triage it,
 
 ## The four-token axis, against the intel doc
 
-competitive-intel §2.1 part B named the leading axis as "equivalent-mutant
+The competitive-intel brief (§2.1 part B; now kept out of the published
+docs tree) named the
+leading axis as "equivalent-mutant
 suspicion vs assertion-gap vs weak assertion vs operator noise". This
 vocabulary lands the mechanically-derivable subset of that axis:
 
