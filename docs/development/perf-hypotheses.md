@@ -1766,7 +1766,7 @@ this round touched passes `ruff check`, `ruff format --check`, `pydoclint` and
 
 # Sixth round: H33 (child teardown, the H31 spike's named alternative)
 
-**Where this came from.** Spike C's verdict named one shape worth a second
+**Where this came from.** The H31 spike's verdict named one shape worth a second
 look: single-mutant-per-process with shared suite import — attack *teardown*
 rather than the fork boundary. H29 already took the interpreter-finalisation
 half of that in round four (13ms flat, adopted). This round asks what remains:
