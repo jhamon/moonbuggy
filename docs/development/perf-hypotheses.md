@@ -21,8 +21,13 @@ crossing fails the gate only when it repeats on the immediately preceding
 same-host night; a lone crossing passes with a loud WARNING naming the next
 nightly run as the decision point. The ratchet-down is symmetric: the baseline
 lowers only after two consecutive nights below the `IMPROVE` (0.95) bar, so a
-single lucky min can never arm a trap wall. A G1-G4 verdict failure (no longer
-faster than mutmut) fails the workflow directly. Evidence
+single lucky min can never arm a trap wall. (H38) The H36 contamination check
+against the naive control is also sustained-two-night: a control shift >10%
+off its prime flags the draw CONTAMINATED only when the previous same-host
+night's control also shifted >10%; a lone-night shift is a watch-note, and a
+contaminated (but not a lone-shifted) draw withholds the ratchet — a fast
+draw on shifted ground is not evidence the code got faster. A G1-G4 verdict
+failure (no longer faster than mutmut) fails the workflow directly. Evidence
 travels along the D2 numbers pipe to `intel/perf-bench.jsonl` (`intel/perf-bench.md`
 is the legible projection). This is the amplification of the measurement rule, and
 the moat defense: a regressed speed bench is caught by CI, not assumed away.
@@ -2183,3 +2188,204 @@ host-change re-prime has not been exercised yet; when it lands, re-read
 the naive control before calling the first post-migration draw ordinary.
 Prediction (3) (a sustained >1.8x shift still fails on night 2) remains
 covered by the unit-tested sustained-regression path.
+
+---
+
+# Seventh round: H37 (dispatch, the shape test that paid per node)
+
+**Where this came from.** The first profile round after the H34–H36 gate
+autopsies. `make profile` on `ccbb1e3`, five runs per shape, median:
+
+| phase | fast-tests | slow-tests | many-files |
+|---|---:|---:|---:|
+| coverage pass | 42.4% | 34.7% | 29.3% |
+| per-mutant fork | 17.5% | 24.3% | 37.8% |
+| import chain | 16.1% | 10.4% | 8.5% |
+| in-child test execution | 9.8% | 20.1% | 9.0% |
+| interpreter start/teardown | 5.1% | 3.8% | 2.7% |
+| generation | 1.8% | 1.4% | 5.7% |
+| planning, reporting, discovery, flaky probe | ~1.5% | ~1% | ~3.2% |
+| **unattributed** | **5.8%** | **3.3%** | **3.8%** |
+
+Absolute medians: fast-tests 0.348s / 96 mutants, slow-tests 0.538s / 96
+mutants, many-files 0.657s / 640 mutants. M2.1.2 failed on fast-tests
+(94.2%) on this read and passed on the next (95.8%) — run-to-run spread in
+the unattributed bucket, which the fourth round already named as a 16–20ms
+absolute residue.
+
+The top three phases are all closed: the coverage pass by H2/H19/H20/H26
+(trace core + other people's imports, correctness-rejected), the fork by
+H1 (deferred) and H33 (already at 1.1ms fork→entry + 0.9ms COW swap per
+child, teardown zero since H29). What is left is the phases nobody had
+re-profiled since their last entry: generation was 0.4–2.0% when H27
+measured it at 9.5ms for 560 mutants and read the phase as finished.
+
+### H37 — Resolve each operator's shape once, not once per node
+
+- **Phase:** generation (0.4–2.0% historically; 5.7% on many-files in this
+  round's profile)
+- **Premise, measured first.** cProfile of `generate_mutants` over the
+  many-files source set: **~84% of generation self-time is
+  `typing.__instancecheck__` plus `inspect.getattr_static`**, entered from
+  one call site — `generate.py`'s `isinstance(operator,
+  ContextualOperator)`. `ContextualOperator` is a `@runtime_checkable`
+  Protocol, so every isinstance routes through `typing._ProtocolMeta`'s
+  structural check: `_shadowed_dict` walks, `getattr_static` per protocol
+  attribute. Measured ~0.98–1.48µs per check against the registry;
+  a plain tuple isinstance is 0.07µs (22x). Generation makes one check per
+  node per operator — 18,767 calls on many-files for 640 mutants — and the
+  answer cannot change between nodes: an operator's shape is a property of
+  its class.
+- **Predicted saving (written before the change):** the check is 10.8–12ms
+  of an 114ms generation on many-files per the sweep; dispatch on a
+  precomputed boolean removes essentially all of it, so generation should
+  fall to roughly half or better on that shape. Against the *run*, that is
+  ~2–3% on many-files and under 1% on the two 3-module shapes — near the
+  A/B's resolution floor, honestly stated in advance. Nothing downstream
+  can change: the flag is resolved from the same protocol the isinstance
+  used, once, before any node exists.
+- **Correctness risk:** low. The dispatch decision is the same decision made
+  in the same place it always was — only how often it is re-derived
+  changes. A pre-check (`h37_equiv_all.py` scratch, run then not committed)
+  patched the dispatch test in place and compared every mutant's full
+  dataclass repr across all three shapes: 96/96/640 mutants, identical.
+  The residual risk is a non-registry operator reaching `_mutate_node`
+  through a path that skips `generate_mutants` — there is none (`_mutate_node`
+  has no other caller), and the shape is still resolved from the same
+  `isinstance` the protocol defines.
+- **Attempted:** yes, on branch `h37-dispatch-tuple` (commit `782c7ff`):
+  `generate_mutants` resolves `contextual = [isinstance(op,
+  ContextualOperator) for op in chosen]` once at selection time;
+  `_mutate_node` takes a `contextual: bool` and dispatches on it. The
+  protocol itself is untouched — `ContextualOperator` stays
+  `@runtime_checkable` for any external checker.
+- **Actual saving:** **indistinguishable on all three shapes** —
+  `make ab BASELINE=ccbb1e3 CANDIDATE=HEAD`, 7 interleaved runs each:
+
+  | shape | ccbb1e3 median (95% int.) | HEAD median (95% int.) |
+  |---|---|---|
+  | fast-tests | 0.426s [0.388, 0.430] | 0.418s [0.401, 0.440] |
+  | slow-tests | 0.576s [0.550, 0.652] | 0.582s [0.571, 0.634] |
+  | many-files | 0.874s [0.732, 0.929] | 0.824s [0.775, 0.883] |
+
+  Intervals overlap on all three; no shape regressed. The many-files
+  medians (-5.7%) sit inside the run-to-run spread the fourth round named
+  for this shape, and the in-process generation micro-benchmark
+  (36.5ms → 15.0ms, 2.4x) is confirmed real but is too small a slice of
+  the 0.87s run to clear the A/B floor — the ~2–3% predicted saving was
+  optimistic by roughly the width of one bucket. **Status: accepted at
+  neutral cost.** The change is a strict micro-win on a hot path with
+  identical output (625 non-slow tests pass, mutant reprs verified
+  identical on all three shapes), but it must not be booked as a
+  measured run-level win: the hypothesis's run-level prediction is
+  *unconfirmed at the A/B's resolution*.
+- **Also settled this round, H36 prediction (2):** the Ubuntu 26 migration
+  has *not* landed as of the 10-23 nightly and the 10-24 Bench — both still
+  provision `ubuntu-24.04` (20261012.334), so the host-change re-prime
+  remains unexercised and prediction (2) stays open. What *did* move: the
+  azure kernel flipped 6.17↔7.0 across 10-21..10-23, which tripped the
+  `verdict()` host-change branch twice (re-primes on 10-21 and 10-23) —
+  those re-primes are the gate working as designed, not the migration. The
+  naive control was re-read per H36's instruction before calling the 10-24
+  draw ordinary: 42.60s (10-21), 54.46s (10-22), 51.92s (10-23),
+  **33.36s (10-24)** — a 1.56x single-night swing against a historical
+  51.86–56.31s band. The 10-24 speed draw (min 0.86s, the fastest on
+  record) sits against a *contaminated* control, and the gate correctly
+  refused to ratchet on it ("below improve bar ... on one night; ratchet
+  needs a sustained shift"). No re-prime was needed: the baseline host
+  (6.17.0-1022-azure) matches the 10-24 draw's host, and the ratchet guard
+  held the lucky min out of the baseline. Conclusion recorded for the next
+  round: **the naive control is noisier than the ±4% band it was calibrated
+  on** — a single night's control reading cannot certify a draw as ordinary
+  or contaminated at the 10% threshold H36 specifies; the threshold needs
+  the same sustained-two-night treatment the wall got in H35.
+
+---
+
+# Eighth round: H38 — the contamination call needs two nights, like the wall
+
+**Where this came from.** The H37 round conclusion (above): the 10-24 naive
+control read 33.36s against a historical 51.86-56.31s band — a 1.56x
+single-night swing while the speed draw itself was ordinary (min 0.86s, but
+the ratchet guard, not contamination, held it out of the baseline). H36
+specified contamination at a 10% threshold against a *single* night's
+control reading, calibrated when the control looked flat ±4%; the 10-24
+evidence shows the control's single-night noise exceeds that band, so the
+single-night rule has false-positive power and would eventually prime the
+baseline on contaminated ground or reject an ordinary draw.
+
+**Prediction (written before the change).** If the contamination call
+requires two consecutive same-host nights >10% off the prime (mirroring
+H35's sustained-wall rule), the 10-24-style lone control swing becomes a
+watch-note instead of a contamination verdict, a genuine environment shift
+still flags CONTAMINATED on the second night, and the ratchet is withheld
+only on the sustained call. Cost: one extra night of latency before a real
+contamination is called — the same latency H35 already accepted for the
+wall, and the ratchet-withhold protects the interim.
+
+**Fix.**
+- `scripts/bench_ci.py`: new `CONTAMINATION = 0.10` constant;
+  `sustained_contamination()` mirrors `sustained_shift()` for control rows
+  (same-host scoping, immediately-previous-night check, None prime ⇒ never
+  contaminated — a pre-H38 baseline has no trusted reference);
+  `contamination_note()` classifies quiet / lone-night NOTE /
+  sustained CONTAMINATED; `verdict()` gains `control` and
+  `control_history` arguments and emits the note above the wall/ratchet
+  verdicts (the gate passes on contamination — a shifted environment
+  invalidates the *reading*, not the code); `main()` keys the
+  ratchet-withhold off the CONTAMINATED note, primes the baseline with
+  tonight's control (`naive_control` field) so the contamination gate has a
+  reference from night one, and refreshes that prime on a sustained-
+  improvement ratchet.
+- `scripts/bench_mutation.py`: the speed-workload naive baseline is emitted
+  to the numbers pipe as its own row — suite `naive-control`, reserved
+  hypothesis tag `control` — so a cross-night archive of the control
+  exists. The fixture-side naive row is not emitted (the contamination gate
+  reads the speed shape only). The control is a comparator, not a moonbuggy
+  number; the distinct tag keeps it from being mistaken for a
+  gate/ratchet candidate row. No schema-version bump: the row shape is
+  unchanged, only the suite/hypothesis tag values (both strings the schema
+  already permits).
+
+**Verified.** `pytest tests/test_bench_ci.py tests/test_harness_output_integration.py`
+40 passed (29 bench_ci, 11 harness-output integration; the bench_ci file
+gains 12 H38 tests: lone-night note, sustained CONTAMINATED, band-break,
+alien-host scoping, threshold constant, helper scoping, note classification,
+`latest_control` picker, the exact 10-24 full replay proving the lone shift
+no longer upgrades the draw to CONTAMINATED, and the quiet-control ratchet
+path; the integration file proves the control row is emitted with the speed
+shape's mutant count and the fixture-side naive row is skipped). Strict
+gates over `src/` are unaffected: `make typecheck` clean (44 files), no
+moonbuggy-source change, so `make ab` is not applicable (scripts/ is
+deliberately outside the src/ scope, per the H34/H36 precedent).
+
+**Live replay against the real archive.** The current `intel/perf-bench.jsonl`
+still carries zero `naive-control` rows (the pre-H38 nightly emitted only
+the two moonbuggy rows), so the first post-merge nightlies will run with
+`control=None`/no prime ⇒ silence, exactly the legacy-archive behavior the
+tests pin; the baseline picks up a `naive_control` prime on its next
+re-prime. The 10-26 nightly (run 40291514025, 08:22 UTC) was checked as the
+H36 re-check evidence step required by this task: the runner image is still
+**ubuntu-24.04 (20261012.334)** — GitHub's announced ubuntu-latest → Ubuntu
+26 migration has not landed on this repo's Bench — so the H36 host-change
+re-prime remains unexercised, and prediction (2) of H36 stays open. The
+10-26 speed min-of-3 was 1.18s (below the 1.34s × 0.95 improve bar, lone
+night, ratchet correctly withheld under H35), passing clean under the H36
+wall.
+
+**Prediction if the fix is right.** (1) The first post-merge nightlies
+emit one `naive-control` row per night (3 numbers-pipe rows total) and the
+gate stays silent on the control until a prime exists. (2) A future
+two-night control shift >10% off the prime flags CONTAMINATED on night 2
+and the ratchet is withheld on that night's draw. (3) A lone 10-24-style
+swing produces only the NOTE and can no longer influence the baseline.
+
+**Cost.** Zero extra bench wall (the naive control was already being run
+every night; it is now recorded instead of printed). One extra archive row
+per night. No moonbuggy-source change.
+
+**Status: implemented, pending confirmation (2026-10-26)** — mechanics
+verified by the unit path above; the live confirmation criterion is the
+next two post-merge nightly Bench runs (control rows present, no
+CONTAMINATED false-fire), the same shape H35/H36 used. QA co-sign on the
+gate change requested per standing convention.
