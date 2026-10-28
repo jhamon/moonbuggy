@@ -437,7 +437,13 @@ def emit_numbers(speed_rows, fixture_rows, speed_min=None):
                     raise SystemExit(f"harness-output row invalid: {errors}")
                 harness_output.write_jsonl(doc, out_path)
 
-    print(f"  wrote 3 numbers-pipe rows to {out_path}")
+    n_emitted = sum(
+        1
+        for suite, group in rows
+        for label, _elapsed, _count, _counts in group
+        if label == "moonbuggy" or (label == "naive baseline" and suite == "speed")
+    )
+    print(f"  wrote {n_emitted} numbers-pipe rows to {out_path}")
 
 
 if __name__ == "__main__":

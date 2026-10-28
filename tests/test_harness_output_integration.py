@@ -62,6 +62,31 @@ def test_emit_gate_skips_fixture_side_naive_row(tmp_path):
     assert control[0]["mutants"] == 84  # the speed shape, not the fixture's 22
 
 
+def test_emit_gate_prints_derived_row_count(tmp_path, capsys):
+    # The "wrote N rows" print must be derived from the emitted row list,
+    # not hardcoded, so a future row-count change cannot silently lie.
+    bench_mutation.HARNESS_OUTPUT = str(tmp_path / "out.jsonl")
+    fixture_rows = [
+        ("moonbuggy", 8.46, 22, {}),
+        ("mutmut", 15.61, 26, {}),
+        ("naive baseline", 9.0, 22, {}),
+    ]
+    speed_rows = [("moonbuggy", 0.50, 84, {}), ("naive baseline", 18.9, 84, {})]
+
+    bench_mutation.emit_numbers(speed_rows, fixture_rows)
+
+    out = capsys.readouterr().out
+    assert "wrote 3 numbers-pipe rows" in out
+
+    # Same call with the speed-side naive baseline dropped: only 2 rows are
+    # emitted (control is speed-only), and the print must say 2, not 3.
+    bench_mutation.HARNESS_OUTPUT = str(tmp_path / "out2.jsonl")
+    bench_mutation.emit_numbers([("moonbuggy", 0.50, 84, {})], fixture_rows)
+    out2 = capsys.readouterr().out
+    assert "wrote 2 numbers-pipe rows" in out2
+    assert "wrote 3" not in out2
+
+
 def test_emit_gate_is_inert_when_not_requested(tmp_path):
     bench_mutation.HARNESS_OUTPUT = None
     out = tmp_path / "out.jsonl"
