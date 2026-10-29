@@ -2389,3 +2389,92 @@ verified by the unit path above; the live confirmation criterion is the
 next two post-merge nightly Bench runs (control rows present, no
 CONTAMINATED false-fire), the same shape H35/H36 used. QA co-sign on the
 gate change requested per standing convention.
+
+---
+
+# Ninth round: H39 — the coverage pass is the largest phase in every shape (2026-10-27)
+
+Registered from a fresh `make profile` on the h38-control-sustained tree
+(bafdb2c), before any implementation, per the standing rule.
+
+## Phase breakdown (median of 5, `--no-cache`, unprofiled check within 20%)
+
+| phase | fast-tests | slow-tests | many-files |
+|---|---|---|---|
+| wall clock | 0.357s | 0.544s | 0.667s |
+| **coverage pass** | **0.157s (43.9%)** | **0.195s (35.9%)** | **0.205s (30.7%)** |
+| per-mutant fork | 0.056s (15.6%) | 0.126s (23.1%) | 0.265s (39.8%) |
+| in-child test execution | 0.033s (9.2%) | 0.111s (20.4%) | 0.060s (9.0%) |
+| import chain | 0.058s (16.3%) | 0.059s (10.9%) | 0.059s (8.9%) |
+| interpreter start/teardown | 0.018s (5.0%) | 0.018s (3.3%) | 0.019s (2.8%) |
+
+(fast-tests attributed 92.5%, below the 95% M2.1.2 floor — flagged by the
+Makefile gate; the remainder is 7.5% "other", consistent with the sub-second
+scheduler-noise caveat in profile_run.py. slow-tests 96.4% and many-files
+97.1% pass. The ranking is unambiguous regardless.)
+
+## Premise, measured first
+
+The coverage pass runs the suite once under `pytest-cov` (in a fork) and then
+reads the data file back. Splitting the phase on the fast-tests workload
+(96 mutants, same generator, forked path, 5 reps):
+
+| step | median |
+|---|---|
+| `forkserver.run_pytest_in_fork` (instrumented) | 0.247s |
+| `read_coverage_data` (LineMap build) | 0.002s |
+
+So essentially all of the phase is the instrumented run itself; the read-back
+H11/H3 already touched is noise at this suite size. Within the instrumented
+run, against an uninstrumented fork of the same suite:
+
+| fork run variant | median |
+|---|---|
+| no coverage | 0.151s |
+| coverage, no dynamic context | 0.217s |
+| coverage + `--cov-context=test` | 0.236s |
+
+The raw C-tracer instrumentation costs ~66ms; per-test dynamic-context
+switching costs ~19ms on top. The suite itself executes in ~55ms
+uninstrumented — the coverage pass pays ~1.5x the suite's own execution cost
+to learn which tests touch which lines.
+
+Note the unattributed 19ms gap between this probe's instrumented fork
+(0.236s) and the phase number (0.157s): the phase excludes the fork-server
+round-trip the probe pays per call (the real run forks once for the pass and
+reuses the warm session after). The *deltas* between variants are the signal,
+not the absolute values.
+
+## H39 — cut the coverage pass's instrumentation overhead
+
+- **Phase:** coverage pass (30.7–43.9%, largest in every shape).
+- **Premise:** the pass's cost is the C tracer (~66ms fast-tests), not the
+  read-back and not context switching. Candidate mechanisms, to be measured
+  individually before any adoption:
+  1. **Shrink the traced set.** `--cov={source_dir}` traces everything under
+     the source dir; the forkserver host already imports every module before
+     the pass (warm-up). Tracing only modules actually imported during
+     collection — or starting the tracer after collection completes —
+     should cut the tracer's per-event cost on import-time execution.
+  2. **Drop `--cov-context=test` on suites that cannot use it.** ~19ms here;
+     only worth a hypothesis if a no-context LineMap can still select
+     mutants (it cannot today — the context IS the per-test attribution —
+     so this mechanism likely falsifies unless an alternative attribution
+     source exists. Recorded so the falsification is on file.)
+  3. **Conditional static context** — attribute via the baseline probe's
+     outcome recorder plus per-test coverage deltas rather than dynamic
+     contexts; riskiest, touches verdict-relevant mapping.
+- **Predicted saving:** mechanism 1 alone: 5–10% wall on fast-tests
+  (0.157s → ~0.14s), 3–6% on the other shapes. If mechanism 1 pans out and
+  extends to many-files (640 mutants across 40 modules, most import-only),
+  the upper end.
+- **Correctness risk:** mechanism 1 is mapping-affecting. The LineMap decides
+  NO_COVERAGE and test selection; a mutant whose module was only executed at
+  import time must still be attributed. Gated on the full oracle suite
+  (`make check-oracle check-robustness check-properties`) plus the
+  differential check; QA sign-off required before merge, per the standing
+  rule for anything touching verdict selection.
+- **Attempted:** no — registered first, per the rule. Implementation starts
+  only on a branch off main after PR #103 resolves.
+
+## Status: registered, not attempted (2026-10-27)
