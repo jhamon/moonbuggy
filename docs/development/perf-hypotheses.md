@@ -2478,3 +2478,78 @@ not the absolute values.
   only on a branch off main after PR #103 resolves.
 
 ## Status: registered, not attempted (2026-10-27)
+
+---
+
+# Tenth round: H39 mechanism 1 — shrink the traced set, measured (2026-10-29)
+
+The ninth round registered mechanism 1 with a 5–10% prediction. This round
+measures it, on the post-#108 tree (00f4a2e), before any implementation.
+
+## What mechanism 1 turned out to be
+
+"Trace only modules actually imported during collection" is not reachable
+through the CLI: `--cov={source_dir}` installs the C tracer before
+`pytest_configure`, and the tracer's `should_trace` decides per *file*, with
+the per-file decision cached — nothing about collection can change it. The
+realizable form is **pause the tracer across collection**: `CovController.
+pause()` at `pytest_sessionstart` (tryfirst), `resume()` at
+`pytest_collection_finish` (trylast). The tracer is off for the ~46ms of
+collection on fast-tests, and the whole tracer-on cost falls on the tests
+themselves.
+
+## Map correctness, verified first
+
+`run_coverage_pass` with the pause/resume conftest vs without, full map
+comparison (this is a mapping-affecting change; the map is the gate):
+
+| shape | paused map | baseline map | identical |
+|---|---|---|---|
+| fast-tests | 90 tests, 36 lines | 90 tests, 36 lines | **identical** |
+| slow-tests | 90 tests, 60 lines | 90 tests, 60 lines | **identical** |
+| many-files | 120 tests, 240 lines | 120 tests, 240 lines | **identical** |
+
+Collection does not execute a measured line of the source under these
+workloads — the pause is free of correctness cost *on this workload class*,
+which is the caveat the adoption decision has to carry: any suite whose
+**fixtures or module imports execute source lines** would lose exactly those
+attribution lines from the map. The differential check and oracle gates below
+are the standing insurance for the fixture half; the import-time half is why
+QA sign-off is required before merge rather than the change shipping silent.
+
+## Wall, measured
+
+`run_coverage_pass` in-process (not the warm host, to isolate the pass), 9
+reps, median; the warm host would add the pause machinery to every session
+but the mechanism is the same:
+
+| shape | baseline | paused-collection | delta | ratio |
+|---|---:|---:|---:|---:|
+| fast-tests | 259.8ms | 253.7ms | +6.1ms | 1.024x |
+| slow-tests | 297.3ms | 290.4ms | +6.9ms | 1.024x |
+| many-files | 320.8ms | 300.7ms | +20.1ms | 1.067x |
+
+Context: a fresh profile on this tree reads the coverage pass at 150ms
+(fast-tests), 184ms (slow-tests), 192ms (many-files), in a phase that shares
+a process with everything else. The in-process probe's absolute baseline
+(260ms, 297ms, 321ms) carries a coverage-import and a warm-up the real phase
+does not pay per-run; **the deltas are the signal, not the ratios** — 6–20ms
+per shape, or **2.4% of the pass, under 1% of the run on fast/slow-tests,
+~2.7% of many-files' run**.
+
+The prediction (5–10% wall on fast-tests, 3–6% elsewhere) is refuted. The
+9th round's own premise table already said why, and this round confirms it:
+collection under the tracer is 135.6ms on fast-tests whether or not the
+tracer is actually switched on — the *cost of being in coverage's process*,
+not the tracer's per-event work — so pausing across collection reclaims only
+the 6–20ms of tracer events collection itself would have generated, which on
+these workloads is almost none: the source under test is not executed at
+import time by any fixture, so there was nothing for the tracer to record
+there in the first place.
+
+## Status: refuted by measurement (2026-10-29)
+
+Mechanism 1 does not survive contact with the workload the prediction was
+written against. Not implemented; not gated. Mechanisms 2 and 3 remain as
+recorded in the ninth round (2: likely falsifying; 3: only with headroom,
+which mechanism 1 was predicted to create and did not).
