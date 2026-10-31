@@ -2553,3 +2553,104 @@ Mechanism 1 does not survive contact with the workload the prediction was
 written against. Not implemented; not gated. Mechanisms 2 and 3 remain as
 recorded in the ninth round (2: likely falsifying; 3: only with headroom,
 which mechanism 1 was predicted to create and did not).
+
+---
+
+# H40 — extend the rank-1 instrument surface to the R2 bench-real baseline (2026-10-31)
+
+**Where this came from.** The 10-31 weekly brief (§3): perf's rank-1 internal
+signal — one trustworthy bench-instrument surface extended to the R2
+bench-real surface — remained half unaddressed after H36/H37 (calibration and
+a hot path, not the surface). The R2 nightly bench-real baseline (t_7ed08bd5)
+captured a conforming harness-output row on 2026-09-29
+(`intel/perf-bench-real-baseline.jsonl`: moonbuggy 277.8s / 381 mutants on
+more-itertools v11.1.0 @ 64be96ce, Darwin, ~8x load contention) — and nothing
+consumed it. The synthetic nightly gate had H34/H35/H36/H38 machinery; the
+bench-real surface had an archive and a prayer.
+
+**Assessment before the change (the gap, itemized).**
+1. *Instrument coverage*: bench_real.py archived only the moonbuggy row. The
+   naive leg — the surface's natural environment control (same operators, no
+   selection, moves when the machine moves) — was printed and dropped. The
+   synthetic gate's H38 contamination call has a cross-night control archive;
+   bench-real had no control rows at all.
+2. *Drift alarm*: no code path compared a fresh bench-real row against the
+   stored one. A regression, a comparator shift, or a corrupt run would sit
+   in the archive unnoticed until someone re-read the file by hand.
+3. *Calibration band treatment*: nothing. No wall, no sustained rule, no
+   host-change re-prime — the surface predates every convention H34–H38
+   established.
+
+**Prediction (written before the change, `prediction-r2-bench-real.md`).**
+If the bench-real row is checked against a stored prime with the synthetic
+gate's calibrated rules — reusing `bench_ci.py`'s machinery rather than
+growing a second rule set — then (1) a fresh row >1.8x (H36-calibrated slack)
+above the prime fails on the second consecutive night (H35 sustained rule),
+a lone crossing warns; (2) a fresh row <0.95x ratchets the prime down only
+after two consecutive nights; (3) a host change re-primes (H36); (4) a
+sustained >10% control shift flags the draw CONTAMINATED and withholds the
+ratchet (H38); (5) the synthetic gate's behavior is untouched (distinct suite
+names keep the rows apart by construction). Cost: zero bench wall for the
+check itself (it reads the archive); no moonbuggy-source change; scripts/,
+tests, Makefile, docs only — outside src/ per the H34/H36 precedent.
+
+**Fix.**
+- `scripts/bench_real.py`: `emit_numbers` now also archives the naive leg as
+  suite `real-more-itertools-v11.1.0-naive-control`, hypothesis `control`
+  (same convention as bench_mutation.py's H38 control rows). New
+  `--check-drift` mode: reads the newest gate/control rows from the
+  bench-real archive (`MB_REAL_ARCHIVE`, default
+  `intel/perf-bench-real-baseline.jsonl`), loads the stored prime
+  (`MB_REAL_BASELINE`, default `intel/perf-baseline-real.json`), and calls
+  `bench_ci.verdict()` with bench-real's suite names — one calibration, two
+  surfaces. Primes on first check or host change (with tonight's control, so
+  the contamination gate has a reference from night one); ratchets down on a
+  sustained improvement (writing tonight's row); withholds the ratchet on
+  sustained contamination. Exit: 0 pass/prime, 2 sustained regression, 3
+  archive/baseline error.
+- `Makefile`: `bench-real-drift` target (the check is free — it does not run
+  the ~75-min bench).
+- `tests/test_bench_real_drift.py`: 16 unit tests pinning each rule through
+  the real entry point (prime, sustained regression, lone crossing,
+  host-change re-prime, lone-improvement withhold, sustained-improvement
+  ratchet, sustained-contamination withhold, control prime on fresh prime,
+  empty-archive error, both-rows emission, no-pipe noop, CLI flag, and the
+  wall-outcome parametrization).
+
+**A latent defect found on the way (recorded, not changed).** `bench_ci.py`'s
+nightly ratchet branch rewrites the *loaded old row* after refreshing its
+`naive_control` — the stored `wall_clock` never actually moves on a sustained
+improvement, so the wall's floor cannot ratchet down until the next
+host-change re-prime. The bench-real path implements the ratchet correctly
+(tonight's row becomes the prime); the synthetic gate's defect is left for a
+QA-gated fix since it changes gate behavior on merged code. Verified by
+isolation test during this round's work (verdict passes "baseline improved",
+stored file still carries the old wall_clock).
+
+**Live replay against the real archive.** `make bench-real-drift` on the
+committed 277.8s row: primes `intel/perf-baseline-real.json` on first run and
+passes silently on re-check (exit 0 both times). Synthetic archive and
+baseline files untouched by the drift path (verified by `git status` across
+every scenario run). Scenarios exercised against the real archive
+(`_drift_scenarios.py` in the round workspace, since removed): sustained
+regression 550s→exit 2 with "sustained (prev night 550.00s)"; lone crossing
+550s→exit 0 WARNING; lone improvement→ratchet withheld; sustained improvement
+200s→ratchet to 200; each restored the archive byte-for-byte after.
+
+**What the surface still lacks (honest scope note).** The check is a tool,
+not a schedule: bench-real is deliberately CI-unwired (the naive leg alone is
+~60 min; the skill's standing guidance is capture-and-archive, not nightly).
+Until a boss decision wires bench-real into a cadence, drift alarms fire only
+when someone runs `make bench-real-drift` after a fresh capture. That is the
+half of the surface a scheduling decision owns, not an instrument gap.
+
+**Prediction vs outcome.** All five predicted behaviors verified (unit +
+live archive replay); the only surprise was the bench_ci.py ratchet defect
+found *by* building the H40 path — the surface extension did what an
+instrument surface is for: it made an existing claim ("the ratchet-down is
+symmetric") checkable, and the check failed.
+
+**Status: implemented on `h40-bench-real-drift`, tests green (655 + 16),
+strict gates green, awaiting QA co-sign on the ratchet-write asymmetry note.**
+The synthetic-gate defect needs its own QA-gated fix or explicit
+accept-as-is decision.
