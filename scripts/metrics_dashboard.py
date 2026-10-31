@@ -171,7 +171,7 @@ HEADER = (
     "hand.\n"
     "A later CI run rewrites this file, and the rewrite itself is the "
     "drift-detection\n"
-    "signal. See `docs/competitive-intel.md` §4a for the re-ranking "
+    "signal. See the competitive-intel brief (§4a, internal) for the re-ranking "
     "discipline.\n"
     "\n"
     "Columns: correctness (oracle agreement, differential disagreement, FP/FN\n"
