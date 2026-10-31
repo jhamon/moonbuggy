@@ -2617,15 +2617,17 @@ tests, Makefile, docs only — outside src/ per the H34/H36 precedent.
   empty-archive error, both-rows emission, no-pipe noop, CLI flag, and the
   wall-outcome parametrization).
 
-**A latent defect found on the way (recorded, not changed).** `bench_ci.py`'s
-nightly ratchet branch rewrites the *loaded old row* after refreshing its
-`naive_control` — the stored `wall_clock` never actually moves on a sustained
-improvement, so the wall's floor cannot ratchet down until the next
-host-change re-prime. The bench-real path implements the ratchet correctly
-(tonight's row becomes the prime); the synthetic gate's defect is left for a
-QA-gated fix since it changes gate behavior on merged code. Verified by
-isolation test during this round's work (verdict passes "baseline improved",
-stored file still carries the old wall_clock).
+**A latent defect found on the way (recorded; FIXED 2026-10-31, t_9e27cf52).**
+`bench_ci.py`'s nightly ratchet branch used to rewrite the *loaded old row*
+after refreshing its `naive_control` — the stored `wall_clock` never actually
+moved on a sustained improvement, so the wall's floor could not ratchet down
+until the next host-change re-prime. The bench-real path implements the
+ratchet correctly (tonight's row becomes the prime). The synthetic gate's
+defect was left for a QA-gated fix since it changes gate behavior on merged
+code, and is now fixed: `bench_ci.py`'s ratchet branch writes tonight's row
+as the new prime via `store_base` (H38 contamination-withhold intact), pinned
+by a regression test in `tests/test_bench_ci.py`. The two surfaces now agree
+on ratchet behavior — one calibration, two surfaces.
 
 **Live replay against the real archive.** `make bench-real-drift` on the
 committed 277.8s row: primes `intel/perf-baseline-real.json` on first run and
