@@ -30,6 +30,7 @@ needed because more-itertools is flat, resolved via ``pythonpath .``.
 Run: .venv/bin/python scripts/bench_real.py   (or ``make bench-real``)
 """
 
+import argparse
 import json
 import os
 import platform
@@ -70,6 +71,20 @@ TIMEOUT = 30
 # versioned row rather than a prose table. Same contract as bench_mutation.py.
 HARNESS_OUTPUT = os.environ.get("MB_HARNESS_OUTPUT")
 BENCH_HYPOTHESIS = "baseline"
+# H40: the naive leg rides the pipe as bench-real's environment control, in
+# its own suite/hypothesis pair (same convention as bench_mutation.py's
+# "naive-control" rows for the synthetic gate).
+CONTROL_HYPOTHESIS = "control"
+
+# The bench-real drift-check archive + stored prime (H40). Kept separate from
+# the synthetic gate's archive/baseline so the two surfaces can never bleed
+# into each other's verdicts.
+REAL_ARCHIVE = os.environ.get(
+    "MB_REAL_ARCHIVE", str(REPO / "intel" / "perf-bench-real-baseline.jsonl")
+)
+REAL_BASELINE = os.environ.get(
+    "MB_REAL_BASELINE", str(REPO / "intel" / "perf-baseline-real.json")
+)
 
 # The naive baseline and mutmut both need the project importable from the tree
 # they are running inside. more-itertools is flat (package dir at the root), so
@@ -268,7 +283,12 @@ def emit_numbers(rows):
     Only moonbuggy's own row is archived (matching bench_mutation.py: mutmut
     and the naive baseline are comparators, not numbers to claim as ours). The
     suite name carries the pinned subject so the row is unambiguous; the
-    hypothesis tag is the reserved ``baseline`` marker.
+    hypothesis tag is the reserved ``baseline`` marker. The naive leg is also
+    archived (suite ``real-naive-control``, hypothesis ``control``) -- it is
+    bench-real's environment control (H40): same operators as the gate row,
+    no selection, so it moves when the machine moves and not when moonbuggy's
+    code does. The drift check keys its H38-analog contamination call off
+    this row.
 
     Args:
         rows: the (label, elapsed, count, counts) rows for this run.
@@ -286,24 +306,147 @@ def emit_numbers(rows):
 
     from moonbuggy import __version__
 
-    label, elapsed, count, _counts = next(r for r in rows if r[0] == "moonbuggy")
-    doc = harness_output.build(
-        suite=f"real-{PROJECT}-{TAG}",
-        purpose="bench",
-        harness="bench_real.py",
-        wall_clock=elapsed,
-        mutants=count,
-        hypothesis=BENCH_HYPOTHESIS,
-        moonbuggy=__version__,
+    moon_row = next(r for r in rows if r[0] == "moonbuggy")
+    naive_row = next(r for r in rows if r[0] == "naive baseline")
+    for suite, hypothesis, row in (
+        (f"real-{PROJECT}-{TAG}", BENCH_HYPOTHESIS, moon_row),
+        (f"real-{PROJECT}-{TAG}-naive-control", CONTROL_HYPOTHESIS, naive_row),
+    ):
+        _label, elapsed, count, _counts = row
+        doc = harness_output.build(
+            suite=suite,
+            purpose="bench",
+            harness="bench_real.py",
+            wall_clock=elapsed,
+            mutants=count,
+            hypothesis=hypothesis,
+            moonbuggy=__version__,
+        )
+        errors = harness_output.validate(doc)
+        if errors:
+            raise SystemExit(f"harness-output row invalid: {errors}")
+        harness_output.write_jsonl(doc, out_path)
+    print(f"  wrote numbers-pipe rows to {out_path}")
+
+
+def check_drift():
+    """H40: check the newest bench-real row for drift against its prime.
+
+    Reuses the synthetic gate's verdict machinery (``bench_ci.py``) with
+    bench-real's suite names, so the two surfaces share one calibration --
+    H34 min-statistic / H35 sustained-two-night wall + ratchet / H36
+    host-change re-prime / H38 sustained-two-night contamination -- instead
+    of growing a second, subtly different rule set. The bench-real row is a
+    single cold measurement (~4 min leg, no rep set), so ``gate_stat`` falls
+    back to ``wall_clock`` per H34's legacy-row rule.
+
+    The stored prime lives in ``intel/perf-baseline-real.json`` (same shape
+    as the synthetic gate's ``perf-baseline.json``); it is primed on the
+    first check after it is absent or the host changes, and ratchets down on
+    a sustained improvement only -- identical to the synthetic gate.
+
+    Returns:
+        0 pass/prime, 2 regression, 3 archive/baseline error.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import bench_ci
+
+    gate_suite = f"real-{PROJECT}-{TAG}"
+    control_suite = f"real-{PROJECT}-{TAG}-naive-control"
+    try:
+        rows = bench_ci.load_rows(REAL_ARCHIVE)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 3
+
+    def _rows_of(suite, hypothesis):
+        return [
+            row
+            for row in reversed(rows)
+            if row["suite"] == suite and row["hypothesis"] == hypothesis
+        ]
+
+    gate_rows = _rows_of(gate_suite, BENCH_HYPOTHESIS)
+    control_rows = _rows_of(control_suite, CONTROL_HYPOTHESIS)
+    if not gate_rows:
+        print("ERROR: no bench-real gate rows in the archive", file=sys.stderr)
+        return 3
+    new = gate_rows[0]
+    history = gate_rows[1:]
+    control = control_rows[0] if control_rows else None
+    control_history = control_rows[1:]
+
+    try:
+        base = bench_ci.load_base(REAL_BASELINE)
+    except (ValueError, json.JSONDecodeError):
+        print("ERROR: bench-real baseline unreadable", file=sys.stderr)
+        return 3
+
+    ok, why = bench_ci.verdict(
+        new,
+        base,
+        history,
+        control=control,
+        control_history=control_history,
     )
-    errors = harness_output.validate(doc)
-    if errors:
-        raise SystemExit(f"harness-output row invalid: {errors}")
-    harness_output.write_jsonl(doc, out_path)
-    print(f"  wrote numbers-pipe row to {out_path}")
+    print(f"bench-real: {new['wall_clock']:.1f}s / {new['mutants']} mutants")
+    if control is not None:
+        print(f"  naive control: {control['wall_clock']:.1f}s")
+    if why:
+        print(f"  {why}")
+
+    if base is None or new["host"] != base["host"]:
+        prime = {}
+        if control is not None:
+            prime["naive_control"] = control["wall_clock"]
+        bench_ci.store_base(REAL_BASELINE, {**new, **prime})
+        print("  primed bench-real baseline: arming the drift check")
+    elif ok and bench_ci.gate_stat(new) < bench_ci.gate_stat(base) * bench_ci.IMPROVE:
+        contaminated = bench_ci.contamination_note(
+            new, base, control, _control_prime(base), control_history
+        )
+        if contaminated and contaminated.startswith("CONTAMINATED"):
+            print(f"  {contaminated}")
+            print("  ratchet withheld: contaminated ground (H38/H40)")
+        elif bench_ci.sustained_improvement(new, base, history):
+            # Ratchet: the stored baseline becomes tonight's row (with the
+            # control prime refreshed). NOTE: bench_ci.py's nightly ratchet
+            # rewrites the loaded OLD row instead of tonight's row, so the
+            # synthetic gate's stored wall_clock never actually moves on an
+            # improvement -- a latent defect recorded in the H40 entry and
+            # deliberately not changed here (verdict behavior is QA's).
+            fresh = {**new}
+            if control is not None:
+                fresh["naive_control"] = control["wall_clock"]
+            with open(REAL_BASELINE, "w", encoding="utf-8") as fh:
+                json.dump(fresh, fh, indent=2, sort_keys=True)
+                fh.write("\n")
+            print("  wrote updated bench-real baseline (sustained improvement)")
+
+    return 0 if ok else 2
 
 
-def main():
+def _control_prime(base):
+    """The baseline's stored naive-control prime (H38/H40 shape passthrough)."""
+    return base.get("naive_control") if base else None
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Real-project credibility benchmark (moonbuggy vs mutmut vs naive)."
+    )
+    parser.add_argument(
+        "--check-drift",
+        action="store_true",
+        help=(
+            "skip the bench; check the newest archived bench-real row for "
+            "drift against intel/perf-baseline-real.json (H40)"
+        ),
+    )
+    args = parser.parse_args(argv)
+    if args.check_drift:
+        return check_drift()
+
     print(
         f"python: {platform.python_version()}   "
         f"platform: {platform.system()} {platform.release()}   "
@@ -363,4 +506,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

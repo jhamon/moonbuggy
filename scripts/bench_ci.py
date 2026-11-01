@@ -503,12 +503,13 @@ def main(argv=None):
             print("  %s" % contaminated)
             print("  ratchet withheld: contaminated ground (H38)")
         elif sustained_improvement(new, base, history):
-            fresh = load_base(BASELINE_PATH)
-            if control is not None and fresh is not None:
-                fresh["naive_control"] = control["wall_clock"]
-                with open(BASELINE_PATH, "w", encoding="utf-8") as fh:
-                    json.dump(fresh, fh, indent=2, sort_keys=True)
-                    fh.write("\n")
+            # H40 follow-up: ratchet the stored baseline to tonight's row,
+            # matching the bench-real drift check. The control prime is
+            # refreshed from tonight's reading.
+            prime = {**new}
+            if control is not None:
+                prime["naive_control"] = control["wall_clock"]
+            store_base(BASELINE_PATH, prime)
             print("  wrote updated baseline (sustained improvement)")
 
     write_row_file(ok, gate_row=new)

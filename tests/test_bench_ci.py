@@ -537,3 +537,67 @@ def test_ratchet_is_not_withheld_when_control_is_quiet():
     )
     assert ok
     assert "improved" in why
+
+
+def test_sustained_improvement_ratchets_stored_wall_clock(tmp_path, monkeypatch):
+    """A sustained improvement writes tonight's row as the new baseline prime.
+
+    The nightly ratchet previously reloaded the stored row and refreshed only
+    its ``naive_control`` field, leaving ``wall_clock`` fixed until the next
+    host-change re-prime. This test pins the intended ratchet behavior.
+    """
+    import json
+
+    import bench_ci
+
+    archive = tmp_path / "archive.jsonl"
+    baseline_path = tmp_path / "baseline.json"
+    monkeypatch.setattr(bench_ci, "ARCHIVE", str(archive))
+    monkeypatch.setattr(bench_ci, "BASELINE_PATH", str(baseline_path))
+    monkeypatch.setattr(bench_ci, "ROW_FILE", str(tmp_path / "row.md"))
+
+    def row(wall, ts, min_=None):
+        data = {
+            "schema": 1,
+            "suite": "speed",
+            "hypothesis": "baseline",
+            "purpose": "bench",
+            "harness": "bench_mutation.py",
+            "moonbuggy": "0.2.0",
+            "commit": "aaaaaaa",
+            "python": "3.12.13",
+            "host": "Darwin 24.1.0",
+            "timestamp": ts,
+            "wall_clock": wall,
+            "runs": 1,
+            "mutants": 96,
+            "mutants_per_sec": wall / 96,
+            "memory_delta": 0.0,
+        }
+        if min_ is not None:
+            data["min"] = min_
+        return data
+
+    base = row(100.0, "2026-10-01T00:00:00+00:00")
+    prev = row(50.0, "2026-11-01T00:00:00+00:00", min_=50.0)
+    new = row(50.0, "2026-11-02T00:00:00+00:00", min_=50.0)
+    control = {
+        **row(500.0, "2026-11-02T00:00:00+00:00"),
+        "suite": "naive-control",
+        "hypothesis": "control",
+    }
+    with open(archive, "w", encoding="utf-8") as fh:
+        for data in (base, prev, new, control):
+            fh.write(json.dumps(data) + "\n")
+    baseline_path.write_text(
+        json.dumps({**base, "naive_control": 500.0}) + "\n", encoding="utf-8"
+    )
+
+    rc = bench_ci.main(["--skip-bench"])
+    assert rc == 0
+
+    prime = json.loads(baseline_path.read_text(encoding="utf-8"))
+    assert prime["wall_clock"] == 50.0
+    assert prime["min"] == 50.0
+    assert prime["timestamp"] == "2026-11-02T00:00:00+00:00"
+    assert prime["naive_control"] == 500.0

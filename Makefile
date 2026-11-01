@@ -6,7 +6,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: test check-oracle check-fast-path check-pytest-args check-spike check-mutmut check-robustness check-properties check-cli bench bench-real bench-coverage bench-ci profile ab docs docs-test docs-linkcheck blog docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install dashboard check-all
+.PHONY: test check-oracle check-fast-path check-pytest-args check-spike check-mutmut check-robustness check-properties check-cli bench bench-real bench-real-drift bench-coverage bench-ci profile ab docs docs-test docs-linkcheck blog docstring-coverage lint format-check typecheck oss-hunt check-differential check-fresh-install dashboard check-all
 
 ## Default suite. Fast; excludes the subprocess-per-mutant tests.
 test:
@@ -52,6 +52,15 @@ bench:
 ## See docs/benchmark-results.md.
 bench-real:
 	$(PYTHON) scripts/bench_real.py
+
+## H40: drift-check the bench-real surface without running the bench. Reads
+## the newest moonbuggy row from intel/perf-bench-real-baseline.jsonl and
+## applies the same calibrated rules as the synthetic gate (H34 statistic /
+## H35 sustained-two-night wall + ratchet / H36 host-change re-prime /
+## H38 sustained-two-night contamination) against intel/perf-baseline-real.json.
+## Exit: 0 pass/prime; 2 sustained regression; 3 archive/baseline error.
+bench-real-drift:
+	$(PYTHON) scripts/bench_real.py --check-drift
 
 ## CI-integrated bench: runs `make bench`, gates it, and adds a second gate.
 ## The speed workload's wall-clock must not regress > 1.25x past the committed
