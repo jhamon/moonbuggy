@@ -39,6 +39,27 @@ class TestWorkflowGlue:
         # scripts/bench_real.py — the same entry point the drift tests pin.
         assert "make bench-real" in self.text
 
+    def test_workflow_actually_runs_the_drift_gate(self):
+        # QA rework: `make bench-real` alone only captures and exits 0 — the
+        # gate lives in the separate --check-drift invocation. Pin that the
+        # workflow's run steps include the drift target, so a sustained
+        # regression can actually exit 2 in CI (fails on the pre-rework
+        # wiring, where the only step was the capture).
+        steps = [
+            line.strip()
+            for line in self.text.splitlines()
+            if line.strip().startswith("run: make ")
+        ]
+        assert any(s.startswith("run: make bench-real-drift") for s in steps), (
+            f"no drift-gate step among run steps: {steps}"
+        )
+
+    def test_failure_reporter_can_post(self):
+        # report_ci_failure.sh requires `issues: write` on the job (same as
+        # nightly.yml / weekly.yml); without it the failure() step silently
+        # cannot create the board issue.
+        assert "issues: write" in self.text
+
     def test_target_runs_bench_real_script(self):
         makefile = (REPO / "Makefile").read_text(encoding="utf-8")
         assert "$(PYTHON) scripts/bench_real.py" in makefile

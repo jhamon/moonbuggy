@@ -32,6 +32,7 @@ jobs:
     timeout-minutes: 150
     permissions:
       contents: write
+      issues: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         # persist-credentials stays on (the default): the commit-back step
@@ -39,12 +40,19 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           python-version: "3.12"
-      - name: "bench-real capture + drift gate"
-        # bench_real.py runs the bench, archives the moonbuggy row (and the
-        # naive control) to the numbers pipe, then check_drift() gates tonight's
-        # row against intel/perf-baseline-real.json — one process, one exit code
-        # (0 pass/prime, 2 sustained regression, 3 archive/baseline error).
+      - name: "bench-real capture"
+        # bench_real.py runs the bench and archives the moonbuggy row (and the
+        # naive control) to the numbers pipe. Exit 0 on success.
         run: make bench-real PYTHON=$(command -v python)
+      - name: "drift gate"
+        # check_drift() gates tonight's fresh row against
+        # intel/perf-baseline-real.json — a separate invocation so the capture
+        # step and the gate each honor the documented exit contract: 0
+        # pass/prime, 2 sustained regression, 3 archive/baseline error. A
+        # sustained regression exits 2, fails the job, and fires the
+        # failure-reporter below. (QA rework t_ad5398cd: the first draft only
+        # captured and never gated.)
+        run: make bench-real-drift PYTHON=$(command -v python)
       - name: "Commit back the intel/ perf evidence (no-op if unchanged)"
         run: |
           git config user.name "moonbuggy-boss"
