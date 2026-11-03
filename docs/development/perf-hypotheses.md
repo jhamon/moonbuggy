@@ -2656,3 +2656,44 @@ symmetric") checkable, and the check failed.
 strict gates green, awaiting QA co-sign on the ratchet-write asymmetry note.**
 The synthetic-gate defect needs its own QA-gated fix or explicit
 accept-as-is decision.
+
+## H40 addendum — the bench-real drift cadence (2026-11-03, t_ad5398cd)
+
+H40's honest scope note ("the check is a tool, not a schedule") is closed with
+a scheduling decision. The three candidates and their tradeoffs:
+
+| Option | Cost per firing | Alarm latency | What it actually watches |
+|---|---|---|---|
+| (a) nightly drift-only in the Bench workflow | ~0 (reads the archive) | none better — archive is only re-captured manually | re-reads the same stale row nightly; inert |
+| (b) weekly fresh capture + drift check | ~75 min wall, 1 runner-night/week | ≤ 1 week | tonight's bench-real row vs the prime |
+| (c) manual-only with documented trigger | 0 unless a human decides | as long as the human waits | whatever the human remembers to check |
+
+(a) is the trap: the check is free, but a free check with no fresh input is
+theater — the 2026-09-29 row would be "checked" every night against itself.
+(c) is what we had. (b) is the only option where the alarm's input is fresher
+than the alarm: bench-real is deliberately not a nightly surface (the naive
+leg alone is ~60 min), but a weekly slot is where the ~75-min capture is
+affordable, and the check rides it at zero marginal cost.
+
+**Decision: (b) — weekly, Mondays 06:00 UTC, ahead of the 08:00 Weekly tier
+(`.github/workflows/bench-real.yml`, new).** The workflow runs `make
+bench-real` (capture + drift gate in one process, one exit code), then commits
+back `intel/perf-bench-real-baseline.jsonl` and
+`intel/perf-baseline-real.json` under the same no-op-if-unchanged convention
+as `bench.yml`; failures report through `scripts/report_ci_failure.sh`. The
+first Monday run primes the baseline (host changes to the ubuntu runner, so
+H36 re-priming is expected and correct — the Darwin hand-capture row stays in
+the archive as history). The pinned-subject + pinned-SHA design means the
+runner-host change is the only re-prime trigger, not subject drift.
+
+Glue tests (`tests/test_bench_real_cadence.py`, 12) pin the workflow
+structurally — cron slot, `make bench-real` wiring, both intel/ artifacts in
+the commit-back, the no-op guard, the failure reporter, the timeout ceiling —
+so a Makefile rename fails a test here instead of failing silently in a
+Monday cron, plus the exit-contract pins (help advertises `--check-drift`;
+missing archive → exit 3) that the workflow's gate-on-exit depends on.
+
+**No src/ change; no bench wall added anywhere except the new weekly slot
+itself.** Status: implemented on `perf/h40-bench-real-cadence`, gates green
+(mypy strict src/ clean, ruff check/format clean, interrogate/pydoclint clean,
+668-test suite green), awaiting QA co-sign.

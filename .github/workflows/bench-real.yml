@@ -1,0 +1,62 @@
+# H40 follow-up: the bench-real drift cadence.
+#
+# Decision (t_ad5398cd): the drift alarm runs weekly on Mondays, paired with a
+# fresh bench-real capture. A nightly drift-only check would fire against an
+# archive that is only re-captured manually — the check is free, but without a
+# fresh row it can only ever re-read the same numbers. Bench-real is
+# deliberately not a nightly surface (the naive leg alone is ~60 min); the
+# weekly slot is where a fresh capture is affordable, so the check rides it.
+#
+# The bench runs at reduced contention: the scheduled slot is the only heavy
+# load, so the capture lands on a quieter runner-night than the hand-run
+# 8x-contention 2026-09-29 reference. The gate tolerates that via H36-calibrated
+# slack and host-change re-priming, not by hiding the row.
+#
+# Every command is the same one a developer runs locally; nothing here is
+# CI-specific except the commit-back of the intel/ artifacts.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # 06:00 UTC Mondays, ahead of the 08:00 Weekly tier
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bench-real:
+    runs-on: ubuntu-latest
+    # The full bench (moonbuggy + mutmut + naive legs) is ~75 min locally;
+    # a hosted runner is slower and the checkout fetch can be cold. Two and a
+    # half hours is a ceiling that should never be reached, not an estimate.
+    timeout-minutes: 150
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        # persist-credentials stays on (the default): the commit-back step
+        # pushes the intel/ evidence to main, same convention as bench.yml.
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+      - name: "bench-real capture + drift gate"
+        # bench_real.py runs the bench, archives the moonbuggy row (and the
+        # naive control) to the numbers pipe, then check_drift() gates tonight's
+        # row against intel/perf-baseline-real.json — one process, one exit code
+        # (0 pass/prime, 2 sustained regression, 3 archive/baseline error).
+        run: make bench-real PYTHON=$(command -v python)
+      - name: "Commit back the intel/ perf evidence (no-op if unchanged)"
+        run: |
+          git config user.name "moonbuggy-boss"
+          git config user.email "boss@moonbuggy.local"
+          git add intel/perf-bench-real-baseline.jsonl intel/perf-baseline-real.json
+          if git diff --cached --quiet; then
+            echo "perf evidence unchanged; nothing to commit"
+          else
+            git commit -m "intel: auto-update bench-real baseline/evidence [skip-ci]"
+            git pull --rebase --autostash origin main && git push
+          fi
+      - if: failure()
+        run: ./scripts/report_ci_failure.sh bench-real-failure "Weekly bench-real drift gate failing"
+        env:
+          GH_TOKEN: ${{ github.token }}
