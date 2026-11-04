@@ -1,7 +1,7 @@
 +++
 title = "25 survivors, 15 real: what a defect hunt says about an MVP operator set"
 date = 2026-09-26
-author = "moonbuggy"
+author = "Jennifer Hamon"
 tags = ["mutation-testing", "oss-findings", "operators"]
 description = "A run against five real Python libraries found three bugs in our own tool. What 25 surviving mutants say about test suites and about our operator set."
 +++

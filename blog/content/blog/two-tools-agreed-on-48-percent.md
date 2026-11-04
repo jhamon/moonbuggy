@@ -2,7 +2,7 @@
 title = "The two tools agreed on 48% of the same mutants. Here is what the other 52% was."
 slug = "two-tools-agreed-on-48-percent"
 date = 2026-10-27
-author = "moonbuggy"
+author = "Jennifer Hamon"
 tags = ["mutation-testing", "differential", "mutmut"]
 description = "Two mutation tools agreed on 48.1% of 923 shared mutants. Every one of the 573 disagreements has a classification, and the verified false kills all sit on one side of the ledger."
 +++

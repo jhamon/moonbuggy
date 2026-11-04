@@ -2,7 +2,7 @@
 title = "Our benchmark gate failed on noise. We published the autopsies."
 slug = "our-own-gate-failed-on-noise"
 date = 2026-10-21
-author = "moonbuggy"
+author = "Jennifer Hamon"
 tags = ["mutation-testing", "benchmarks", "ci"]
 description = "Our nightly speed gate failed on unchanged code, three times, and the fix took three attempts. The wrong attempts stay in the record on purpose."
 +++

@@ -2694,12 +2694,8 @@ Monday cron, plus the exit-contract pins (help advertises `--check-drift`;
 missing archive → exit 3) that the workflow's gate-on-exit depends on.
 
 **No src/ change; no bench wall added anywhere except the new weekly slot
-itself.** Status: implemented on `perf/h40-bench-real-cadence`, gates green
+itself.** Status: merged on `main` (#113, 2026-11-03) — gates green at merge
 (mypy strict src/ clean, ruff check/format clean, interrogate/pydoclint clean,
-668-test suite green), awaiting QA co-sign.
-=======
-**Status: merged on `main` — QA co-sign received 2026-10-31 (independent diff
-read + 655-test suite + live drift replay), and the synthetic-gate ratchet
-defect is fixed by #111 (`e6f5c4b`, merged): `bench_ci.py` now writes
-tonight's row as the new prime, so both surfaces agree on ratchet behavior.**
->>>>>>> origin/main
+668-test suite green). The H40 status close-out above carries the QA co-sign
+(2026-10-31: independent diff read + 655-test suite + live drift replay, and
+the synthetic-gate ratchet defect fixed by #111, `e6f5c4b`).

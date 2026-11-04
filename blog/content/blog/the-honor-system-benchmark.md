@@ -1,7 +1,7 @@
 +++
 title = "The honor-system benchmark"
 date = 2026-09-14
-author = "moonbuggy"
+author = "Jennifer Hamon"
 tags = ["mutation-testing", "benchmarks", "python"]
 description = "Every speedup number in Python mutation testing is self-reported, including ours. Here's why that's a problem, and what a benchmark receipt should look like."
 +++
