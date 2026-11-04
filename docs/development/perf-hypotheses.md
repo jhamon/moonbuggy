@@ -2652,10 +2652,10 @@ found *by* building the H40 path — the surface extension did what an
 instrument surface is for: it made an existing claim ("the ratchet-down is
 symmetric") checkable, and the check failed.
 
-**Status: implemented on `h40-bench-real-drift`, tests green (655 + 16),
-strict gates green, awaiting QA co-sign on the ratchet-write asymmetry note.**
-The synthetic-gate defect needs its own QA-gated fix or explicit
-accept-as-is decision.
+**Status: merged on `main` — QA co-sign received 2026-10-31 (independent diff
+read + 655-test suite + live drift replay), and the synthetic-gate ratchet
+defect is fixed by #111 (`e6f5c4b`, merged): `bench_ci.py` now writes
+tonight's row as the new prime, so both surfaces agree on ratchet behavior.**
 
 ## H40 addendum — the bench-real drift cadence (2026-11-03, t_ad5398cd)
 
@@ -2697,3 +2697,9 @@ missing archive → exit 3) that the workflow's gate-on-exit depends on.
 itself.** Status: implemented on `perf/h40-bench-real-cadence`, gates green
 (mypy strict src/ clean, ruff check/format clean, interrogate/pydoclint clean,
 668-test suite green), awaiting QA co-sign.
+=======
+**Status: merged on `main` — QA co-sign received 2026-10-31 (independent diff
+read + 655-test suite + live drift replay), and the synthetic-gate ratchet
+defect is fixed by #111 (`e6f5c4b`, merged): `bench_ci.py` now writes
+tonight's row as the new prime, so both surfaces agree on ratchet behavior.**
+>>>>>>> origin/main
