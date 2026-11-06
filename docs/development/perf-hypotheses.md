@@ -2791,7 +2791,29 @@ The round's candidates come from three places this points at.
   `-p moonbuggy.baseline`. The oracle gates
   (`make check-oracle check-robustness check-properties`) plus
   `check-fast-path` and `check-cli` are the standing insurance.
-- **Attempted:** no — registered first, per the rule.
+- **Attempted:** yes — refuted by the scratch edit + A/B, 2026-11-06. The
+  two-line `TYPE_CHECKING` deferral (with `from __future__ import
+  annotations`) applied to both files removed pytest from the parent's import
+  graph entirely: `-X importtime` on `python -m moonbuggy.cli` went from
+  ~697ms cumulative with `pytest` at ~51ms inside `moonbuggy.baseline`
+  (before), to ~164ms cumulative with no pytest entry at all (after) —
+  ~3.2ms of the CLI's own chain remains. So the *premise* held: the parent
+  imports pytest only for annotations, and deferral removes its ~36–51ms of
+  chain cost. But the **full-run A/B is indistinguishable** — H25/H30's
+  inheritance law absorbed it, exactly as the honest ceiling anticipated.
+  With the cache primed in one state, warm-cache walls on fast-tests
+  (`--cache`, all-mutants-cached): before 0.32/0.28/0.27/0.27/0.27s
+  (median 0.275) vs after 0.29/0.28/0.28/0.27/0.27s (median 0.28) — within
+  noise. Cold `--no-cache` walls: before 0.30/0.32/0.33s (median 0.32) vs
+  after 0.30/0.33/0.32s (median 0.32) — no difference. The host's
+  `warm_up()` pays the pytest import the parent no longer does, so the ~36ms
+  move from parent to host and nets zero on the wall. Per the standing
+  no-regression rule, an indistinguishable A/B is a refuted entry, not a
+  merge: recorded and stopped at the one-edit price. (Measurement note: the
+  first A/B attempt contaminated itself by interleaving `git stash` with the
+  repo's pre-existing QA stash; the numbers above are from a clean rerun
+  using side-by-side `src` trees selected by `PYTHONPATH`, no stash.)
+- **Verdict: refuted (indistinguishable).**
 
 ### H42 — Batch the reap loop: reap every outstanding child per wake-up
 
@@ -2899,8 +2921,26 @@ The round's candidates come from three places this points at.
   plus QA sign-off, and an explicit statement of what the key does *not*
   cover (pytest configuration and plugin versions are already known gaps
   in the results key — the map inherits them).
-- **Attempted:** no — registered first; the byte-identity probe decides
-  whether it survives to an implementation round.
+- **Attempted:** yes — both no-code probes run on 2026-11-06, both **pass**;
+  the entry survives to an implementation round.
+  - *Probe 1, byte-identity:* `run_coverage_pass` twice+ on the same fresh
+    workload, `LineMap.to_dict` JSON sha256-compared. fast-tests: 4/4 runs
+    identical (`fcf4cbe3…`, 90 tests); many-files: 3/3 identical
+    (`2ca68d22…`, 120 tests). Identical input bytes produce byte-identical
+    maps — persistence is not wrong by construction.
+  - *Probe 2, payoff surface:* back-to-back runs with the cache enabled on
+    fast-tests: cold run `cached=0`, every subsequent run `cached=96/96`
+    (all mutants hit), wall 0.38s cold → 0.27–0.29s warm. The
+    every-mutant-cached case is real and routinely reached. With
+    `MOONBUGGY_PROFILE` on those warm runs, the coverage pass is still the
+    largest phase of a warm-cache wall: fast-tests 0.158/0.268s (58.8%),
+    slow-tests 0.196/0.319s (61.6%), many-files 0.203/0.364s (55.7%) —
+    so the predicted 30–43% surface is live, and in this measurement even
+    larger as a *share* of the (now smaller) warm wall.
+  - *Open before implementation:* the map key must cover source bytes +
+    test files + conftest chain + run fingerprint, and the false-SURVIVED
+    asymmetry means the adoption gate needs the oracle suite, the
+    differential check and QA sign-off exactly as registered above.
 
 ### H44 — `posix_spawn` the cold-fallback children (and the probe child)
 
