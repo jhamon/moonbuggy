@@ -2,7 +2,7 @@
 title = "Which mutation testing tool should you actually run? We benchmarked three on the same code."
 slug = "comparison-moonbuggy-vs-mutmut-vs-naive"
 date = 2026-10-01
-author = "moonbuggy"
+author = "Jennifer Hamon"
 tags = ["mutation-testing", "benchmarks", "comparison"]
 description = "One library, one commit, three tools, one recorded run: moonbuggy 277.8s, mutmut 333.6s, naive baseline 3,716.4s — with every caveat on the table."
 +++
