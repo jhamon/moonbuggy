@@ -2941,6 +2941,44 @@ The round's candidates come from three places this points at.
     test files + conftest chain + run fingerprint, and the false-SURVIVED
     asymmetry means the adoption gate needs the oracle suite, the
     differential check and QA sign-off exactly as registered above.
+- **Implemented: yes — `perf/h43-linemap-cache`, 2026-11-11, measured.**
+  `linemap_cache.py` (new) persists the map keyed on the run fingerprint
+  plus every file under the project root outside tool-state directories
+  (path-plus-bytes, cache.py's hashing widened: the false-SURVIVED asymmetry
+  puts the "errs wide" direction on the key, so pytest configuration — a
+  known results-key gap — is covered here). `LineMap.from_dict`/
+  `augment_with` (coverage_pass.py) round-trip and re-union the stored map
+  against the live run's recorder outcomes. The wiring deliberately keeps
+  the warm-session contract intact: a key hit replaces the instrumented
+  run's *map*, not the run itself — the suite still runs in the host once,
+  uninstrumented ("verified baseline" phase), because the baseline must be
+  observed fresh every run and the host must still import the modules the
+  grandchild forks mutate in place. A miss falls through to the
+  byte-for-byte pre-H43 path.
+- **Numbers (A/B, warm-cache walls, median of 7 interleaved reps, verdict
+  records compared field-by-field, 2026-11-11):** fast-tests 0.144 →
+  0.111s (**+22.9%**), many-files 0.234 → 0.164s (**+29.9%**), slow-tests
+  0.151 → 0.118s (**+21.9%**) — verdicts equal on all three shapes. On a
+  map hit the profile shows `coverage pass: 0.0` and a `verified baseline`
+  phase ~⅔ the size of the old instrumented pass: the prediction's 30–43%
+  bound was the coverage phase's share of the wall, and the measured win is
+  that share minus the (now smaller, uninstrumented) baseline re-run.
+  Cold `--no-cache` interleaved A/B: 0.197 → 0.198s (−0.3%,
+  indistinguishable) — the miss path is untouched, as designed. A first
+  cold A/B that showed −8.1% was workload-placement noise, not the change:
+  the interleaved rerun on one interpreter with roles fixed collapsed it.
+- **Correctness evidence:** 14 new unit tests (stale/corrupt/wrong-version/
+  wrong-shape/missing-file all degrade to a miss; self-exclusion of the
+  cache file's own bytes from its key; round-trip resolution); the full
+  unit suite (684), check-fast-path (12), check-cli (78 — including the
+  cached-run-identical-output and corrupt-cache-degrades pins),
+  check-oracle (6), check-pytest-args (4), check-robustness (17),
+  check-properties (7), check-spike (7) — all green. mypy --strict, ruff
+  check/format, interrogate, pydoclint clean.
+- **Status: implemented, awaiting QA sign-off (verdict-selection input —
+  the standing rule) before merge. The differential check
+  (`scripts/differential.py`) and the oracle suite are the standing
+  instruments for that review.**
 
 ### H44 — `posix_spawn` the cold-fallback children (and the probe child)
 
@@ -2989,6 +3027,14 @@ The round's candidates come from three places this points at.
 | H41 | import chain (all shapes) | 0–3%, sign unknown | low | one grep + one scratch edit |
 | H42 | per-mutant fork (many-files) | 1–4% | low-med (timeout path) | one tagged diagnostic run |
 | H44 | per-mutant fork (cold path) | 0% on canonical shapes | low-med | one microbench |
+
+**Round outcome (2026-11-11, updated after execution):** H43 implemented on
+`perf/h43-linemap-cache` and measured at **+21.9% to +29.9% on warm-cache
+walls** (median-of-7 interleaved A/B, verdicts field-equal on all three
+shapes; cold path indistinguishable at −0.3%) — awaiting QA sign-off before
+merge, per the verdict-selection rule. H41 refuted (scratch A/B
+indistinguishable — H25/H30's inheritance law absorbed the import). H42 and
+H44 remain registered with their cheap refutations still unrun.
 
 **Build order I would choose: H43's byte-identity probe first, then H41's
 scratch edit — both before any code.** H43 has the only payoff that could
