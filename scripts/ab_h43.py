@@ -26,7 +26,7 @@ PY_A = str(REPO_A / ".venv" / "bin" / "python")
 PY_B = str(REPO_B / ".venv" / "bin" / "python")
 FIXTURE = REPO_A / "tests" / "fixtures" / "sample_project"
 
-SLOW_BODY = '''
+SLOW_BODY = """
 import time
 
 
@@ -37,8 +37,8 @@ def slow_one():
 
 def slow_two(x):
     return x + 1 if x else 0
-'''
-SLOW_TEST = '''
+"""
+SLOW_TEST = """
 from pkg.mod_{i} import slow_one, slow_two
 
 
@@ -48,7 +48,7 @@ def test_slow_one():
 
 def test_slow_two():
     assert slow_two(1) == 2
-'''
+"""
 
 
 def build_shape(root: Path, name: str, modules: int, slow: bool) -> Path:
@@ -141,6 +141,7 @@ def shape_ab(name: str, modules: int, slow: bool, reps: int = 7):
             wb, sb = run_one(PY_B, proj_b, src_override=str(REPO_B / "src"))
             rows_a.append(wa)
             rows_b.append(wb)
+
         # Verify verdicts agree side by side (same workload, same mutants):
         # compare every record's (id, status, tests_run, nearest_test) from
         # the last rep, ignoring duration fields that legitimately differ.

@@ -4,6 +4,7 @@ Runs: A(main), B(branch) alternating, then repeats with PYTHONPATH swapped so
 each workload sees both code paths. If the delta follows the interpreter/
 workload pairing rather than the code, it is environment, not regression.
 """
+
 import json
 import os
 import statistics
