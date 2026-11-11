@@ -63,7 +63,8 @@ def main() -> int:
                 rows_b.append(cold_run(w2, SRC_B))
                 rows_a.append(cold_run(w1, SRC_A))
         ma, mb = statistics.median(rows_a), statistics.median(rows_b)
-        print(f"cold interleaved: main {ma:.3f}s branch {mb:.3f}s delta {(ma - mb) / ma * 100:+.1f}%")
+        delta = (ma - mb) / ma * 100
+        print(f"cold interleaved: main {ma:.3f}s branch {mb:.3f}s delta {delta:+.1f}%")
         print(f"    main    {[round(r, 3) for r in rows_a]}")
         print(f"    branch  {[round(r, 3) for r in rows_b]}")
     return 0

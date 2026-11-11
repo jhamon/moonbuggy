@@ -12,7 +12,6 @@ Shapes are the bench-real fixture set used by prior rounds:
 """
 
 import json
-import shutil
 import statistics
 import subprocess
 import sys
