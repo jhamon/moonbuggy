@@ -99,6 +99,69 @@ class LineMap:
             ],
         }
 
+    @classmethod
+    def from_dict(
+        cls, data: LineMapDict, project_dir: str | os.PathLike[str]
+    ) -> "LineMap":
+        """The map :meth:`to_dict` serialised, against the same project root.
+
+        File entries are re-resolved against `project_dir`: the in-memory
+        map keys on resolved absolute paths (that is what ``_normalise``
+        produces for lookups), while the serialised form may hold
+        project-relative entries -- the line-map cache stores them that way
+        so the file survives the project moving. ``read_coverage_data``
+        resolves the same way when building a map from live data.
+
+        Args:
+            data: plain data in :meth:`to_dict`'s exact shape.
+            project_dir: the project root the original map was built against.
+
+        Returns:
+            A :class:`LineMap` equivalent to the one that produced `data`.
+
+        Raises:
+            KeyError: if `data` is not in :meth:`to_dict`'s shape. Callers
+                read it from this module's own cache file, so a shape
+                mismatch is corruption the loader already screens for; the
+                exception is allowed to propagate rather than guessed away.
+        """
+        root = Path(project_dir).resolve()
+        mapping: dict[tuple[str, int], set[str]] = {
+            (
+                entry["file"]
+                if Path(entry["file"]).is_absolute()
+                else str(root / entry["file"]),
+                entry["line"],
+            ): set(entry["tests"])
+            for entry in data["lines"]
+        }
+        return cls(mapping, data["tests"], project_dir)
+
+    def augment_with(self, known_tests: Iterable[str]) -> "LineMap":
+        """A copy of this map with `known_tests` unioned into the test set.
+
+        Same union rule ``read_coverage_data`` applies to the recorder's
+        outcomes: tests that exist but covered nothing measured still belong
+        in ``all_tests()``, because module-level mutants widen to the whole
+        suite and an empty set would report them NO_COVERAGE -- a claim
+        about the user's suite that is really about ours.
+
+        Args:
+            known_tests: node ids one fresh run of the suite executed.
+
+        Returns:
+            A new :class:`LineMap`; the original is untouched, so a caller
+                that falls back to a fresh coverage pass is not polluted.
+        """
+        return LineMap(
+            self._mapping,
+            self._tests
+            | {
+                t for t in known_tests if "::" in t and not t.endswith("::<collection>")
+            },
+            self._project_dir,
+        )
+
 
 def run_coverage_pass(
     project_dir: str | os.PathLike[str],

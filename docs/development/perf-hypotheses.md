@@ -2699,3 +2699,360 @@ itself.** Status: merged on `main` (#113, 2026-11-03) — gates green at merge
 668-test suite green). The H40 status close-out above carries the QA co-sign
 (2026-10-31: independent diff read + 655-test suite + live drift replay, and
 the synthetic-gate ratchet defect fixed by #111, `e6f5c4b`).
+
+---
+
+# Eleventh round: H41–H44 — scoped from a fresh profile of post-H40 main (2026-11-04)
+
+Registered from a fresh `make profile` on `main` at `4ab72e8` (H39 refutation
+and the round-4 stack merged, bench-real cadence in), before any
+implementation, per the standing rule. Doc-only round: nothing here has been
+attempted. Every entry carries its cheap refutation — the measurement that
+can kill it before code exists — because this register's own history (H8,
+H17, H19, H24, H25, H30) says the cheapest entry is the one that dies at the
+measurement.
+
+## Phase breakdown (median of 5, `--no-cache`, unprofiled check within 20%)
+
+| phase | fast-tests | slow-tests | many-files |
+|---|---|---|---|
+| wall clock | 0.355s | 0.529s | 0.657s |
+| **coverage pass** | **0.153s (43.1%)** | **0.205s (38.8%)** | **0.199s (30.3%)** |
+| per-mutant fork | 0.061s (17.3%) | 0.134s (25.2%) | **0.264s (40.2%)** |
+| in-child test execution | 0.036s (10.0%) | 0.102s (19.3%) | 0.062s (9.4%) |
+| import chain | 0.059s (16.5%) | 0.059s (11.2%) | 0.059s (8.9%) |
+| interpreter start/teardown | 0.019s (5.4%) | 0.018s (3.5%) | 0.018s (2.7%) |
+| generation | 0.003s (0.9%) | 0.003s (0.6%) | 0.017s (2.6%) |
+| planning, reporting, discovery, flaky probe, cache I/O | ~1.5% | ~1.0% | ~3.3% |
+| **unattributed** | **5.3%** | **0.6%** | **2.6%** |
+
+fast-tests attribution is 94.7% — the M2.1.2 gate flags it, and it is the same
+16–20ms sub-second residue the fourth and seventh rounds recorded, not a new
+regression. slow-tests (99.4%) and many-files (97.4%) pass. The ranking is
+unambiguous regardless of the residue.
+
+**What changed since the ninth round's profile.** Absolute walls moved
+downward everywhere (fast-tests 0.357→0.355s, slow-tests 0.544→0.529s,
+many-files 0.667→0.657s — within run-to-run spread, as expected for a docs +
+instrument round), and the *shape* is the same top three. What is genuinely
+new is on many-files: **per-mutant fork is now 40.2% of the run while
+in-child test execution is 9.4%** — the fork phase is 4.3x the work its
+children actually do. The ninth round read this phase at 24.6% against
+43.8% test execution; H28 (grandchild 6.3ms → 2.3ms) has inverted the ratio.
+The round's candidates come from three places this points at.
+
+### H41 — Defer the parent's module-level `import pytest`
+
+- **Phase:** import chain (8.9–16.5%, flat ~59ms in every shape)
+- **Premise, measured first.** `-X importtime` over `import moonbuggy.cli`:
+  the chain is ~65ms cumulative, of which **`import pytest` is ~36ms** and
+  moonbuggy's own modules ~8ms. pytest enters the parent's import graph
+  through exactly two module-level imports:
+  `baseline.py` (`import pytest`, line 43) and `plugin.py` (`import pytest`,
+  line 20). What each actually uses of it:
+  - `baseline.py`: type annotations on four plugin hooks
+    (`pytest.TestReport`, `pytest.Config`, `pytest.CollectReport`,
+    `pytest.ExitCode` in a signature union) — all resolvable as strings under
+    `from __future__ import annotations` + `typing.TYPE_CHECKING`; plus the
+    plugin itself is loaded *by pytest* (`-p moonbuggy.baseline`), where
+    pytest is by definition already imported.
+  - `plugin.py`: the same shape — `pytest.Config` on one hook signature, the
+    plugin likewise loaded only by pytest.
+  - `forkserver.py`'s `import pytest` calls are already function-local.
+- **Predicted saving (written before anything is attempted):** the parent's
+  import chain drops by whatever pytest costs there — but **H25/H30's
+  measured law bounds the win**: an import the warm host needs is on the
+  critical path wherever it is issued. The host inherits the parent's
+  modules across the fork, so deferring the parent's pytest import moves
+  ~36ms into the host's own startup unless the host's `warm_up()` (which
+  imports pytest deliberately, `forkserver.py:140`) still runs early enough
+  to inherit. The honest ceiling is therefore **0–3%**, and the sign is not
+  known in advance: if `warm_up()` is reached before the deferred import
+  resolves, the parent still pays nothing and the host inherits the loaded
+  module for free (a strict win of the parent's ~36ms of annotation-only
+  importing); if the child-side `import pytest` resolves after the parent's
+  deferral broke inheritance, the host pays it instead and the change is a
+  wash. The premise that makes this worth one probe: **the parent imports
+  pytest only to satisfy annotations**, and annotation-only imports are
+  removable at near-zero risk.
+- **How it could be refuted cheaply before code:** one scratch measurement —
+  `grep`-verified that no module-level pytest name is used at runtime in
+  `baseline.py`/`plugin.py` (the four hooks run inside pytest's process,
+  where pytest is loaded), then a two-line scratch edit guarded by
+  `TYPE_CHECKING` and an `-X importtime` diff of the parent. If the parent's
+  chain does not shrink by ≥20ms, the annotation premise is wrong and the
+  entry dies for the price of an edit. If it shrinks but the full-run A/B is
+  indistinguishable, H25's law absorbed it — record that and stop.
+- **Correctness risk:** low — the warm-session contract is untouched (the
+  host imports pytest itself and grandchildren import it function-locally;
+  nothing about *who imports pytest when* changes for any process that runs
+  tests). The one trap: `baseline.py`'s hooks execute inside pytest, so any
+  `TYPE_CHECKING` conversion must keep the *plugin* path working under
+  `-p moonbuggy.baseline`. The oracle gates
+  (`make check-oracle check-robustness check-properties`) plus
+  `check-fast-path` and `check-cli` are the standing insurance.
+- **Attempted:** yes — refuted by the scratch edit + A/B, 2026-11-06. The
+  two-line `TYPE_CHECKING` deferral (with `from __future__ import
+  annotations`) applied to both files removed pytest from the parent's import
+  graph entirely: `-X importtime` on `python -m moonbuggy.cli` went from
+  ~697ms cumulative with `pytest` at ~51ms inside `moonbuggy.baseline`
+  (before), to ~164ms cumulative with no pytest entry at all (after) —
+  ~3.2ms of the CLI's own chain remains. So the *premise* held: the parent
+  imports pytest only for annotations, and deferral removes its ~36–51ms of
+  chain cost. But the **full-run A/B is indistinguishable** — H25/H30's
+  inheritance law absorbed it, exactly as the honest ceiling anticipated.
+  With the cache primed in one state, warm-cache walls on fast-tests
+  (`--cache`, all-mutants-cached): before 0.32/0.28/0.27/0.27/0.27s
+  (median 0.275) vs after 0.29/0.28/0.28/0.27/0.27s (median 0.28) — within
+  noise. Cold `--no-cache` walls: before 0.30/0.32/0.33s (median 0.32) vs
+  after 0.30/0.33/0.32s (median 0.32) — no difference. The host's
+  `warm_up()` pays the pytest import the parent no longer does, so the ~36ms
+  move from parent to host and nets zero on the wall. Per the standing
+  no-regression rule, an indistinguishable A/B is a refuted entry, not a
+  merge: recorded and stopped at the one-edit price. (Measurement note: the
+  first A/B attempt contaminated itself by interleaving `git stash` with the
+  repo's pre-existing QA stash; the numbers above are from a clean rerun
+  using side-by-side `src` trees selected by `PYTHONPATH`, no stash.)
+- **Verdict: refuted (indistinguishable).**
+
+### H42 — Batch the reap loop: reap every outstanding child per wake-up
+
+- **Phase:** per-mutant fork (40.2% on many-files — the largest the phase has
+  ever been on any shape)
+- **Premise, measured first.** The teardown diagnostic
+  (`MOONBUGGY_TEARDOWN_DIAG`, committed since H33) on many-files, 160 warm
+  grandchildren: fork→entry median 1.07ms, swap 0.87ms, import 0.007ms,
+  **test 2.30ms**, write 0.011ms — matching H33's numbers exactly, so the
+  per-child constants have not drifted. Summing: fork+swap ≈ 337ms of
+  child-time against the 264ms fork-phase wall. And the warm host's dispatch
+  loop (`_fork_grandchildren`, `forkserver.py:1266`) still ends every scan
+  with `time.sleep(0.002)` while any child is outstanding — **H8's exact
+  2ms, still in the tree**. H8 measured that sleep as indistinguishable on
+  walls of 0.5–1.4s. Two things have changed since: H28 cut in-child work
+  from 6.3ms to 2.3ms per grandchild, so a 2ms reap quantum is now the same
+  order as the work being reaped; and the shape where children are
+  shortest-lived (many-files: 400 of 640 mutants settle in planning, the
+  rest select ≤2 tests) is the shape where the fork phase is now the single
+  largest phase. The loop's structure also serialises the *host side*: one
+  thread forks up to 13 children, then scans them one `waitpid(WNOHANG)` at
+  a time. With 2.3ms children, the host's per-scan cost (fork next wave +
+  reap scan + 2ms sleep) is plausibly the bottleneck the wall is waiting on
+  — which is H28's own closing observation ("fork-bound rather than
+  execution-bound") given a mechanism the H8 experiment did not test: H8
+  replaced the sleep with a pipe-read select, a *latency* fix; batching the
+  reap (one `waitpid` scan over all running pids, or `os.waitpid(-1,
+  WNOHANG)`) is a *throughput* fix on the host thread.
+- **Predicted saving (written before anything is attempted):** the last-wave
+  arithmetic first, per this register's own discipline: with 13 slots and
+  160 jobs, there are ~13 waves; the final wave is 13 children whose
+  completion is detected up to 2ms late each — but detection of a *single*
+  last child costs at most one 2ms sleep, not 13 (they overlap). So the
+  poll's direct cost is bounded by ~2ms/wave ≈ 26ms on many-files ≈ **4%**,
+  plus whatever the serial one-pid-per-scan reap adds when children exit
+  between scans (each scan reaps at most one child per pid it checks; a
+  batch of simultaneous exits takes multiple scans = multiple sleeps). The
+  honest range is **1–4% on many-files, ~0 elsewhere** — near the A/B floor,
+  stated in advance, with the many-files fork phase's 40% share as the
+  reason to look once more.
+- **How it could be refuted cheaply before code:** the diag's
+  `fork_to_entry_us` distribution already bounds it — median 1.07ms with p90
+  1.53ms means children are *not* queuing behind a congested fork call. The
+  direct measurement: instrument the host loop (tag-gated, H33's way) to
+  count scans and sleeps per run on many-files. If scans ≈ waves (the loop
+  is not spinning between children), the poll costs only the last-wave tail
+  and the ceiling is ~4%; if scans ≫ waves (many sleeps between reaps of
+  short children), the batching premise holds. Either number is one tagged
+  run away, before any scheduling change.
+- **Correctness risk:** low for the batch-reap itself (statuses are keyed by
+  job index, reassembly is order-free — the invariant H31 relied on), but
+  the timeout path moves if the reap loop is restructured, and timeout
+  semantics are verdict-adjacent (a TIMEOUT that arrives late is a wrong
+  verdict). `check-robustness` is where the timeout, self-exiting-test and
+  crash-recovery cases live; H8's discarded select-rewrite is the cautionary
+  precedent — a rewrite that buys nothing measurable is not worth the
+  surface area, and this entry starts from the measurement, not the rewrite.
+- **Attempted:** no — registered with its cheap refutation first.
+
+### H43 — Persist the LineMap across runs (cache the coverage pass's answer)
+
+- **Phase:** coverage pass (30.3–43.1%, largest phase in every shape, closed
+  by H2/H19/H20/H26/H39-mechanism-1 *inside* the pass)
+- **Premise.** Every prior entry attacked the cost of *running* the
+  instrumented pass. None attacked *whether it needs to run at all*. The
+  results cache (`cache.py`) persists per-mutant verdicts keyed on mutant +
+  module source + selected test files + conftest chain + first-order imports
+  + run fingerprint; the LineMap that decides selection and NO_COVERAGE is
+  rebuilt from a live instrumented run on every invocation, including runs
+  where every mutant is a cache hit and the map is consulted only to compute
+  the keys. The doc's own cache note marks the boundary honestly: the key
+  covers everything that changes a *verdict*; the map is one more derived
+  artifact of the same inputs. A stale map's failure mode is asymmetric —
+  a missing covering test is a false SURVIVED — so the key must cover
+  exactly what the map depends on: the source tree under `--cov` (source
+  dir + test files + conftest chain, the same bytes the results key already
+  hashes) plus the run fingerprint. Same input bytes ⇒ same instrumented
+  run ⇒ same map; that is a stronger claim than the results cache's (which
+  keys per-mutant) but it is the same *kind* of claim.
+- **Predicted saving (written before anything is attempted):** the whole
+  coverage phase on a warm-cache run — **~30% on many-files, ~39% on
+  slow-tests, ~43% on fast-tests** — for runs where the map key hits. On
+  cold runs, zero. This is the largest single number any h21+ entry has
+  been able to write down, and it is also the one with the sharpest
+  correctness edge: this is the map that decides NO_COVERAGE and test
+  selection; QA sign-off is required before merge, per the standing rule
+  for anything touching verdict selection.
+- **How it could be refuted cheaply before code:** two measurements, no
+  code. (1) **How often does a map-only hit occur?** On the benchmark
+  shapes, back-to-back runs with `--no-cache` off: if the second run's
+  every-mutant-cached case is rare in real use (the R2 bench-real leg and
+  the `run -` re-injection loop are the actual consumers), the payoff
+  surface is small. (2) **Does the map key actually cover the map?** Build
+  the map twice on identical inputs and byte-compare `LineMap.to_dict` —
+  if two runs on identical bytes produce different maps (coverage
+  nondeterminism, plugin hooks), persistence is wrong by construction and
+  the entry dies. The differential check (`scripts/differential.py`) is the
+  standing map-correctness instrument.
+- **Correctness risk:** **high** — the map is the verdict-selection input.
+  A stale map that *gains* a covering test costs time; one that *loses*
+  one is a false SURVIVED, H2's failure mode, indistinguishable from a real
+  finding. The falsification path above (byte-identical maps on identical
+  inputs, across N repeats) is necessary but not sufficient; the
+  adoption gate needs the full oracle suite plus the differential check
+  plus QA sign-off, and an explicit statement of what the key does *not*
+  cover (pytest configuration and plugin versions are already known gaps
+  in the results key — the map inherits them).
+- **Attempted:** yes — both no-code probes run on 2026-11-06, both **pass**;
+  the entry survives to an implementation round.
+  - *Probe 1, byte-identity:* `run_coverage_pass` twice+ on the same fresh
+    workload, `LineMap.to_dict` JSON sha256-compared. fast-tests: 4/4 runs
+    identical (`fcf4cbe3…`, 90 tests); many-files: 3/3 identical
+    (`2ca68d22…`, 120 tests). Identical input bytes produce byte-identical
+    maps — persistence is not wrong by construction.
+  - *Probe 2, payoff surface:* back-to-back runs with the cache enabled on
+    fast-tests: cold run `cached=0`, every subsequent run `cached=96/96`
+    (all mutants hit), wall 0.38s cold → 0.27–0.29s warm. The
+    every-mutant-cached case is real and routinely reached. With
+    `MOONBUGGY_PROFILE` on those warm runs, the coverage pass is still the
+    largest phase of a warm-cache wall: fast-tests 0.158/0.268s (58.8%),
+    slow-tests 0.196/0.319s (61.6%), many-files 0.203/0.364s (55.7%) —
+    so the predicted 30–43% surface is live, and in this measurement even
+    larger as a *share* of the (now smaller) warm wall.
+  - *Open before implementation:* the map key must cover source bytes +
+    test files + conftest chain + run fingerprint, and the false-SURVIVED
+    asymmetry means the adoption gate needs the oracle suite, the
+    differential check and QA sign-off exactly as registered above.
+- **Implemented: yes — `perf/h43-linemap-cache`, 2026-11-11, measured.**
+  `linemap_cache.py` (new) persists the map keyed on the run fingerprint
+  plus every file under the project root outside tool-state directories
+  (path-plus-bytes, cache.py's hashing widened: the false-SURVIVED asymmetry
+  puts the "errs wide" direction on the key, so pytest configuration — a
+  known results-key gap — is covered here). `LineMap.from_dict`/
+  `augment_with` (coverage_pass.py) round-trip and re-union the stored map
+  against the live run's recorder outcomes. The wiring deliberately keeps
+  the warm-session contract intact: a key hit replaces the instrumented
+  run's *map*, not the run itself — the suite still runs in the host once,
+  uninstrumented ("verified baseline" phase), because the baseline must be
+  observed fresh every run and the host must still import the modules the
+  grandchild forks mutate in place. A miss falls through to the
+  byte-for-byte pre-H43 path.
+- **Numbers (A/B, warm-cache walls, median of 7 interleaved reps, verdict
+  records compared field-by-field, 2026-11-11):** fast-tests 0.144 →
+  0.111s (**+22.9%**), many-files 0.234 → 0.164s (**+29.9%**), slow-tests
+  0.151 → 0.118s (**+21.9%**) — verdicts equal on all three shapes. On a
+  map hit the profile shows `coverage pass: 0.0` and a `verified baseline`
+  phase ~⅔ the size of the old instrumented pass: the prediction's 30–43%
+  bound was the coverage phase's share of the wall, and the measured win is
+  that share minus the (now smaller, uninstrumented) baseline re-run.
+  Cold `--no-cache` interleaved A/B: 0.197 → 0.198s (−0.3%,
+  indistinguishable) — the miss path is untouched, as designed. A first
+  cold A/B that showed −8.1% was workload-placement noise, not the change:
+  the interleaved rerun on one interpreter with roles fixed collapsed it.
+- **Correctness evidence:** 14 new unit tests (stale/corrupt/wrong-version/
+  wrong-shape/missing-file all degrade to a miss; self-exclusion of the
+  cache file's own bytes from its key; round-trip resolution); the full
+  unit suite (684), check-fast-path (12), check-cli (78 — including the
+  cached-run-identical-output and corrupt-cache-degrades pins),
+  check-oracle (6), check-pytest-args (4), check-robustness (17),
+  check-properties (7), check-spike (7) — all green. mypy --strict, ruff
+  check/format, interrogate, pydoclint clean.
+- **Status: implemented, awaiting QA sign-off (verdict-selection input —
+  the standing rule) before merge. The differential check
+  (`scripts/differential.py`) and the oracle suite are the standing
+  instruments for that review.**
+
+### H44 — `posix_spawn` the cold-fallback children (and the probe child)
+
+- **Phase:** per-mutant fork (cold path) / interpreter start+teardown
+- **Premise, measured first.** The warm path's per-child cost is 1.07ms
+  fork→entry + 0.87ms COW swap (diag, this round). The cold path
+  (`run_batch`, and `_start_probe_child` for the flakiness probe) forks a
+  full child that then `chdir`s, dup2's, and runs pytest from scratch —
+  there, `os.fork()`'s COW page-copy on a large heap is the dominant
+  per-child constant, and the parent's heap on the cold path is the parent's
+  whole imported world. `os.posix_spawn` exists on this stack
+  (macOS 15.1 / Python 3.12) and starts the child *without* inheriting the
+  parent's address space — the trade is losing the warm inheritance H1
+  refuses to give up, which is precisely why this is scoped to the *cold*
+  path only, where the inheritance is already not being used for the
+  heavy state (the cold child re-imports everything anyway).
+- **Predicted saving (written before anything is attempted):** cold-path
+  only, and the cold path is the fallback, not the benchmark's path —
+  so the predicted saving **on the canonical shapes is 0%** and the entry
+  lives or dies on the real-project surface (bench-real legs and suites
+  where the warm host dies: xdist runs, unswappable modules). There the
+  per-child saving is bounded by the fork+exec difference on a loaded
+  parent, plausibly 3–10ms/child on a large heap — worth nothing unless a
+  cold-path-heavy workload shows up in the bench-real cadence's archive.
+- **How it could be refuted cheaply before code:** one microbench — time
+  `os.fork()`+`os._exit` vs `os.posix_spawn()`+`os._exit` from a parent
+  holding a pytest-sized heap (~25k tracked objects), 100 reps each. If the
+  delta is under ~2ms/child, the entry dies: the cold path's real cost is
+  pytest import (~90ms, the number H29's module docstring records), not
+  process creation, and no spawn mechanism touches that.
+- **Correctness risk:** low (cold-path scheduling only; statuses keyed by
+  index as everywhere else), with one real trap: `posix_spawn` does not run
+  the child's Python at all until exec, so `FORK_AVAILABLE`-gated
+  behaviour, the `MOONBUGGY_DIAG_FORK_AT` diagnostic, and anything that
+  assumes the child begins at `_grandchild`/`_child` need an
+  exec-shaped equivalent. Registered at low priority for exactly this
+  reason: the machinery cost is real and the benchmark-visible payoff is
+  zero by construction.
+- **Attempted:** no — and the microbench above is the gate.
+
+## Ranking (expected payoff vs risk), and what to build first
+
+| # | phase attacked | predicted saving | correctness risk | cheap-refutation cost |
+|---|---|---|---|---|
+| H43 | coverage pass (all shapes) | up to 30–43% on warm-cache runs | **high** (verdict-selection map) | two no-code probes |
+| H41 | import chain (all shapes) | 0–3%, sign unknown | low | one grep + one scratch edit |
+| H42 | per-mutant fork (many-files) | 1–4% | low-med (timeout path) | one tagged diagnostic run |
+| H44 | per-mutant fork (cold path) | 0% on canonical shapes | low-med | one microbench |
+
+**Round outcome (2026-11-11, updated after execution):** H43 implemented on
+`perf/h43-linemap-cache` and measured at **+21.9% to +29.9% on warm-cache
+walls** (median-of-7 interleaved A/B, verdicts field-equal on all three
+shapes; cold path indistinguishable at −0.3%) — awaiting QA sign-off before
+merge, per the verdict-selection rule. H41 refuted (scratch A/B
+indistinguishable — H25/H30's inheritance law absorbed the import). H42 and
+H44 remain registered with their cheap refutations still unrun.
+
+**Build order I would choose: H43's byte-identity probe first, then H41's
+scratch edit — both before any code.** H43 has the only payoff that could
+change the shape of the profile (the coverage pass has survived six attacks
+and is still the largest phase; making it conditional is the one direction
+nobody has tried), and its two probes cost nothing and decide the entry
+outright. H41 is the cheapest possible real change with a bounded, honest
+ceiling and a one-edit refutation. H42 is the disciplined re-test of a
+number the register already owns (H8's 2ms) under changed conditions —
+worth one diagnostic run, not worth a rewrite until the scan count says
+the loop is actually spinning. H44 stays last: zero benchmark payoff by
+construction, real machinery cost, and its microbench can run any time.
+
+The round's honest meta-note: **the profile's top three phases are the same
+top three the seventh and ninth rounds recorded**, and every cheap mechanism
+against two of them (coverage pass, import chain) is either measured-closed
+or bounded by H25/H30's inheritance law. What is actually new this round is
+the fork/test inversion on many-files and the realisation that the coverage
+pass's cost is only mandatory on runs that need a *fresh* map — which is an
+input-question, not an instrumentation-question, and the register had not
+asked it.
