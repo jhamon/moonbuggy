@@ -3056,3 +3056,65 @@ the fork/test inversion on many-files and the realisation that the coverage
 pass's cost is only mandatory on runs that need a *fresh* map — which is an
 input-question, not an instrumentation-question, and the register had not
 asked it.
+
+# H42 — batch the reap loop: the tagged diagnostic's answer (2026-11-14)
+
+H42 was registered in the h41+ round (scoped on `perf/h43-linemap-cache`,
+commit `0e09086`; that round's H43 is PR #115, H41 already refuted there).
+Its cheap refutation — one tag-gated diagnostic run, no scheduling change —
+is recorded here because main is where it was measured.
+
+**Premise recap:** the warm host's dispatch loop (`_fork_grandchildren`)
+still ends every scan with `time.sleep(0.002)` while any child is
+outstanding (H8's exact 2ms). H28 cut grandchildren to ~2.3ms, so a 2ms
+reap quantum is now the same order as the work being reaped, and many-files'
+fork phase is 40.2% of the run. The prediction: 1–4% on many-files, ~0
+elsewhere. The refutation test the round registered: count scans and sleeps
+per run. If scans ≈ waves, the poll costs only the last-wave tail; if
+scans ≫ waves, the batching premise holds.
+
+**Instrument:** `MOONBUGGY_REAP_DIAG`, a scratch tag-gated env var on
+`_fork_grandchildren` (per-reap flush, not post-loop — see the measurement
+note below), counting outer-loop scans, sleeps, sleep seconds, pids
+scanned, reaps and forks. Applied as a scratch edit on main `978ff14`
+content and reverted after measurement; the tree is clean again.
+
+**Measured (3 runs per shape, `--no-cache`, unprofiled; per-host final
+counters):**
+
+| shape | forks | outer scans | sleeps | sleep seconds | scans/wave |
+|---|---:|---:|---:|---:|---:|
+| fast-tests (24 jobs) | 24 | 4 | 2 | 0.020s | ~2 |
+| slow-tests (96 jobs) | 96 | 16 | 15 | 0.131s | ~2 |
+| many-files (160 jobs) | 160 | 24 | 22 | 0.175–0.228s | ~1.9 |
+
+**The loop is not spinning.** With 13 slots, many-files has ~13 waves and
+the host performs ~24 scans — about 1.85 scans per wave, essentially one
+fork-wave scan plus one reap scan. Total sleep time across the *entire*
+run is 0.18–0.23s of host sleep, but that time overlaps the grandchildren's
+execution almost entirely (the host has nothing else to do while 13
+children run; the sleep is inside the wave, not gating it). The
+directly-attributable cost is the last-wave tail only: at most one 2ms
+sleep, i.e. **~0.3% of a 0.6s many-files wall** — below the floor of the
+registered 1–4% prediction, and unresolvable by the A/B harness.
+
+**Verdict: refuted by the diagnostic, before any scheduling change.** The
+H8 finding survives the changed conditions H28 created: children are short,
+but they are *concurrent*, so the poll quantum is hidden behind other
+children's work except in the final wave. Batching the reap
+(`os.waitpid(-1, WNOHANG)`) would touch the timeout path for a mechanism
+the scan counts say is not loaded. Not worth the surface area — H8's own
+closing rule.
+
+**Measurement note for whoever instruments the host next:** the
+warm-session host is killed by the parent (`_kill(pid)` in
+`run_warm_session`'s `finally`) the moment the last status frame arrives.
+A post-loop diagnostic flush in the host *never runs* — three instrument
+attempts died exactly there before the flush was moved inside the reap
+loop. Flush per reap, not at loop exit. (The same asymmetry means any
+future host-side accounting must not assume the host function returns
+normally.)
+
+**Status: refuted, 2026-11-14.** H44 (cold-path `posix_spawn` microbench)
+is the only h41+ entry with its cheap refutation still unrun.
+>>>>>>> 19506a2 (docs: record H42 reap-loop diagnostic — refuted (loop not spinning, ~0.3% last-wave tail))
