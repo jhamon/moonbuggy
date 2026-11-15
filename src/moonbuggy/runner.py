@@ -723,9 +723,11 @@ def run_session(
 
     if linemap_cache is not None:
         # A fresh map from a live instrumented run is exactly what the cache
-        # wants to keep; a host fallback already rebuilt its map coldly and
-        # stores that. Either way `state["linemap"]` is a map this run's
-        # inputs produced, and the key computed in `store` is those inputs.
+        # wants to keep. Only the normal path reaches here: when the host
+        # died (outcome is None) the fallback returned before this point
+        # after re-running everything coldly, so its map is never stored.
+        # Either way `state["linemap"]` is a map this run's inputs produced,
+        # and the key computed in `store` is those inputs.
         linemap_cache.store(state["linemap"], project_dir)
 
     assert "linemap" in state  # narrows the TypedDict for the return below
