@@ -109,7 +109,7 @@ def test_display_path_falls_back_to_the_absolute_path():
 def _cache_key(tmp_path, *argv):
     """The key one mutant gets under `argv`, through the CLI's own wiring."""
     args = _build_parser().parse_args(list(argv))
-    cache = _prepare_cache(args, tmp_path)
+    cache, _ = _prepare_cache(args, tmp_path)
     assert cache is not None
     mutant = Mutant(
         id="lib.py:2:comparison_swap:0",

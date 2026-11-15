@@ -58,6 +58,7 @@ from .profiling import Profiler
 # the type is needed here.
 if TYPE_CHECKING:
     from .coverage_pass import LineMap
+    from .linemap_cache import LineMapCache
 
 PYTEST_OK = 0
 PYTEST_TESTS_FAILED = 1
@@ -475,6 +476,7 @@ def run_session(
     probes: int = 1,
     on_result: Callable[[Result], None] | None = None,
     extra_args: Iterable[str] = (),
+    linemap_cache: "LineMapCache | None" = None,
 ) -> "tuple[LineMap, list[Result]]":
     """Coverage pass and mutant execution in a single warm process.
 
@@ -498,6 +500,10 @@ def run_session(
             one that needs `--doctest-modules`, say -- is otherwise measured
             against a suite smaller than the one it actually runs, and every
             mutant its doctests would catch is reported as a survivor.
+        linemap_cache: a :class:`~moonbuggy.linemap_cache.LineMapCache`, or
+            None. When given, a stored map whose key matches this run's
+            inputs replaces the coverage pass -- and, with it, the warm
+            host's entire reason to run pytest before the forks.
 
     Returns:
         ``(linemap, results)``. Each result's status is one of KILLED,
@@ -540,6 +546,7 @@ def run_session(
     # Paid once here instead of once in the host and once again in this
     # process after it finishes. See prewarm_reader.
     prewarm_reader()
+
     # Deliberately NOT calling forkserver.warm_up() here. It imports pytest in
     # the parent so forked children inherit it, which is what the cold path
     # needs -- but the warm host imports pytest itself, and the parent on this
@@ -547,15 +554,30 @@ def run_session(
 
     with tempfile.TemporaryDirectory() as tmp:
         data_file = Path(tmp) / "coverage-data"
-        os.environ["COVERAGE_FILE"] = str(data_file)
-        cov_args = [
-            *_base_args(project_dir),
-            f"--cov={source_dir}",
-            "--cov-context=test",
-            "--cov-report=",
-            *_PLAIN_ASSERT,
-            *extra_args,
-        ]
+        stored_map: LineMap | None = None
+        if linemap_cache is not None:
+            # H43: a stored map whose key matches this run's inputs (whole
+            # tree plus run fingerprint) replaces the instrumented run's
+            # map, not the run itself. The suite still runs in the host once
+            # -- the baseline must be observed fresh every run, a failure
+            # mode the stored outcomes cannot cover -- but it runs
+            # UNinstrumented: no cov plugin, no context tracking, no data
+            # file to read back. The map's cost was the instrumentation, not
+            # the suite.
+            with profiler.span("linemap cache"):
+                stored_map = linemap_cache.load(project_dir)
+        if stored_map is None:
+            os.environ["COVERAGE_FILE"] = str(data_file)
+            cov_args = [
+                *_base_args(project_dir),
+                f"--cov={source_dir}",
+                "--cov-context=test",
+                "--cov-report=",
+                *_PLAIN_ASSERT,
+                *extra_args,
+            ]
+        else:
+            cov_args = [*_base_args(project_dir), *_PLAIN_ASSERT, *extra_args]
         probe_args = [
             *_base_args(project_dir),
             "-p",
@@ -572,7 +594,10 @@ def run_session(
             # work; the parent was blocked on a pipe for the whole interval and
             # can only see the sum.
             profiler.add("warm-session startup", evidence.get("startup", 0.0))
-            profiler.add("coverage pass", evidence.get("coverage_seconds", 0.0))
+            profiler.add(
+                "coverage pass" if stored_map is None else "verified baseline",
+                evidence.get("coverage_seconds", 0.0),
+            )
             # The probe gets its own bucket rather than being folded into the
             # coverage pass. It is the price of the flakiness guarantee,
             # and a phase whose cost is a deliberate trade should be visible
@@ -581,9 +606,20 @@ def run_session(
 
             with profiler.span("planning"):
                 state["flaky"] = check_baseline(evidence["runs"])
-                state["linemap"] = read_coverage_data(
-                    data_file, project_dir, known_tests=evidence["runs"][0]
-                )
+                if stored_map is None:
+                    state["linemap"] = read_coverage_data(
+                        data_file, project_dir, known_tests=evidence["runs"][0]
+                    )
+                else:
+                    # The stored map's node ids were recorded by the same
+                    # pytest run the evidence came from -- its key covers the
+                    # whole tree and the fingerprint, so the suite that just
+                    # ran is the suite the map was built from. The recorder's
+                    # live node ids are unioned in anyway: a test that exists
+                    # but covers nothing measured still belongs in the set
+                    # `all_tests()` widens module-level mutants to, exactly
+                    # as read_coverage_data unions them on the fresh path.
+                    state["linemap"] = stored_map.augment_with(evidence["runs"][0])
                 check_selection_is_runnable(project_dir, state["linemap"].all_tests())
                 state["plan"] = _plan(
                     project_dir, mutants, state["linemap"], cache, state["flaky"]
@@ -668,6 +704,8 @@ def run_session(
         for phase in (
             "warm-session startup",
             "coverage pass",
+            "verified baseline",
+            "linemap cache",
             "flaky probe",
             "planning",
         )
@@ -683,9 +721,16 @@ def run_session(
     )
     profiler.note("mutants_run", len(statuses))
 
-    return state["linemap"], _assemble(
-        mutants, state["plan"], statuses, cache, durations
-    )
+    if linemap_cache is not None:
+        # A fresh map from a live instrumented run is exactly what the cache
+        # wants to keep; a host fallback already rebuilt its map coldly and
+        # stores that. Either way `state["linemap"]` is a map this run's
+        # inputs produced, and the key computed in `store` is those inputs.
+        linemap_cache.store(state["linemap"], project_dir)
+
+    assert "linemap" in state  # narrows the TypedDict for the return below
+    linemap = state["linemap"]
+    return linemap, _assemble(mutants, state["plan"], statuses, cache, durations)
 
 
 def _rerun_unapplied(

@@ -25,6 +25,7 @@ from ..discover import (
 )
 from ..generate import GenerationError, generate_mutants
 from ..humanreport import count_logging_skipped, render_footer, render_report
+from ..linemap_cache import LineMapCache
 from ..logging_policy import LoggingPolicy
 from ..mutant import Mutant
 from ..operators import (
@@ -150,7 +151,7 @@ def _run(args: argparse.Namespace) -> int:
         print("moonbuggy: no source files to mutate after filtering.", file=sys.stderr)
         return 2
     with profiler.span("cache I/O"):
-        cache = _prepare_cache(args, output_dir)
+        cache, linemap_cache = _prepare_cache(args, output_dir)
 
     wanted = _wanted_operators(args)
     logging_policy = _logging_policy(args)
@@ -208,6 +209,7 @@ def _run(args: argparse.Namespace) -> int:
         output_dir=output_dir,
         mutants=mutants,
         cache=cache,
+        linemap_cache=linemap_cache,
         reasons=reasons,
         progress=progress,
         narrate=narrate,
@@ -301,6 +303,8 @@ def _run(args: argparse.Namespace) -> int:
     with profiler.span("cache I/O"):
         if cache is not None:
             cache.save()
+        if linemap_cache is not None:
+            linemap_cache.save()
 
     profiler.note("mutants", len(mutants))
     profiler.note("source_files", len(source_files))
@@ -334,6 +338,7 @@ def _execute_mutants(
     output_dir: Path,
     mutants: list[Mutant],
     cache: ResultCache | None,
+    linemap_cache: "LineMapCache | None",
     reasons: dict[str, str],
     progress: LiveRegion,
     narrate: bool,
@@ -357,6 +362,8 @@ def _execute_mutants(
         output_dir: where the run's artifacts live.
         mutants: every mutant to run, in report order.
         cache: the run's result cache, or None.
+        linemap_cache: the run's line-map cache, or None. See
+            :func:`~moonbuggy.runner.run_session`.
         reasons: acceptance reasons, used to annotate streamed records.
         progress: the live-region progress renderer for stderr.
         narrate: whether human progress narration is wanted at all.
@@ -464,6 +471,7 @@ def _execute_mutants(
                     probes=args.flaky_probe,
                     on_result=_settled,
                     extra_args=args.pytest_arg,
+                    linemap_cache=linemap_cache,
                 )
     finally:
         # `run()` exits via `os._exit`, which skips `atexit`, so this
@@ -579,6 +587,7 @@ def _effective_config(args: argparse.Namespace) -> dict[str, object]:
         "workers": args.workers,
         "flaky_probe": args.flaky_probe,
         "cache": not args.no_cache,
+        "linemap_cache": not args.no_cache,
         "include_logging_mutants": args.include_logging_mutants,
         # The names this run *added*, not the effective set. Same reasoning as
         # `operators` above: "the built-in names plus audit" and "the built-in
@@ -723,22 +732,26 @@ def _collect_mutants(
     return mutants, unreadable
 
 
-def _prepare_cache(args: argparse.Namespace, output_dir: Path) -> ResultCache | None:
-    """The results cache for this run, or None under `--no-cache`.
+def _prepare_cache(
+    args: argparse.Namespace, output_dir: Path
+) -> "tuple[ResultCache | None, LineMapCache | None]":
+    """The run's caches -- results and line map -- or Nones under `--no-cache`.
 
     The fingerprint is what stops a run being served the previous run's
     verdicts after its command line changed -- `--pytest-arg` reaches every
     pytest run here, baseline included, so it decides which tests exist and
     whether they pass. `sys.executable` is the interpreter both run paths end
     up using: `run_mutants` falls back to it, and the warm session is this
-    process.
+    process. The map cache shares the same fingerprint: whatever changes a
+    test's outcome can change which tests run, so a map from the old command
+    line must not be served to the new one.
 
     Args:
         args: the parsed command line.
-        output_dir: where the cache file lives.
+        output_dir: where the cache files live.
 
     Returns:
-        A :class:`~moonbuggy.cache.ResultCache`, or None if caching is off.
+        ``(results_cache, linemap_cache)``, each None if caching is off.
     """
     cache = ResultCache(
         output_dir / "cache.json",
@@ -748,4 +761,14 @@ def _prepare_cache(args: argparse.Namespace, output_dir: Path) -> ResultCache | 
     )
     if args.clear_cache:
         cache.clear()
-    return None if args.no_cache else cache
+    if args.no_cache:
+        return None, None
+    linemap_cache = LineMapCache(
+        output_dir / "linemap-cache.json",
+        fingerprint=run_fingerprint(
+            args.pytest_arg, timeout=args.timeout, python=sys.executable
+        ),
+    )
+    if args.clear_cache:
+        linemap_cache.path.unlink(missing_ok=True)
+    return cache, linemap_cache
