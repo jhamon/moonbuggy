@@ -503,6 +503,43 @@ def test_no_results_is_an_exit_2(tmp_path):
     assert code == 2
 
 
+def test_no_results_with_explicit_project_ignores_cwd_results(monkeypatch, tmp_path):
+    """An explicit --project pins the lookup; a cwd results.jsonl never wins.
+
+    Regression for the cwd-fallback bug: `export` used to fall back to
+    `<cwd>/<output-dir>/results.jsonl` even when `--project` named a different
+    root, so a machine whose cwd still held a `.moonbuggy/results.jsonl` from
+    an unrelated run made `test_no_results_is_an_exit_2` fail locally (CI only
+    passed because its cwd was clean).
+    """
+    polluted = tmp_path / "cwd"
+    (polluted / ".moonbuggy").mkdir(parents=True)
+    (polluted / ".moonbuggy" / "results.jsonl").write_text("{}\n")
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(polluted)
+    assert main(["--project", str(project), "export"]) == 2
+
+
+def test_no_results_default_project_still_falls_back_to_cwd(tmp_path, monkeypatch):
+    """The default (no --project) still reads results.jsonl from the cwd.
+
+    The cwd fallback was removed deliberately: with the default `--project`,
+    `.` / `<output-dir>` and the bare cwd-relative path are the same file, so
+    removing the fallback changes nothing for the default case. This pins
+    that: results.jsonl in the cwd IS found and read (the junk record makes
+    the read raise, proving the file was consulted, not merely missed with
+    the "no results" exit 2).
+    """
+    polluted = tmp_path / "cwd"
+    (polluted / ".moonbuggy").mkdir(parents=True)
+    (polluted / ".moonbuggy" / "results.jsonl").write_text("{}\n")
+    monkeypatch.chdir(polluted)
+    with pytest.raises(Exception) as excinfo:
+        main(["export"])
+    assert "no results at" not in str(excinfo.value)
+
+
 def test_empty_export_is_exit_0(run_project, tmp_path):
     """A run with zero findings exports an empty file, successfully."""
     # A run whose every mutant is killed would need a full fixture; the

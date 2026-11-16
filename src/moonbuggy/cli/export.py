@@ -20,13 +20,17 @@ def _export(args: argparse.Namespace) -> int:
         export is a fact about the run, not an error), 2 when there are no
         run artifacts to export from.
     """
+    # `--project` names the project root the run wrote its artifacts under
+    # (default: cwd). There is deliberately NO cwd-relative fallback here:
+    # with the default the two paths coincide, and with an explicit
+    # `--project` elsewhere a `results.jsonl` lying around the cwd belongs
+    # to whatever was run here, not to the project named on the command
+    # line -- second-guessing the flag read the wrong run's results (this
+    # fallback is what broke `test_no_results_is_an_exit_2` on machines
+    # whose cwd still held a stale results.jsonl).
     results_path = (
-        Path(args.project if hasattr(args, "project") else ".")
-        / args.output_dir
-        / "results.jsonl"
+        Path(getattr(args, "project", ".")) / args.output_dir / "results.jsonl"
     )
-    if not results_path.exists():
-        results_path = Path(args.output_dir) / "results.jsonl"
     if not results_path.exists():
         print(
             f"moonbuggy: no results at {results_path}. Run moonbuggy first.",
