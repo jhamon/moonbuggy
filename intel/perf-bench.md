@@ -5,5 +5,5 @@ Bench gate: **PASS**. Gate host: Linux 7.0.0-1016-aws. The gate compares runs on
 
 | date | commit | suite | wall_s | mut | mut/sec |
 |------|--------|------|------:|----:|--------:|
-| 2026-11-17 | 1fb4998 | speed |    0.83 | 96 |    115.6 |
-| 2026-11-17 | 1fb4998 | fixture |    9.36 | 29 |      3.1 |
+| 2026-11-18 | 0bd8604 | speed |    0.84 | 96 |    114.2 |
+| 2026-11-18 | 0bd8604 | fixture |    9.10 | 29 |      3.2 |
