@@ -3117,4 +3117,4 @@ normally.)
 
 **Status: refuted, 2026-11-14.** H44 (cold-path `posix_spawn` microbench)
 is the only h41+ entry with its cheap refutation still unrun.
->>>>>>> 19506a2 (docs: record H42 reap-loop diagnostic — refuted (loop not spinning, ~0.3% last-wave tail))
+
