@@ -3118,3 +3118,46 @@ normally.)
 **Status: refuted, 2026-11-14.** H44 (cold-path `posix_spawn` microbench)
 is the only h41+ entry with its cheap refutation still unrun.
 
+---
+
+# Twelfth round outcome: H44's microbench — refuted, opposite sign (2026-11-24)
+
+The last two h41+ cheap refutations are now both run. H42's was measured
+above (refuted: the loop is not spinning, ~0.3% last-wave tail). H44's
+microbench — the gate the entry explicitly died on — ran on the same stack
+(macOS 15.1 / Python 3.12, 100 and 200 reps each side) from a parent holding
+the recipe's pytest-sized heap (~25k tracked objects):
+
+| mechanism | median | p10 | p90 |
+|---|---:|---:|---:|
+| `os.fork()` + `_exit` | 0.84ms | 0.60ms | 0.92ms |
+| `os.posix_spawn` (exec of a trivial image) | 2.88ms | 2.68ms | 3.15ms |
+| delta (fork − spawn), 200-rep run | **−2.03 / −2.75ms** | | |
+
+**The sign is inverted, not just small.** `posix_spawn` is ~2–3ms *slower*
+per child than fork from a loaded parent on this stack — the exec itself
+(syscall round-trip + dyld/image setup on macOS) costs more than the COW
+page-copy it avoids, even against the full imported-world heap the cold
+parent holds. The registered gate ("if the delta is under ~2ms/child the
+entry dies") kills it on both readings: the mechanism saves nothing, it
+*costs* something. The cold path's real per-child constant remains the
+pytest import (~90ms, H29's number), which no spawn mechanism touches.
+
+**Verdict: refuted by its own gate, 2026-11-24.** No scheduling change was
+made; the bench is a standalone scratch script, the tree is clean.
+
+## Round-12 close-out
+
+| # | cheap refutation | outcome |
+|---|---|---|
+| H42 | tagged `MOONBUGGY_REAP_DIAG` run | refuted — loop not spinning, ~0.3% tail |
+| H44 | fork-vs-`posix_spawn` microbench | refuted — delta negative (~2–3ms/child against spawn) |
+
+The h41+ round is fully dispositioned: H41 refuted (scratch A/B, 2026-11-11),
+H43 landed (PR #115), H42 refuted by diagnostic (2026-11-14, measured on
+main), H44 refuted by microbench (2026-11-24). Every entry died at its
+measurement except H43 — the register's cheap-refutation discipline doing
+exactly what it is for. The next round needs a *new* profile, not this one's
+leftovers: the fork phase on many-files is now the largest attackable phase
+and its mechanisms (reap quantum, fork congestion) are both measured-closed.
+
