@@ -2,12 +2,14 @@
   "target_ref": "HEAD",
   "runner_ref": "HEAD",
   "scope": [
-    "export.py"
+    "<full src/>"
   ],
-  "records": 54,
+  "records": 1707,
   "verdicts": {
-    "NO_COVERAGE": 51,
-    "KILLED": 3
+    "SURVIVED": 6,
+    "NO_COVERAGE": 1612,
+    "SUSPICIOUS": 2,
+    "KILLED": 87
   },
   "machinery": "-E parent, --workers 2 (cold path)"
 }
